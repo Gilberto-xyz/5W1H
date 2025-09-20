@@ -28,8 +28,8 @@ COLOR_RESET = '\033[0m'
 
 COLOR_QUESTION = '\033[38;5;37m'
 
-HEADER_COLOR_PRIMARY = '#112B7A'
-HEADER_COLOR_SECONDARY = '#5E5E5E'
+HEADER_COLOR_PRIMARY = '#286B72'
+HEADER_COLOR_SECONDARY = '#3EBBC7'
 HEADER_FONT_COLOR = '#FFFFFF'
 HEADER_TOTAL_FILL = '#E8F0FF'
 HEADER_FIRST_COL_FILL = '#F5F5F5'
@@ -96,11 +96,17 @@ def df_mat(df,p):
 
     return mat
 
-#Funcao que gera o gráfico de linhas e barras para o MAT
+#Grafico de MAT 
 def graf_mat (mat,c_fig,p):
 
     #Cria figura e área plotável   
-        fig = plt.figure(c_fig, (15, 5))
+        altura = 4 # Puedes ajustar este valor para cambiar la altura
+        # Cerrar cualquier figura existente con el mismo número para que figsize sea aplicado
+        try:
+            plt.close(c_fig)
+        except Exception:
+            pass
+        fig = plt.figure(num=c_fig, figsize=(15, altura))
         ax = fig.add_subplot(1, 1, 1)
         
         #Cria o eixo do tempo e os acumulados juntamente com as variações
@@ -143,21 +149,33 @@ def graf_mat (mat,c_fig,p):
         ax.set_title(labels[(lang,'MAT')]+' | ' + w[2:], size=18, pad=10)
 
         #Salva o grafico
-        fig.savefig(img_stream, format='png', bbox_inches='tight', pad_inches=0.01, transparent=True)
+        # Guardar respetando el tamaño definido (no usar bbox_inches='tight')
+        fig.savefig(img_stream, format='png', transparent=True)
 
         #Insere o grafico
         img_stream.seek(0) 
 
+        # Cerrar figura para liberar recursos y evitar reutilización
+        try:
+            plt.close(fig)
+        except Exception:
+            pass
+
         return img_stream
 
-#Função que gera o gráfico de linhas
+#Grafico de Lineas
 def line_graf(df, p, title, c_fig,ven, width_emu=None, height_emu=None):
     # Ajusta o tamanho da figura para combinar com o espaco reservado no slide
     width_inches = emu_to_inches(width_emu) if width_emu is not None else None
     height_inches = emu_to_inches(height_emu) if height_emu is not None else None
 
     if width_inches is None and height_inches is None:
-        figsize = (15, 5)
+        # Ancho dinámico según cantidad de datos (en pulgadas)
+        n_points = len(df)
+        ancho = max(15, n_points * 0.5)  # 0.5 puede ajustarse para más/menos espacio (pulgadas)
+        # Altura fija de 10 cm -> convertir a pulgadas
+        altura = emu_to_inches(Cm(10))
+        figsize = (ancho, altura)
     else:
         if width_inches is None:
             width_inches = height_inches * DEFAULT_LINE_CHART_RATIO
@@ -167,6 +185,15 @@ def line_graf(df, p, title, c_fig,ven, width_emu=None, height_emu=None):
 
     fig = plt.figure(num=c_fig, figsize=figsize)
     ax = fig.add_subplot(1, 1, 1)
+    # Escalar elementos (fuentes, linewidth) según la altura para que el contenido se adapte
+    # Se toma como referencia la altura original de 5 pulgadas usada previamente
+    ref_height = 5.0
+    actual_height = figsize[1]
+    scale = actual_height / ref_height if ref_height else 1.0
+    base_linewidth = 2.0 * max(0.6, scale)
+    title_base_size = max(10, int(18 * scale))
+    legend_base_size = max(8, int(10 * scale))
+    xtick_size = max(8, int(10 * scale))
     
     aux = df.copy()
     ran = [x.strftime('%m-%y') for x in aux.iloc[:, 0]]
@@ -204,26 +231,32 @@ def line_graf(df, p, title, c_fig,ven, width_emu=None, height_emu=None):
         cor = df_cor['Cor'][df_cor[tipo]==col].iloc[0]
 
         y = aux[col].values
-        line, = ax.plot(ran[p:], y[p:], color=cor, linewidth=2, linestyle=estilo, label=col)
+        line, = ax.plot(ran[p:], y[p:], color=cor, linewidth=base_linewidth, linestyle=estilo, label=col)
         lns.append(line)
 
     # Eixo X,Y
-    plt.xticks(rotation=30)
+    plt.xticks(rotation=30, fontsize=xtick_size)
     plt.ylim(0)
 
     # Legenda
     labs = [l.get_label() for l in lns]
     ax.legend(lns, labs, loc='upper center', bbox_to_anchor=(0.5, -0.15), borderaxespad=0, frameon=False,
-              prop={'size': 10}, ncol=max(1, len(colunas)/2))
-    plt.tight_layout()
+              prop={'size': legend_base_size}, ncol=max(1, len(colunas)/2))
+    # plt.tight_layout() # Eliminado para respetar el tamaño definido
 
-    # Título
-    plt.title(title, size=18, pad=10)
+    # Título (escalado)
+    plt.title(title, size=title_base_size, pad=10)
 
     # Salva imagem
     img_stream = io.BytesIO()
-    fig.savefig(img_stream, format='png', bbox_inches='tight', pad_inches=0.01, transparent=True)
+    fig.savefig(img_stream, format='png', transparent=True)
     img_stream.seek(0)
+
+    # Cerrar figura para liberar memoria y evitar reutilización
+    try:
+        plt.close(fig)
+    except Exception:
+        pass
 
     return img_stream
 
@@ -824,7 +857,7 @@ for w in W:
             left_margin = Inches(0.33)
             right_margin = Inches(0.33)
             available_line_width = available_width(ppt, left_margin, right_margin)
-            pic=slide.shapes.add_picture(line_graf(df_full,pipeline_combined,titulo,c_fig,len(series_configs), width_emu=available_line_width, height_emu=Inches(10/3)), left_margin, Inches(1.15),width=available_line_width,height=Inches(10/3))
+            pic=slide.shapes.add_picture(line_graf(df_full,pipeline_combined,titulo,c_fig,len(series_configs), width_emu=available_line_width, height_emu=Cm(10)), left_margin, Inches(1.15),width=available_line_width,height=Cm(10))
         elif plot=="2" and len(series_configs)>1:
             ven_param = max(len(series_configs)-1, 1)
             left_margin = Inches(0.33)
@@ -845,14 +878,14 @@ for w in W:
             for idx, serie in enumerate(series_configs):
                 c_fig+=1
                 left_position = left_margin + idx * (chart_width + int(gap))
-                pic=slide.shapes.add_picture(line_graf(serie.data,serie.pipeline,titulo+' '+serie.display_tipo,c_fig,ven_param, width_emu=chart_width, height_emu=Inches(10/3)), left_position, Inches(1.15),width=chart_width,height=Inches(10/3))
+                pic=slide.shapes.add_picture(line_graf(serie.data,serie.pipeline,titulo+' '+serie.display_tipo,c_fig,ven_param, width_emu=chart_width, height_emu=Cm(10)), left_position, Inches(1.15),width=chart_width,height=Cm(10))
                 plt.clf()
         elif series_configs:
             c_fig+=1
             left_margin = Inches(0.33)
             right_margin = Inches(0.33)
             available_single_width = available_width(ppt, left_margin, right_margin)
-            pic=slide.shapes.add_picture(line_graf(series_configs[0].data,series_configs[0].pipeline,titulo,c_fig,len(series_configs), width_emu=available_single_width, height_emu=Inches(10/3)), left_margin, Inches(1.15),width=available_single_width,height=Inches(10/3))
+            pic=slide.shapes.add_picture(line_graf(series_configs[0].data,series_configs[0].pipeline,titulo,c_fig,len(series_configs), width_emu=available_single_width, height_emu=Cm(10)), left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
             plt.clf()
         if w[0] in ['3','5']:
             print_colored(c_w[(lang,w[0]+'-'+w[-1])]+' realizado para ' + w[2:-2], COLOR_GREEN) 
