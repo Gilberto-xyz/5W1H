@@ -1,4 +1,4 @@
-# -*- coding: latin-1 -*-
+# -*- coding: utf-8 -*-
 
 #Bibliotecas necessarias
 #---------------------------------------------------------------------------------------------------------------------
@@ -11,6 +11,8 @@ import io
 from matplotlib import pyplot as plt
 from datetime import datetime as dt
 from matplotlib.ticker import FuncFormatter
+from matplotlib import colors as mcolors
+from matplotlib.patches import Rectangle
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
 from pptx import Presentation 
 from pptx.util import Inches
@@ -26,8 +28,29 @@ COLOR_RESET = '\033[0m'
 
 COLOR_QUESTION = '\033[38;5;37m'
 
+HEADER_COLOR_PRIMARY = '#112B7A'
+HEADER_COLOR_SECONDARY = '#5E5E5E'
+HEADER_FONT_COLOR = '#FFFFFF'
+HEADER_TOTAL_FILL = '#E8F0FF'
+HEADER_FIRST_COL_FILL = '#F5F5F5'
+TABLE_TEXT_PRIMARY = '#1F1F1F'
+TABLE_POSITIVE_COLOR = '#27AE60'
+TABLE_NEGATIVE_COLOR = '#C0392B'
+TABLE_GRID_COLOR = '#1A1A1A'
+VOLUME_BAR_START = '#1452B8'
+VOLUME_BAR_END = '#8CB8FF'
+VOLUME_BAR_ALPHA = 0.85
+VOLUME_BAR_BASE_ALPHA = 0.18
+LINE_COLOR_CLIENT = '#2C3E50'
+LINE_COLOR_NUMERATOR = "#D4AC0D"
+BAR_COLOR_VARIATION_CLIENT = '#7F8C8D'
+BAR_COLOR_VARIATION_NUMERATOR = '#F1C40F'
+BAR_EDGE_COLOR = 'black'
+ANNOTATION_BOX_FACE = '#F2F2F2'
+ANNOTATION_BOX_EDGE = 'black'
+
 MONTH_NAMES = {
-    'P': ['Janeiro', 'Fevereiro', 'Mar�o', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
+    'P': ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
     'E': ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 }
 
@@ -40,6 +63,14 @@ def print_colored(text: str, color: str = COLOR_BLUE) -> None:
     print(colorize(text, color))
 def available_width(presentation, left=Inches(0), right=Inches(0)):
     return presentation.slide_width - int(left) - int(right)
+
+
+EMU_PER_INCH = 914400
+DEFAULT_LINE_CHART_RATIO = 3
+
+
+def emu_to_inches(value: int) -> float:
+    return float(value) / EMU_PER_INCH
 
 
 pd.set_option('future.no_silent_downcasting', True)
@@ -80,13 +111,13 @@ def graf_mat (mat,c_fig,p):
         v2= mat.iloc[:,4].copy()
 
         #Plota os acumulados em linhas    
-        l1=ax.plot(ran,ac1, color='#7F7F7F', linewidth=4.2, label='Acumulado Cliente')
-        l2=ax.plot(ran,ac2, color='#000000', linewidth=4.2, label='Acumulado Numerator') 
+        l1=ax.plot(ran,ac1, color=LINE_COLOR_CLIENT, linewidth=4.2, label='Acumulado Cliente')
+        l2=ax.plot(ran,ac2, color=LINE_COLOR_NUMERATOR, linewidth=4.2, label='Acumulado Numerator') 
 
         #Plota as variações em barras
         ax2= ax.twinx()
-        b1 = ax2.bar(np.arange(len(ran)) - 0.3, v1.values, 0.3, color='#FFFFFF', edgecolor='black', label='Var % Cliente Pipeline: '+ str(p) +' '+labels[(lang,'Var MAT')])
-        b2 = ax2.bar(np.arange(len(ran)) + 0.3, v2.values, 0.3, color='#000000', edgecolor='black', label='Var % Numerator '+labels[(lang,'Var MAT')])
+        b1 = ax2.bar(np.arange(len(ran)) - 0.3, v1.values, 0.3, color=BAR_COLOR_VARIATION_CLIENT, edgecolor=BAR_EDGE_COLOR, label='Var % Cliente Pipeline: '+ str(p) +' '+labels[(lang,'Var MAT')])
+        b2 = ax2.bar(np.arange(len(ran)) + 0.3, v2.values, 0.3, color=BAR_COLOR_VARIATION_NUMERATOR, edgecolor=BAR_EDGE_COLOR, label='Var % Numerator '+labels[(lang,'Var MAT')])
 
         ax.set_xticks(np.arange(len(ran)))
         ax.set_xticklabels(ran, rotation=30)
@@ -96,7 +127,7 @@ def graf_mat (mat,c_fig,p):
         for v in [v1,v2]:
             for x,y in zip(np.arange(len(v1))+0.2,v):
                 label = "{:.1f}%".format(y)
-                bbox_props_white=dict(facecolor='#F2F2F2',edgecolor='black')
+                bbox_props_white=dict(facecolor=ANNOTATION_BOX_FACE,edgecolor=ANNOTATION_BOX_EDGE)
                 plt.annotate(f"{y*100:.1f}%", (x, y), textcoords="offset points", xytext=(0, 10), ha='center', color='red' if y < 0 else 'green', size=9, bbox=bbox_props_white)
 
         
@@ -119,9 +150,21 @@ def graf_mat (mat,c_fig,p):
         return img_stream
 
 #Função que gera o gráfico de linhas
-def line_graf(df, p, title, c_fig,ven):
-    # Cria figura
-    fig = plt.figure(c_fig, (15, 5))
+def line_graf(df, p, title, c_fig,ven, width_emu=None, height_emu=None):
+    # Ajusta o tamanho da figura para combinar com o espaco reservado no slide
+    width_inches = emu_to_inches(width_emu) if width_emu is not None else None
+    height_inches = emu_to_inches(height_emu) if height_emu is not None else None
+
+    if width_inches is None and height_inches is None:
+        figsize = (15, 5)
+    else:
+        if width_inches is None:
+            width_inches = height_inches * DEFAULT_LINE_CHART_RATIO
+        elif height_inches is None:
+            height_inches = width_inches / DEFAULT_LINE_CHART_RATIO
+        figsize = (width_inches, height_inches)
+
+    fig = plt.figure(num=c_fig, figsize=figsize)
     ax = fig.add_subplot(1, 1, 1)
     
     aux = df.copy()
@@ -208,62 +251,149 @@ def aporte(df,p,lang,tipo):
         return apo
 
 #Função que cria o gráfico tabela de aporte
+
 def graf_apo(apo,c_fig):
+    fig, ax = plt.subplots(num=c_fig)
+    row_height = 0.45
+    col_width = 1.0
 
-        fig, ax = plt.subplots(num=c_fig)
-        row_height = 0.4  # polegadas por linha, ajuste conforme gosto
-        col_width = 1.0   # polegadas por coluna, ajuste conforme gosto
+    n_rows, n_cols = apo.shape
+    fig_width = col_width * n_cols
+    fig_height = row_height * (n_rows + 0.2)
+    fig.set_size_inches(fig_width, fig_height)
+    ax.axis('off')
+    ax.set_facecolor('white')
 
-        n_rows, n_cols = apo.shape
-        fig_width = col_width * n_cols
-        fig_height = row_height * (n_rows-1)  # +1 para cabeçalho
-
-        fig.set_size_inches(fig_width, fig_height)
-        ax.axis('off')
-
-        table = ax.table(
+    table = ax.table(
         cellText=apo.values,
         colLabels=apo.columns,
         loc='center',
         cellLoc='center'
-        )
+    )
 
-        for i,col in enumerate(apo.columns):
-            table.auto_set_column_width(i)
+    for i, _ in enumerate(apo.columns):
+        table.auto_set_column_width(i)
 
-        n = apo.shape[1]
+    table.scale(1, 1.2)
+    table.auto_set_font_size(False)
+    table.set_fontsize(11)
 
-        for (row, col), cell in table.get_celld().items():
-            cell.set_edgecolor('black')
-            cell.set_linewidth(1)
+    header_main = HEADER_COLOR_PRIMARY
+    header_secondary = HEADER_COLOR_SECONDARY
+    total_fill = HEADER_TOTAL_FILL
+    first_col_fill = HEADER_FIRST_COL_FILL
+    positive_color = TABLE_POSITIVE_COLOR
+    negative_color = TABLE_NEGATIVE_COLOR
+    bar_padding_ratio = 0.08
+    bar_height_ratio = 0.55
 
-            if row == 0:
-                if col == 0 or col == n - 1:
-                    cell.set_facecolor('navy')
-                    cell.get_text().set_color('white')
-                    cell.get_text().set_weight('bold')
+    data_columns = [idx for idx in range(1, n_cols) if idx != n_cols - 1]
+    start_rgb = np.array(mcolors.to_rgb(VOLUME_BAR_START))
+    end_rgb = np.array(mcolors.to_rgb(VOLUME_BAR_END))
+
+    def share_colors(count: int):
+        if count <= 0:
+            return []
+        if count == 1:
+            return [mcolors.to_hex(np.clip(start_rgb, 0, 1))]
+        colors = []
+        for i in range(count):
+            ratio = i / (count - 1)
+            rgb = np.clip(start_rgb + (end_rgb - start_rgb) * ratio, 0, 1)
+            colors.append(mcolors.to_hex(rgb))
+        return colors
+
+    column_colors = share_colors(len(data_columns))
+    volume_row_indexes = [idx for idx, label in enumerate(apo.iloc[:, 0]) if str(label).lower().startswith('vol')]
+
+    def to_percentage(value):
+        try:
+            text_value = str(value).strip().replace('%', '').replace(',', '.')
+            if not text_value:
+                return None
+            return max(0.0, float(text_value) / 100.0)
+        except Exception:
+            return None
+
+    for (row, col), cell in table.get_celld().items():
+        cell.set_edgecolor(TABLE_GRID_COLOR)
+        cell.set_linewidth(1)
+        cell.get_text().set_zorder(3)
+
+        if row == 0:
+            text = cell.get_text()
+            text.set_weight('bold')
+            text.set_color(HEADER_FONT_COLOR)
+            if col == 0 or col == n_cols - 1:
+                cell.set_facecolor(header_main)
+            else:
+                cell.set_facecolor(header_secondary)
+        else:
+            label = str(apo.iloc[row - 1, 0])
+            text = cell.get_text()
+
+            if col == 0:
+                cell.set_facecolor(first_col_fill)
+                text.set_weight('bold')
+                text.set_color(TABLE_TEXT_PRIMARY)
+            else:
+                if col == n_cols - 1:
+                    cell.set_facecolor(total_fill)
                 else:
-                    cell.set_facecolor('gray')
-                    cell.get_text().set_color('white')
-                    cell.get_text().set_weight('bold')
+                    cell.set_facecolor('white')
 
-            elif col >= 1 and  'Vol' not in str(apo.iloc[row-1,0]):
-                val = apo.iloc[row-1, col]
-                try:
-                    num = float(str(val).replace('%', '').replace(',', '.'))
-                    if num >= 0:
-                        cell.get_text().set_color('green')
-                    elif num < 0:
-                        cell.get_text().set_color('red')
-                except:
-                    pass
+                if label.lower().startswith('vol'):
+                    text.set_color(TABLE_TEXT_PRIMARY)
+                else:
+                    value = apo.iloc[row - 1, col]
+                    try:
+                        numeric = float(str(value).replace('%', '').replace(',', '.'))
+                        text.set_color(positive_color if numeric >= 0 else negative_color)
+                    except Exception:
+                        pass
 
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=400, bbox_inches='tight')
-        buf.seek(0)   
-        return buf
+    for df_row_idx in volume_row_indexes:
+        table_row = df_row_idx + 1
+        for rel_idx, col in enumerate(data_columns):
+            raw_value = apo.iloc[df_row_idx, col]
+            percent = to_percentage(raw_value)
+            if percent is None:
+                continue
+            cell = table[(table_row, col)]
+            width = cell.get_width()
+            height = cell.get_height()
+            pad_x = width * bar_padding_ratio
+            bar_width = (width - 2 * pad_x) * min(percent, 1.0)
+            if bar_width <= 0:
+                continue
+            bar_height = height * bar_height_ratio
+            pad_y = (height - bar_height) / 2
+            bar_color = column_colors[rel_idx] if rel_idx < len(column_colors) else VOLUME_BAR_END
+            base_rect = Rectangle(
+                (cell.get_x(), cell.get_y()),
+                cell.get_width(),
+                cell.get_height(),
+                facecolor=bar_color,
+                alpha=VOLUME_BAR_BASE_ALPHA,
+                linewidth=0,
+                zorder=0,
+            )
+            ax.add_patch(base_rect)
+            rect = Rectangle(
+                (cell.get_x() + pad_x, cell.get_y() + pad_y),
+                bar_width,
+                bar_height,
+                facecolor=bar_color,
+                alpha=VOLUME_BAR_ALPHA,
+                linewidth=0,
+                zorder=1,
+            )
+            ax.add_patch(rect)
 
-
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=400, bbox_inches='tight')
+    buf.seek(0)
+    return buf
 
 def select_excel_file(base_dir: Path) -> str:
     excel_files = sorted([p for p in base_dir.glob('*.xlsx') if not p.name.startswith('~$')])
@@ -689,7 +819,7 @@ for w in W:
             left_margin = Inches(0.33)
             right_margin = Inches(0.33)
             available_line_width = available_width(ppt, left_margin, right_margin)
-            pic=slide.shapes.add_picture(line_graf(df_full,pipeline_combined,titulo,c_fig,len(series_configs)), left_margin, Inches(1.15),width=available_line_width,height=Inches(10/3))
+            pic=slide.shapes.add_picture(line_graf(df_full,pipeline_combined,titulo,c_fig,len(series_configs), width_emu=available_line_width, height_emu=Inches(10/3)), left_margin, Inches(1.15),width=available_line_width,height=Inches(10/3))
         elif plot=="2" and len(series_configs)>1:
             ven_param = max(len(series_configs)-1, 1)
             left_margin = Inches(0.33)
@@ -710,14 +840,14 @@ for w in W:
             for idx, serie in enumerate(series_configs):
                 c_fig+=1
                 left_position = left_margin + idx * (chart_width + int(gap))
-                pic=slide.shapes.add_picture(line_graf(serie.data,serie.pipeline,titulo+' '+serie.display_tipo,c_fig,ven_param), left_position, Inches(1.15),width=chart_width,height=Inches(10/3))
+                pic=slide.shapes.add_picture(line_graf(serie.data,serie.pipeline,titulo+' '+serie.display_tipo,c_fig,ven_param, width_emu=chart_width, height_emu=Inches(10/3)), left_position, Inches(1.15),width=chart_width,height=Inches(10/3))
                 plt.clf()
         elif series_configs:
             c_fig+=1
             left_margin = Inches(0.33)
             right_margin = Inches(0.33)
             available_single_width = available_width(ppt, left_margin, right_margin)
-            pic=slide.shapes.add_picture(line_graf(series_configs[0].data,series_configs[0].pipeline,titulo,c_fig,len(series_configs)), left_margin, Inches(1.15),width=available_single_width,height=Inches(10/3))
+            pic=slide.shapes.add_picture(line_graf(series_configs[0].data,series_configs[0].pipeline,titulo,c_fig,len(series_configs), width_emu=available_single_width, height_emu=Inches(10/3)), left_margin, Inches(1.15),width=available_single_width,height=Inches(10/3))
             plt.clf()
         if w[0] in ['3','5']:
             print_colored(c_w[(lang,w[0]+'-'+w[-1])]+' realizado para ' + w[2:-2], COLOR_GREEN) 
@@ -777,3 +907,4 @@ fim = dt.now()
 
 t = int((fim - agora).total_seconds())
 print_colored(f'Tiempo de ejecucion : {t//60} min {t%60} s' if t >= 60 else f'Tiempo de ejecucion : {t} s', COLOR_BLUE)
+
