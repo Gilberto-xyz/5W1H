@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+#TODO: Solucionar las tablas dinamicas. que el ancho se adapte al contenido. si es muy grande que se adapte al slide, y si es muy chica que no ocupe todo el slide
 
 #Bibliotecas necessarias
 #---------------------------------------------------------------------------------------------------------------------
