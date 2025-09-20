@@ -15,7 +15,7 @@ from matplotlib import colors as mcolors
 from matplotlib.patches import Rectangle
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
 from pptx import Presentation 
-from pptx.util import Inches
+from pptx.util import Inches, Cm
 from pptx.dml.color import RGBColor
 from typing import NamedTuple
 from pathlib import Path
@@ -67,6 +67,7 @@ def available_width(presentation, left=Inches(0), right=Inches(0)):
 
 EMU_PER_INCH = 914400
 DEFAULT_LINE_CHART_RATIO = 3
+TABLE_TARGET_HEIGHT_CM = 4.0
 
 
 def emu_to_inches(value: int) -> float:
@@ -261,6 +262,7 @@ def graf_apo(apo,c_fig):
     fig_width = col_width * n_cols
     fig_height = row_height * (n_rows + 0.2)
     fig.set_size_inches(fig_width, fig_height)
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     ax.axis('off')
     ax.set_facecolor('white')
 
@@ -304,6 +306,7 @@ def graf_apo(apo,c_fig):
         return colors
 
     column_colors = share_colors(len(data_columns))
+    white_rgb = np.array([1.0, 1.0, 1.0])
     volume_row_indexes = [idx for idx, label in enumerate(apo.iloc[:, 0]) if str(label).lower().startswith('vol')]
 
     def to_percentage(value):
@@ -360,38 +363,27 @@ def graf_apo(apo,c_fig):
             if percent is None:
                 continue
             cell = table[(table_row, col)]
-            width = cell.get_width()
-            height = cell.get_height()
-            pad_x = width * bar_padding_ratio
-            bar_width = (width - 2 * pad_x) * min(percent, 1.0)
-            if bar_width <= 0:
-                continue
-            bar_height = height * bar_height_ratio
-            pad_y = (height - bar_height) / 2
             bar_color = column_colors[rel_idx] if rel_idx < len(column_colors) else VOLUME_BAR_END
-            base_rect = Rectangle(
-                (cell.get_x(), cell.get_y()),
-                cell.get_width(),
-                cell.get_height(),
-                facecolor=bar_color,
-                alpha=VOLUME_BAR_BASE_ALPHA,
-                linewidth=0,
-                zorder=0,
-            )
-            ax.add_patch(base_rect)
-            rect = Rectangle(
-                (cell.get_x() + pad_x, cell.get_y() + pad_y),
-                bar_width,
-                bar_height,
-                facecolor=bar_color,
-                alpha=VOLUME_BAR_ALPHA,
-                linewidth=0,
-                zorder=1,
-            )
-            ax.add_patch(rect)
+            base_rgb = np.array(mcolors.to_rgb(bar_color))
+            intensity = min(percent, 1.0)
+            blended_rgb = white_rgb * (1.0 - intensity) + base_rgb * intensity
+            cell.set_facecolor(blended_rgb)
+            cell.get_text().set_color(TABLE_TEXT_PRIMARY)
 
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    table_bbox = table.get_tightbbox(renderer).transformed(fig.dpi_scale_trans.inverted())
+    target_height_in = TABLE_TARGET_HEIGHT_CM / 2.54
+    if table_bbox.height > 0:
+        scale = target_height_in / table_bbox.height
+        if abs(scale - 1.0) > 1e-3:
+            current_width, current_height = fig.get_size_inches()
+            fig.set_size_inches(current_width * scale, current_height * scale)
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            table_bbox = table.get_tightbbox(renderer).transformed(fig.dpi_scale_trans.inverted())
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=400, bbox_inches='tight')
+    plt.savefig(buf, format='png', dpi=400, bbox_inches=table_bbox, pad_inches=0)
     buf.seek(0)
     return buf
 
@@ -798,17 +790,30 @@ for w in W:
         t.font.size= Inches(0.25)
 
         #Controle posicao tabela aporte
-        k=0
+        target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
+        bottom_margin = Cm(1.5)
+        left_margin = Cm(1.2)
+        vertical_spacing = Cm(0.2)
 
-        for serie in series_configs:
-            apo=aporte(serie.data.copy(), serie.pipeline, lang, serie.raw_tipo)
-            c_fig+=1
-            left_margin = Inches(0.33)
-            right_margin = Inches(0.33)
-            available_width_apo = available_width(ppt, left_margin, right_margin)
-            pic = slide.shapes.add_picture(graf_apo(apo,c_fig), left_margin, Inches(4.61+k), width=available_width_apo)
+        for idx, serie in enumerate(series_configs):
+            apo = aporte(serie.data.copy(), serie.pipeline, lang, serie.raw_tipo)
+            c_fig += 1
+            # Si hay dos tablas, ambas se posicionan a la misma altura y ocupan el espacio óptimo
+            if len(series_configs) == 2:
+                left_margin = Cm(1.2)
+                right_margin = Cm(1.2)
+                gap = Cm(0.5)
+                top_position = ppt.slide_height - target_table_height - bottom_margin
+                if serie.display_tipo.lower() == 'ventas':
+                    left_position = ppt.slide_width / 2 + gap / 2
+                else:
+                    left_position = left_margin
+                pic = slide.shapes.add_picture(graf_apo(apo, c_fig), left_position, top_position, height=target_table_height)
+            else:
+                top_position = ppt.slide_height - target_table_height - bottom_margin
+                left_position = left_margin
+                pic = slide.shapes.add_picture(graf_apo(apo, c_fig), left_position, top_position, height=target_table_height)
             plt.clf()
-            k+=1
 
         if plot=="1" and len(series_configs)>1:
             df_full = series_configs[0].data.copy()
