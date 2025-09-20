@@ -100,7 +100,7 @@ def df_mat(df,p):
 def graf_mat (mat,c_fig,p):
 
     #Cria figura e área plotável   
-        altura = 4 # Puedes ajustar este valor para cambiar la altura
+        altura = 7  # Aumentamos aún más la altura
         # Cerrar cualquier figura existente con el mismo número para que figsize sea aplicado
         try:
             plt.close(c_fig)
@@ -108,6 +108,8 @@ def graf_mat (mat,c_fig,p):
             pass
         fig = plt.figure(num=c_fig, figsize=(15, altura))
         ax = fig.add_subplot(1, 1, 1)
+        # Ajustamos los márgenes para dar más espacio arriba y abajo
+        plt.subplots_adjust(bottom=0.2, top=0.9)
         
         #Cria o eixo do tempo e os acumulados juntamente com as variações
         ran=mat.iloc[:,0].copy()
@@ -141,12 +143,17 @@ def graf_mat (mat,c_fig,p):
         #Cria a legenda 
         lns = l1 + l2 + [b1, b2]
         labs = [l.get_label() for l in l1 + l2] + [b1.get_label(), b2.get_label()]
-        ax.legend(lns, labs, loc='upper center', bbox_to_anchor=(0.475,-0.115), borderaxespad=0.05, frameon=True, prop={'size': 12}, ncol=2)
+        ax.legend(lns, labs, loc='upper center', bbox_to_anchor=(0.5, -0.15), borderaxespad=0.05, frameon=True, prop={'size': 12}, ncol=2)
+        # Ajustamos el layout para evitar que se corten elementos
+        plt.tight_layout()
         img_stream = io.BytesIO()
 
 
         #Cria o titulo
-        ax.set_title(labels[(lang,'MAT')]+' | ' + w[2:], size=18, pad=10)
+        ax.set_title(labels[(lang,'MAT')]+' | ' + w[2:], size=18, pad=20)
+        
+        # Ajustamos el layout antes de guardar la imagen
+        plt.tight_layout(rect=[0, 0.05, 1, 0.95])  # Ajusta el espacio dejando margen para título y leyenda
 
         #Salva o grafico
         # Guardar respetando el tamaño definido (no usar bbox_inches='tight')
