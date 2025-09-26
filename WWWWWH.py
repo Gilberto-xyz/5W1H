@@ -9,6 +9,7 @@ import warnings
 from datetime import datetime as dt
 import os
 import io
+import math
 from matplotlib import pyplot as plt
 from datetime import datetime as dt
 from matplotlib.ticker import FuncFormatter
@@ -49,6 +50,81 @@ BAR_COLOR_VARIATION_NUMERATOR = '#F1C40F'
 BAR_EDGE_COLOR = 'black'
 ANNOTATION_BOX_FACE = '#F2F2F2'
 ANNOTATION_BOX_EDGE = 'black'
+
+TREND_COLOR_PALETTE = {
+    'trend_01': '#1F77B4',
+    'trend_02': '#FF7F0E',
+    'trend_03': '#2CA02C',
+    'trend_04': '#D62728',
+    'trend_05': '#9467BD',
+    'trend_06': '#8C564B',
+    'trend_07': '#E377C2',
+    'trend_08': '#7F7F7F',
+    'trend_09': '#BCBD22',
+    'trend_10': '#17BECF',
+    'trend_11': '#AEC7E8',
+    'trend_12': '#FFBB78',
+    'trend_13': '#98DF8A',
+    'trend_14': '#FF9896',
+    'trend_15': '#C5B0D5',
+    'trend_16': '#C49C94',
+    'trend_17': '#F7B6D2',
+    'trend_18': '#C7C7C7',
+    'trend_19': '#DBDB8D',
+    'trend_20': '#9EDAE5',
+    'trend_21': '#393B79',
+    'trend_22': '#5254A3',
+    'trend_23': '#6B6ECF',
+    'trend_24': '#9C9EDE',
+    'trend_25': '#637939',
+    'trend_26': '#8CA252',
+    'trend_27': '#B5CF6B',
+    'trend_28': '#CEDB9C',
+    'trend_29': '#8C6D31',
+    'trend_30': '#BD9E39',
+    'trend_31': '#E7BA52',
+    'trend_32': '#E7CB94',
+    'trend_33': '#843C39',
+    'trend_34': '#AD494A',
+    'trend_35': '#D6616B',
+    'trend_36': '#E7969C',
+    'trend_37': '#7B4173',
+    'trend_38': '#A55194',
+    'trend_39': '#CE6DBD',
+    'trend_40': '#DE9ED6',
+    'trend_41': '#3182BD',
+    'trend_42': '#6BAED6',
+    'trend_43': '#9ECAE1',
+    'trend_44': '#C6DBEF',
+    'trend_45': '#E6550D',
+    'trend_46': '#FD8D3C',
+    'trend_47': '#FDAE6B',
+    'trend_48': '#FDD0A2',
+    'trend_49': '#31A354',
+    'trend_50': '#74C476',
+    'trend_51': '#A1D99B',
+    'trend_52': '#C7E9C0',
+    'trend_53': '#756BB1',
+    'trend_54': '#9E9AC8',
+    'trend_55': '#BCBDDC',
+    'trend_56': '#DADAEB',
+    'trend_57': '#636363',
+    'trend_58': '#969696',
+    'trend_59': '#BDBDBD',
+    'trend_60': '#D9D9D9',
+    'trend_61': '#393E46',
+    'trend_62': '#00ADB5',
+    'trend_63': '#FF5722',
+    'trend_64': '#795548',
+    'trend_65': '#607D8B',
+    'trend_66': '#8BC34A',
+    'trend_67': '#CDDC39',
+    'trend_68': '#FFC107',
+    'trend_69': '#FF4081',
+    'trend_70': '#3F51B5'
+}
+TREND_COLOR_SEQUENCE = list(TREND_COLOR_PALETTE.values())
+
 
 MONTH_NAMES = {
     'P': ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
@@ -171,8 +247,9 @@ def graf_mat (mat,c_fig,p):
 
         return img_stream
 
+
 #Grafico de Lineas
-def line_graf(df, p, title, c_fig,ven, width_emu=None, height_emu=None):
+def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None):
     # Ajusta o tamanho da figura para combinar com o espaco reservado no slide
     width_inches = emu_to_inches(width_emu) if width_emu is not None else None
     height_inches = emu_to_inches(height_emu) if height_emu is not None else None
@@ -202,65 +279,138 @@ def line_graf(df, p, title, c_fig,ven, width_emu=None, height_emu=None):
     title_base_size = max(10, int(18 * scale))
     legend_base_size = max(8, int(10 * scale))
     xtick_size = max(8, int(10 * scale))
-    
+    marker_size = max(3.5, 4.5 * scale)
+
     aux = df.copy()
+    if aux.empty or aux.shape[1] <= 1:
+        img_stream = io.BytesIO()
+        fig.savefig(img_stream, format="png", transparent=True)
+        img_stream.seek(0)
+        try:
+            plt.close(fig)
+        except Exception:
+            pass
+        return img_stream
+
     ran = [x.strftime('%m-%y') for x in aux.iloc[:, 0]]
+    data_len = len(ran)
+    if data_len == 0:
+        img_stream = io.BytesIO()
+        fig.savefig(img_stream, format="png", transparent=True)
+        img_stream.seek(0)
+        try:
+            plt.close(fig)
+        except Exception:
+            pass
+        return img_stream
 
-    if ven>1:
-        colunas = aux.columns[1:]  
-        comp=colunas[:len(colunas)//2]
-        vent=colunas[len(colunas)//2:]
-        cmap = plt.get_cmap('tab20')
-        cor_map = {base: cmap(i % 20) for i, base in enumerate(comp)}
-        df_cor = pd.DataFrame({
-        'Compras': comp,
-        'Ventas': vent,
-        'Cor': [cor_map[base] for base in comp]
-        })
+    start_idx = max(0, min(p, data_len - 1))
+    x_positions = np.arange(data_len)
+
+    colunas = list(aux.columns[1:])
+    palette_values = TREND_COLOR_SEQUENCE or [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
+    color_mapping = {}
+    color_index = 0
+
+    if ven > 1:
+        comp = colunas[:len(colunas) // 2]
+        vent = colunas[len(colunas) // 2:]
+        pair_count = min(len(comp), len(vent))
+        for idx in range(pair_count):
+            color = palette_values[color_index % len(palette_values)]
+            color_index += 1
+            color_mapping[comp[idx]] = color
+            color_mapping[vent[idx]] = color
+        for base in comp[pair_count:]:
+            if base not in color_mapping:
+                color_mapping[base] = palette_values[color_index % len(palette_values)]
+                color_index += 1
+        for base in vent[pair_count:]:
+            if base not in color_mapping:
+                color_mapping[base] = palette_values[color_index % len(palette_values)]
+                color_index += 1
     else:
-        colunas = aux.columns[1:]  
-        comp=colunas
-        cmap = plt.get_cmap('tab20')
-        cor_map = {base: cmap(i % 20) for i, base in enumerate(comp)}
-        df_cor = pd.DataFrame({
-        'Compras': comp,
-        'Ventas': comp,
-        'Cor': [cor_map[base] for base in comp]
-        })
+        for base in colunas:
+            color_mapping[base] = palette_values[color_index % len(palette_values)]
+            color_index += 1
+
     lns = []
-
+    legend_labels = []
     for col in colunas:
-        if ven>1: 
-            estilo = '-' if '.v' in col.lower() else '--' 
-        else: 
-            estilo='-'
+        if ven > 1:
+            estilo = '-' if '.v' in col.lower() else '--'
+        else:
+            estilo = '-'
 
-        tipo = 'Ventas' if '.v' in col.lower() else 'Compras'
-        cor = df_cor['Cor'][df_cor[tipo]==col].iloc[0]
+        cor = color_mapping.get(col, palette_values[0])
 
         y = aux[col].values
-        line, = ax.plot(ran[p:], y[p:], color=cor, linewidth=base_linewidth, linestyle=estilo, label=col)
+        x_slice = x_positions[start_idx:]
+        y_slice = y[start_idx:]
+        valid_points = [(x_idx, y_val) for x_idx, y_val in zip(x_slice, y_slice) if pd.notna(y_val)]
+        if not valid_points:
+            continue
+
+        suffix_map = {".c": "Compras", ".v": "Ventas", "_c": "Compras", "_v": "Ventas", "-c": "Compras", "-v": "Ventas"}
+        lower_col = col.lower()
+        legend_label = col
+        for suffix, suffix_text in suffix_map.items():
+            if lower_col.endswith(suffix):
+                legend_label = f"{col[:-len(suffix)].strip()} ({suffix_text})"
+                break
+
+        line, = ax.plot(
+            x_slice,
+            y_slice,
+            color=cor,
+            linewidth=base_linewidth,
+            linestyle=estilo,
+            label=col,
+            marker='o',
+            markersize=marker_size,
+            markerfacecolor='white',
+            markeredgewidth=max(0.7, base_linewidth / 2),
+            markeredgecolor=cor,
+        )
         lns.append(line)
+        legend_labels.append(legend_label)
 
-    # Eixo X,Y
-    plt.xticks(rotation=30, fontsize=xtick_size)
-    plt.ylim(0)
 
-    # Legenda
-    labs = [l.get_label() for l in lns]
-    ax.legend(lns, labs, loc='upper center', bbox_to_anchor=(0.5, -0.15), borderaxespad=0, frameon=False,
-              prop={'size': legend_base_size}, ncol=max(1, len(colunas)/2))
-    # plt.tight_layout() # Eliminado para respetar el tamaño definido
+    if data_len and start_idx < data_len:
+        ax.set_xticks(x_positions[start_idx:])
+        ax.set_xticklabels(ran[start_idx:], rotation=30, fontsize=xtick_size)
+        ax.set_xlim(x_positions[start_idx], x_positions[-1])
+    else:
+        ax.set_xticks([])
+        ax.set_xticklabels([])
 
-    # Título (escalado)
+    ax.set_ylim(bottom=0)
+    ax.margins(y=0.08)
+
+    if lns:
+        legend_columns = max(1, math.ceil(len(legend_labels) / 2))
+        legend = ax.legend(
+            lns,
+            legend_labels,
+            loc='upper left',
+            bbox_to_anchor=(0, 1),
+            borderaxespad=0.3,
+            frameon=True,
+            prop={'size': legend_base_size},
+            ncol=legend_columns,
+        )
+        frame = legend.get_frame()
+        frame.set_facecolor('white')
+        frame.set_edgecolor('#D3D3D3')
+        frame.set_alpha(0.85)
+
     plt.title(title, size=title_base_size, pad=10)
+    fig.subplots_adjust(top=0.85, bottom=0.18, left=0.08, right=0.98)
 
-    # Salva imagem
     img_stream = io.BytesIO()
     fig.savefig(img_stream, format='png', transparent=True)
     img_stream.seek(0)
 
-    # Cerrar figura para liberar memoria y evitar reutilización
     try:
         plt.close(fig)
     except Exception:
