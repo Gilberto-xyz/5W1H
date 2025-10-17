@@ -17,7 +17,7 @@ from matplotlib import colors as mcolors
 from matplotlib.patches import Rectangle
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
 from pptx import Presentation 
-from pptx.util import Inches, Cm
+from pptx.util import Inches, Cm, Pt
 from pptx.dml.color import RGBColor
 from typing import NamedTuple
 from pathlib import Path
@@ -282,6 +282,19 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None):
     marker_size = max(3.5, 4.5 * scale)
 
     aux = df.copy()
+
+    if aux.shape[1] > 1:
+        kept_columns = [aux.columns[0]]
+        for col in aux.columns[1:]:
+            series = pd.to_numeric(aux[col], errors='coerce')
+            if series.replace(0, np.nan).dropna().empty:
+                continue
+            kept_columns.append(col)
+        if len(kept_columns) == 1:
+            aux = aux.iloc[:, :1]
+        else:
+            aux = aux.loc[:, kept_columns]
+
     if aux.empty or aux.shape[1] <= 1:
         img_stream = io.BytesIO()
         fig.savefig(img_stream, format="png", transparent=True)
@@ -435,6 +448,29 @@ def aporte(df,p,lang,tipo):
         #Aporte
         apo.loc[len(apo)] = ["Aporte"] + [apo.iloc[-1, col] * apo.iloc[0, col] for col in range(1,len(aux.columns))]
 
+        # Remove categories with invalid metrics (NaN/Inf) before formatting
+        def _is_invalid_metric(value):
+            if pd.isna(value):
+                return True
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                return False
+            return not np.isfinite(numeric)
+
+        invalid_columns = []
+        for col_idx in range(1, len(apo.columns)):
+            col_name = apo.columns[col_idx]
+            var_value = apo.iloc[2, col_idx]
+            aporte_value = apo.iloc[3, col_idx]
+            if _is_invalid_metric(var_value) or _is_invalid_metric(aporte_value):
+                invalid_columns.append(col_name)
+
+        if invalid_columns:
+            apo.drop(columns=invalid_columns, inplace=True)
+
+        apo.attrs["removed_columns"] = list(dict.fromkeys(invalid_columns))
+
         #Formatação do volume
         apo.iloc[:2, 1:] = apo.iloc[:2, 1:].applymap(lambda x: f"{round(x * 100, 1)}%")
         #Formatação da variação e aporte
@@ -480,7 +516,13 @@ def graf_apo(apo,c_fig):
     bar_padding_ratio = 0.08
     bar_height_ratio = 0.55
 
-    data_columns = [idx for idx in range(1, n_cols) if idx != n_cols - 1]
+    total_column_name = next((col for col in apo.columns if str(col).strip().lower() == 'total'), None)
+
+    data_columns = [
+        idx
+        for idx in range(1, n_cols)
+        if total_column_name is None or apo.columns[idx] != total_column_name
+    ]
     start_rgb = np.array(mcolors.to_rgb(VOLUME_BAR_START))
     end_rgb = np.array(mcolors.to_rgb(VOLUME_BAR_END))
 
@@ -518,7 +560,7 @@ def graf_apo(apo,c_fig):
             text = cell.get_text()
             text.set_weight('bold')
             text.set_color(HEADER_FONT_COLOR)
-            if col == 0 or col == n_cols - 1:
+            if col == 0 or (total_column_name is not None and apo.columns[col] == total_column_name):
                 cell.set_facecolor(header_main)
             else:
                 cell.set_facecolor(header_secondary)
@@ -531,7 +573,7 @@ def graf_apo(apo,c_fig):
                 text.set_weight('bold')
                 text.set_color(TABLE_TEXT_PRIMARY)
             else:
-                if col == n_cols - 1:
+                if total_column_name is not None and apo.columns[col] == total_column_name:
                     cell.set_facecolor(total_fill)
                 else:
                     cell.set_facecolor('white')
@@ -986,8 +1028,11 @@ for w in W:
         left_margin = Cm(1.2)
         vertical_spacing = Cm(0.2)
 
+        removed_headers = []
+
         for idx, serie in enumerate(series_configs):
             apo = aporte(serie.data.copy(), serie.pipeline, lang, serie.raw_tipo)
+            removed_headers.extend(apo.attrs.get("removed_columns", []))
             c_fig += 1
             # Si hay dos tablas, ambas se posicionan a la misma altura y ocupan el espacio óptimo
             if len(series_configs) == 2:
@@ -1005,6 +1050,27 @@ for w in W:
                 left_position = left_margin
                 pic = slide.shapes.add_picture(graf_apo(apo, c_fig), left_position, top_position, height=target_table_height)
             plt.clf()
+
+        #Cuadro de texto que indica los encabezados eliminados
+        unique_removed_headers = [header for header in dict.fromkeys(removed_headers) if header]
+        if unique_removed_headers:
+            footer_left = Cm(4.6)
+            footer_right_margin = Cm(1.2)
+            footer_width = ppt.slide_width - footer_left - footer_right_margin
+            if footer_width < Cm(2):
+                footer_width = Cm(2)
+            footer_top = ppt.slide_height - bottom_margin + Cm(0.1)
+            footer_height = Cm(0.9)
+            footer_box = slide.shapes.add_textbox(footer_left, footer_top, footer_width, footer_height)
+            footer_tf = footer_box.text_frame
+            footer_tf.clear()
+            footer_tf.word_wrap = True
+            footer_tf.text = "Se eliminaron los encabezados sin información: " + ", ".join(unique_removed_headers)
+            footer_run = footer_tf.paragraphs[0].runs[0]
+            footer_font = footer_run.font
+            footer_font.name = 'Arial'
+            footer_font.size = Pt(10)
+            footer_font.color.rgb = RGBColor(120, 120, 120)
 
         if plot=="1" and len(series_configs)>1:
             df_full = series_configs[0].data.copy()
