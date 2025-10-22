@@ -39,6 +39,8 @@ TABLE_TEXT_PRIMARY = '#1F1F1F'
 TABLE_POSITIVE_COLOR = '#27AE60'
 TABLE_NEGATIVE_COLOR = '#C0392B'
 TABLE_GRID_COLOR = '#1A1A1A'
+APORTE_NEGATIVE_COLOR = "#F3948B"
+APORTE_NEUTRAL_COLOR = "#FFCE7E"
 VOLUME_BAR_START = '#1452B8'
 VOLUME_BAR_END = '#8CB8FF'
 VOLUME_BAR_ALPHA = 0.85
@@ -541,6 +543,7 @@ def graf_apo(apo,c_fig):
     column_colors = share_colors(len(data_columns))
     white_rgb = np.array([1.0, 1.0, 1.0])
     volume_row_indexes = [idx for idx, label in enumerate(apo.iloc[:, 0]) if str(label).lower().startswith('vol')]
+    aporte_row_index = next((idx for idx, label in enumerate(apo.iloc[:, 0]) if str(label).strip().lower() == 'aporte'), None)
 
     def to_percentage(value):
         try:
@@ -548,6 +551,15 @@ def graf_apo(apo,c_fig):
             if not text_value:
                 return None
             return max(0.0, float(text_value) / 100.0)
+        except Exception:
+            return None
+
+    def to_signed_percentage(value):
+        try:
+            text_value = str(value).strip().replace('%', '').replace(',', '.')
+            if not text_value:
+                return None
+            return float(text_value) / 100.0
         except Exception:
             return None
 
@@ -588,6 +600,54 @@ def graf_apo(apo,c_fig):
                     except Exception:
                         pass
 
+    if aporte_row_index is not None:
+        aporte_values = []
+        for col in data_columns:
+            numeric = to_signed_percentage(apo.iloc[aporte_row_index, col])
+            if numeric is not None:
+                aporte_values.append((col, numeric))
+        if aporte_values:
+            aporte_numbers = [value for _, value in aporte_values]
+            min_val = min(aporte_numbers)
+            max_val = max(aporte_numbers)
+            cmap = None
+            norm = None
+            if not math.isclose(min_val, max_val, rel_tol=1e-9, abs_tol=1e-9):
+                if min_val < 0 and max_val > 0:
+                    cmap = mcolors.LinearSegmentedColormap.from_list(
+                        'aporte_diverging',
+                        [APORTE_NEGATIVE_COLOR, APORTE_NEUTRAL_COLOR, TABLE_POSITIVE_COLOR]
+                    )
+                    norm = mcolors.TwoSlopeNorm(vmin=min_val, vcenter=0, vmax=max_val)
+                elif max_val <= 0:
+                    cmap = mcolors.LinearSegmentedColormap.from_list(
+                        'aporte_negative',
+                        [APORTE_NEGATIVE_COLOR, APORTE_NEUTRAL_COLOR]
+                    )
+                    norm = mcolors.Normalize(vmin=min_val, vmax=0)
+                else:
+                    cmap = mcolors.LinearSegmentedColormap.from_list(
+                        'aporte_positive',
+                        [APORTE_NEUTRAL_COLOR, TABLE_POSITIVE_COLOR]
+                    )
+                    norm = mcolors.Normalize(vmin=0, vmax=max_val)
+            for col, numeric in aporte_values:
+                if cmap is not None and norm is not None:
+                    rgba = cmap(norm(numeric))
+                    rgb = tuple(rgba[:3])
+                else:
+                    if math.isclose(numeric, 0.0, abs_tol=1e-9):
+                        rgb = mcolors.to_rgb(APORTE_NEUTRAL_COLOR)
+                    elif numeric > 0:
+                        rgb = mcolors.to_rgb(TABLE_POSITIVE_COLOR)
+                    else:
+                        rgb = mcolors.to_rgb(APORTE_NEGATIVE_COLOR)
+                cell = table[(aporte_row_index + 1, col)]
+                cell.set_facecolor(rgb)
+                text = cell.get_text()
+                luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+                text.set_color(TABLE_TEXT_PRIMARY if luminance > 0.5 else '#FFFFFF')
+
     for df_row_idx in volume_row_indexes:
         table_row = df_row_idx + 1
         for rel_idx, col in enumerate(data_columns):
@@ -619,6 +679,22 @@ def graf_apo(apo,c_fig):
     plt.savefig(buf, format='png', dpi=400, bbox_inches=table_bbox, pad_inches=0)
     buf.seek(0)
     return buf
+
+def simplify_name_segment(value: str, max_len: int) -> str:
+    """
+    Reduce a string to a compact, filesystem-friendly segment.
+    Keeps alphanumeric characters, replaces others with dashes, and trims length.
+    """
+    if value is None:
+        return 'NA'
+    value_str = str(value).strip()
+    if not value_str:
+        return 'NA'
+    cleaned = ''.join(ch if ch.isalnum() else '-' for ch in value_str)
+    cleaned = cleaned.strip('-')
+    if not cleaned:
+        cleaned = 'NA'
+    return cleaned[:max_len]
 
 def select_excel_file(base_dir: Path) -> str:
     excel_files = sorted([p for p in base_dir.glob('*.xlsx') if not p.name.startswith('~$')])
@@ -849,19 +925,19 @@ brand = W[0][2:]
 #Dicionario com as correspondencias dos numeros e o respectivo W
 c_w={
 ('P','1'):'1W - Quando?',
-('P','3-1'):'3W - O Que? Tamanhos',
-('P','3-2'):'3W - O Que? Marcas',
-('P','3-3'):'3W - O Que? Sabores',
+('P','3-1'):'3W - O quê? Tamanhos',
+('P','3-2'):'3W - O quê? Marcas',
+('P','3-3'):'3W - O quê? Sabores',
 ('P','4'):'4W - Quem? NSE',
 ('P','5-1'):'5W - Onde? Regiões',
 ('P','5-2'):'5W - Onde? Canais',
 ('P','6'):'Players',
 
-('E','1'):'1W - ¿Cuando?',
-('E','3-1'):'3W - ¿Lo Que? Tamaños',
-('E','3-2'):'3W - ¿Lo Que? Marcas',
-('E','3-3'):'3W - ¿Lo Que? Sabores',
-('E','4'):'4W - ¿Quién? NSE',
+('E','1'):'1W - ¿Cuándo?',
+('E','3-1'):'3W - ¿Qué tamaños?',
+('E','3-2'):'3W - ¿Qué marcas?',
+('E','3-3'):'3W - ¿Qué sabores?',
+('E','4'):'4W - ¿Quiénes? NSE (Nivel Socioeconómico)',
 ('E','5-1'):'5W - ¿Dónde? Regiones',
 ('E','5-2'):'5W - ¿Dónde? Canales',
 ('E','6'):'Players'
@@ -1211,7 +1287,16 @@ font = run.font
 font.name, font.size, font.bold = 'Arial', Inches(0.32), True
 font.color.rgb = RGBColor(255, 255, 255)
 
-ppt.save(land+'-'+cat+'-'+client+'-'+brand+'-5W1H-'+ref+'.pptx')
+output_filename = "-".join([
+    simplify_name_segment(land, 30),
+    simplify_name_segment(client, 30),
+    simplify_name_segment(cat, 6),
+    simplify_name_segment(brand, 8),
+    '5W1H',
+    simplify_name_segment(ref, 5)
+]) + '.pptx'
+
+ppt.save(output_filename)
 
 fim = dt.now()
 
