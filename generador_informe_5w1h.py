@@ -921,7 +921,7 @@ for w in W:
     if w[0]=='1':
 
         #Cria o slide
-        slide = ppt.slides.add_slide(ppt.slide_layouts[35])
+        slide = ppt.slides.add_slide(ppt.slide_layouts[1])
 
         #Define o titulo
         txTitle = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
@@ -992,7 +992,7 @@ for w in W:
         series_configs = prepare_series_configs(df_list, lang, p_ventas)
         last_reference_source = series_configs[0].data if series_configs else df_start
         #Cria o slide
-        slide = ppt.slides.add_slide(ppt.slide_layouts[35])
+        slide = ppt.slides.add_slide(ppt.slide_layouts[1])
 
         #Define o titulo
         txTitle = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
