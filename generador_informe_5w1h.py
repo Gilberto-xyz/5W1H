@@ -885,6 +885,69 @@ class SeriesConfig(NamedTuple):
     display_tipo: str
     pipeline: int
 
+
+def _extract_pipeline(col_name: str) -> int:
+    if not isinstance(col_name, str):
+        return 0
+    parts = [part for part in col_name.split('_') if part.isdigit()]
+    if parts:
+        return int(parts[0])
+    digits = ''.join(ch for ch in col_name if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def _is_separator_column(col) -> bool:
+    if col is None:
+        return True
+    if not isinstance(col, str):
+        return False
+    stripped = col.strip()
+    return not stripped or stripped.lower().startswith('unnamed')
+
+
+def split_compras_ventas(df: pd.DataFrame) -> tuple[list[pd.DataFrame], int]:
+    ventas_idx = None
+    for idx, col in enumerate(df.columns):
+        if isinstance(col, str) and 'ventas' in col.lower():
+            ventas_idx = idx
+            pipeline = _extract_pipeline(col)
+            break
+    if ventas_idx is None:
+        return [df], 0
+
+    separator_idx = ventas_idx - 1
+    has_separator = separator_idx >= 0 and _is_separator_column(df.columns[separator_idx])
+    compras_end = separator_idx if has_separator else ventas_idx
+    if compras_end <= 0:
+        compras_end = ventas_idx
+
+    compras = df.iloc[:, :compras_end].copy()
+    ventas = df.iloc[:, ventas_idx:].copy()
+
+    if not compras.empty:
+        compras = compras.loc[:, ~pd.Series(compras.columns).apply(_is_separator_column).to_numpy()]
+        if len(compras.columns) > 1:
+            compras.columns = [compras.columns[0]] + [f"{col}.C" for col in compras.columns[1:]]
+
+    if not ventas.empty:
+        ventas = ventas.loc[:, ~pd.Series(ventas.columns).apply(_is_separator_column).to_numpy()]
+        ventas_cols = list(ventas.columns)
+        if ventas_cols:
+            first = ventas_cols[0]
+            base_name = first[:-2] if isinstance(first, str) and len(first) > 2 and first[-2] == '_' else first
+            ventas_cols[0] = base_name
+            ventas_cols[1:] = [str(col).replace('.1', '.V') for col in ventas_cols[1:]]
+            ventas.columns = ventas_cols
+
+    if ventas.shape[1] <= 1 or ventas.iloc[:, 1:].isna().all().all():
+        return [compras if not compras.empty else df], 0
+
+    df_list: list[pd.DataFrame] = []
+    if not compras.empty:
+        df_list.append(compras)
+    df_list.append(ventas)
+    return df_list, pipeline
+
 def prepare_series_configs(df_list, lang, p_ventas):
     configs = []
     for original_df in df_list:
@@ -972,22 +1035,7 @@ for w in W:
         #Carrega a base
         df_start=file.parse(w)
 
-        #Lista para as bases
-        df_list=[]
-        p_ventas=0
-
-        #Verifica se hay dados de vendas para obter as bases e o pipeline
-        try:
-            start,p=[(i-1,col.split("_")[1]) for i,col in enumerate(df_start.columns) if "ventas" in col.lower()][0]
-            p_ventas=int(p)
-            compras=df_start.iloc[:,:start]
-            ventas=df_start.iloc[:,start+1:]
-            compras.columns= [compras.columns[0]]+[x+'.C' for x in compras.columns[1:]]
-            ventas.columns= [ventas.columns[0][:-2]]+[x.replace('.1','.V') for x in ventas.columns[1:]]
-            df_list.append(compras)
-            df_list.append(ventas)
-        except:
-            df_list.append(df_start)
+        df_list, p_ventas = split_compras_ventas(df_start)
 
         series_configs = prepare_series_configs(df_list, lang, p_ventas)
         last_reference_source = series_configs[0].data if series_configs else df_start
