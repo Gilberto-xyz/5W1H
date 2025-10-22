@@ -127,6 +127,59 @@ TREND_COLOR_PALETTE = {
 }
 TREND_COLOR_SEQUENCE = list(TREND_COLOR_PALETTE.values())
 
+TREND_SCALE_RULES = [
+    {
+        "threshold": 1_000_000_000_000,
+        "divisor": 1_000_000_000_000,
+        "suffix": "T",
+        "reference": {
+            'E': 'Valores expresados en billones',
+            'P': 'Valores expressos em trilhões',
+            'default': 'Values expressed in trillions'
+        }
+    },
+    {
+        "threshold": 1_000_000_000,
+        "divisor": 1_000_000_000,
+        "suffix": "B",
+        "reference": {
+            'E': 'Valores expresados en miles de millones',
+            'P': 'Valores expressos em bilhões',
+            'default': 'Values expressed in billions'
+        }
+    },
+    {
+        "threshold": 1_000_000,
+        "divisor": 1_000_000,
+        "suffix": "M",
+        "reference": {
+            'E': 'Valores expresados en millones',
+            'P': 'Valores expressos em milhões',
+            'default': 'Values expressed in millions'
+        }
+    },
+    {
+        "threshold": 1_000,
+        "divisor": 1_000,
+        "suffix": "K",
+        "reference": {
+            'E': 'Valores expresados en miles',
+            'P': 'Valores expressos em milhares',
+            'default': 'Values expressed in thousands'
+        }
+    },
+    {
+        "threshold": 0,
+        "divisor": 1,
+        "suffix": "",
+        "reference": {
+            'E': '',
+            'P': '',
+            'default': ''
+        }
+    },
+]
+
 
 MONTH_NAMES = {
     'P': ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
@@ -140,6 +193,31 @@ def colorize(text: str, color: str = COLOR_BLUE) -> str:
 
 def print_colored(text: str, color: str = COLOR_BLUE) -> None:
     print(colorize(text, color))
+
+
+def select_trend_scale_rule(max_value: float) -> dict:
+    for rule in TREND_SCALE_RULES:
+        if max_value >= rule["threshold"]:
+            return rule
+    return TREND_SCALE_RULES[-1]
+
+
+def format_value_with_suffix(value: float, divisor: float, suffix: str) -> str:
+    if not np.isfinite(value):
+        return ''
+    scaled = value / divisor if divisor else value
+    abs_scaled = abs(scaled)
+    if abs_scaled >= 100:
+        formatted = f"{scaled:.0f}"
+    elif abs_scaled >= 10:
+        formatted = f"{scaled:.1f}"
+    else:
+        formatted = f"{scaled:.2f}"
+    if '.' in formatted:
+        formatted = formatted.rstrip('0').rstrip('.')
+    return f"{formatted}{suffix}"
+
+
 def available_width(presentation, left=Inches(0), right=Inches(0)):
     return presentation.slide_width - int(left) - int(right)
 
@@ -351,6 +429,7 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None):
 
     lns = []
     legend_labels = []
+    numeric_series_list = []
     for col in colunas:
         if ven > 1:
             estilo = '-' if '.v' in col.lower() else '--'
@@ -359,7 +438,9 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None):
 
         cor = color_mapping.get(col, palette_values[0])
 
-        y = aux[col].values
+        numeric_series = pd.to_numeric(aux[col], errors='coerce')
+        numeric_series_list.append(numeric_series)
+        y = numeric_series.values
         x_slice = x_positions[start_idx:]
         y_slice = y[start_idx:]
         valid_points = [(x_idx, y_val) for x_idx, y_val in zip(x_slice, y_slice) if pd.notna(y_val)]
@@ -398,6 +479,47 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None):
     else:
         ax.set_xticks([])
         ax.set_xticklabels([])
+
+    y_tick_size = max(8, int(10 * scale))
+    ax.tick_params(axis='y', labelsize=y_tick_size)
+
+    max_abs_value = 0.0
+    for series in numeric_series_list:
+        numeric_values = series.to_numpy()
+        if numeric_values.size == 0:
+            continue
+        finite_values = numeric_values[np.isfinite(numeric_values)]
+        if finite_values.size == 0:
+            continue
+        series_max = float(np.max(np.abs(finite_values)))
+        if series_max > max_abs_value:
+            max_abs_value = series_max
+
+    scale_rule = select_trend_scale_rule(max_abs_value)
+    divisor = scale_rule["divisor"] or 1
+    suffix = scale_rule["suffix"]
+
+    def _trend_tick_formatter(value, _):
+        return format_value_with_suffix(value, divisor, suffix)
+
+    ax.yaxis.set_major_formatter(FuncFormatter(_trend_tick_formatter))
+
+    if suffix:
+        reference_template = scale_rule.get("reference", {})
+        reference_text = reference_template.get(lang, reference_template.get('default', '')).strip()
+        if reference_text:
+            reference_font_size = max(8, int(9 * scale))
+            ax.text(
+                0.02,
+                0.95,
+                reference_text,
+                transform=ax.transAxes,
+                ha='left',
+                va='top',
+                fontsize=reference_font_size,
+                color='#4D4D4D',
+                alpha=0.85,
+            )
 
     ax.set_ylim(bottom=0)
     ax.margins(y=0.08)
