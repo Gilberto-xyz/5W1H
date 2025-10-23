@@ -1214,89 +1214,305 @@ pais = pd.DataFrame(
 )
 
 #Codigos categorias
-categ = pd.DataFrame({
-    'cest': ['Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 
-               'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Bebidas', 'Lacteos', 
-               'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 
-               'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Lacteos', 'Ropas y Calzados', 'Ropas y Calzados', 'Ropas y Calzados', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 
-               'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 
-               'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 
-               'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 
-               'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 
-               'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 
-               'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 
-               'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 
-               'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 'Alimentos', 
-               'Alimentos', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 
-               'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 
-               'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 
-               'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 
-               'Cuidado del Hogar', 'Cuidado del Hogar', 'Cuidado del Hogar', 'OTC', 'OTC', 'OTC', 'OTC', 'Otros', 'Otros', 'Otros', 'Otros', 'Otros', 'Otros', 'Otros', 'Otros', 'Otros', 'Otros', 
-               'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 
-               'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 
-               'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 
-               'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 
-               'Cuidado Personal', 'Cuidado Personal', 'Cuidado Personal', 'Material Escolar', 'Material Escolar', 'Material Escolar', 'Material Escolar', 'Material Escolar', 'Material Escolar', 
-               'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 'Diversos', 
-               'Diversos', 'Diversos', 'Diversos', 'Diversos','Alimentos'],
-    'cat': ['Bebidas Alcohólicas', 'Cervezas', 'Bebidas Gaseosas', 'Agua Gasificada', 'Água de Coco', 'Café-Consolidado de Café', 'Cross Category (Bebidas)', 'Bebidas Energéticas', 
-                  'Bebidas Saborizadas Sin Gas', 'Café Tostado y Molido', 'Jugos Caseros', 'Té Helado', 'Café Instantáneo-Café Sucedáneo', 'Jugos y Nectares', 'Zumos de Vegetales', 'Agua Natural', 
-                  'Gaseosas + Aguas', 'Mixta Café+Malta', 'Mixta Dolce Gusto-Mixta Té Helado + Café + Modificadores', 'Mixta Jugos y Leches', 'Mixta Jugos Líquidos + Bebidas de Soja', 'Mixta Té+Café', 
-                  'Jugos Liquidos-Jugos Polvo', 'Refrescos en Polvo-Jugos - Bebidas Instantáneas En Polvo - Jugos Polvo', 'Bebidas Refrescantes', 'Refrescos Líquidos-Jugos Líquidos', 'Té Líquido - Listo para Tomar',
-                  'Bebidas de Soja', 'Bebidas Isotónicas', 'Té e Infusiones-Te-Infusión Hierbas', 'Yerba Mate', 'Manteca', 'Queso Fresco y para Untar', 'Leche Condensada', 'Queso Untable', 'Yoghurt p-beber', 
-                  'Leche Culinaria-Leche Evaporada', 'Leche Fermentada', 'Leche Líquida Saborizada-Leche Líquida Con Sabor', 'Fórmulas Infantiles', 'Leche Líquida', 'Leche Larga Vida', 'Margarina', 'Queso Fundido', 
-                  'Crema de Leche', 'Mixta Lácteos-Postre+Leches+Yogurt', 'Mixta Leches', 'Mixta Yoghurt+Postres', 'Petit Suisse', 'Leche en Polvo', 'Yoghurt p-comer', 'Leche-Leche Líquida Blanca - Leche Liq. Natural', 
-                  'Yoghurt', 'Ropas', 'Calzados', 'Medias-Calcetines', 'Arepas', 'Cereales Infantiles', 'Nutrición Infantil-Colados y Picados', 'Frijoles', 'Galletas', 'Caldos-Caldos y Sazonadores', 'Pan', 
-                  'Apanados-Empanizadores', 'Empanados', 'Cereales-Cereales Desayuno-Avenas y Cereales', 'Hamburguesas', 'Mezclas Listas para Tortas-Preparados Base Harina Trigo', 'Queques-Ponques Industrializados', 
-                  'Conservas De Pescado', 'Conservas de Frutas y Verduras', 'Dulce de Leche-Manjar', 'Alfajores', 'Barras de Cereal', 'Pollo', 'Chocolate', 'Chocolate de Taza-Achocolatados - Cocoas', 'Salsas Frías', 
-                  'Compotas', 'Condimentos y Especias', 'Chocolate de Mesa', 'Aceite-Aceites Comestibles', 'Salsas Listas-Salsas Caseras Envasadas', 'Grano, Harina y Masa de Maíz', 'Fécula de Maíz', 'Harina De Maíz', 
-                  'Ayudantes Culinarios', 'Postres Preparados', 'Jamón Endiablado', 'Semillas y Frutos Secos', 'Pan de Pascua', 'Huevos de Páscua', 'Huevos', 'Flash Cecinas', 'Harinas', 'Carne Fresca', 
-                  'Platos Listos Congelados','Alimentos Congelados', 'Jamones', 'Cereales Calientes-Cereales Precocidos', 'Salsas Picantes', 'Helados', 'Pan Industrializado', 'Puré Instantáneo', 
-                  'Fideos Instantáneos', 'Mermeladas', 'Ketchup', 'Jugo de Limon Adereso', 'Maltas', 'Adobos - Sazonadores', 'Mayonesa', 'Cárnicos', 'Modificadores de Leche-Saborizadores p-leche', 
-                  'Mixta Cereales Infantiles+Avenas', 'Mixta Caldos + Saborizantes', 'Mixta Caldos + Sopas', 'Mixta Cereales + Cereales Calientes', 'Mixta Chocolate + Manjar', 'Galletas, snacks y mini tostadas', 
-                  'Aceites + Mantecas', 'Aceites + Conservas De Pescado', 'Ayudantes Culinarios + Bolsa de Hornear', 'Mixta Huevos de Páscua + Chocolates', 'Mixta Platos Listos Congelados + Pasta', 
-                  'Mixta Platos Congelados y Listos para Comer', 'Mixta Alimentos Congelados + Margarina', 'Mixta Modificadores + Cocoa', 'Mixta Pastas', 'Mixta Sopas+Cremas+Ramen', 
-                  'Mixta Margarina + Mayonesa + Queso Crema', 'Mixta Azúcar+Endulzantes', 'Mostaza', 'Sustitutos de Crema', 'Fideos', 'Nuggets', 'Avena en hojuelas-liquidas', 'Aceitunas', 'Tortilla', 
-                  'Panetón', 'Pastas', 'Salsas para Pasta', 'Turrón de maní', 'Carne Porcina', 'Postres en Polvo-Postres para Preparar - Horneables-Gelificables', 'Leche de Soya en Polvo', 'Cereales Precocidos', 
-                  'Masas Frescas-Tapas Empanadas y Tarta', 'Pre-Pizzas', 'Meriendas listas', 'Arroz', 'Galletas de Arroz', 'Frijoles Procesados', 'Pratos Prontos - Comidas Listas', 'Aderezos para Ensalada', 
-                  'Sal', 'Galletas Saladas-Galletas No Dulce', 'Sardina Envasada', 'Cecinas', 'Milanesas', 'Snacks', 'Fideos Sopa', 'Sopas-Sopas Cremas', 'Siyau', 'Tallarines-Spaguetti', 'Chocolate para Untar', 
-                  'Azucar', 'Galletas Dulces', 'Untables Dulces', 'Endulzantes', 'Torradas - Tostadas', 'Salsas de Tomate', 'Atún Envasado', 'Leche Vegetal', 'Harinas de trigo', 
-                  'Ambientadores-Desodorante Ambiental', 'Jabón en Barra-Jabón de lavar', 'Cloro-Lavandinas-Lejías-Blanqueadores', 'Pastillas para Inodoro', 'Guantes de látex', 
-                  'Esponjas de Limpieza-Esponjas y paños', 'Utensilios de Limpieza', 'Filtros de Café', 'Cross Category (Limpiadores Domesticos)', 'Cross Category (Lavandería)', 
-                  'Cross Category (Productos de Papel)', 'Lavavajillas-Lavaplatos - Lavalozas mano', 'Empaques domésticos-Bolsas plásticas-Plástico Adherente-Papel encerado-Papel aluminio', 
-                  'Destapacañerias', 'Perfumantes para Ropa-Perfumes para Ropa', 'Cera p-pisos', 'Desodorante para Pies', 'Lustramuebles', 'Bolsas de Basura', 'Limpiadores verdes', 
-                  'Limpiadores-Limpiadores y Desinfectantes', 'Insecticidas-Raticidas', 'Toallas de papel-Papel Toalla - Toallas de Cocina - Rollos Absorbentes de Papel', 'Detergentes para ropa', 
-                  'Apresto', 'Mixta Pastillas para Inodoro + Limpiadores', 'Mixta Home Care-Cloro-Limpiadores-Ceras-Ambientadores', 'Mixta Limpiadores + Cloro', 'Mixta Detergentes + Cloro', 
-                  'Mixta Detergentes + Lavavajillas', 'Pañitos + Papel Higienico', 'Servilletas', 'Film plastico e papel aluminio', 'Esponjas de Acero', 'Suavizantes de Ropa', 'Quitamanchas-Desmanchadores', 
-                  'Papel Higiénico', 'Paños de Limpieza', 'Analgésicos-Painkillers', 'Suplementos alimentares', 'Gastrointestinales-Efervescentes', 'Vitaminas y Calcio', 'Categoría Desconocida', 
-                  'Pilas-Baterías', 'Combustible Gas', 'Panel Financiero de Hogares', 'Panel Financiero de Hogares', 'Cartuchos de Tintas', 'Alimento para Mascota-Alim.p - perro - gato', 
-                  'Telecomunicaciones - Convergencia', 'Tickets - Till Rolls', 'Tabaco - Cigarrillos', 'Incontinencia de Adultos', 'Shampoo Infantil', 'Maquinas de Afeitar', 'Cremas Corporales', 
-                  'Paños Húmedos', 'Cremas para Peinar', 'Acondicionador-Bálsamo', 'Cross Category (Higiene)', 'Cross Category (Personal Care)', 'Desodorantes', 'Pañales-Pañales Desechables', 
-                  'Cremas Faciales', 'Pañuelos Faciales', 'Protección Femenina-Toallas Femeninas', 'Fragancias', 'Cuidado del Cabello-Hair Care', 
-                  'Tintes para el Cabello-Tintes - Tintura - Tintes y Coloración para el cabello', 'Depilación', 'Alisadores para el Cabello', 
-                  'Fijadores para el Cabello-Modeladores-Gel-Fijadores para el cabello', 'Tratamientos para el Cabello', 'Óleo Calcáreo', 'Maquillaje-Cosméticos', 'Jabón Medicinal', 
-                  'Pañitos + Pañales', 'Mixta Make Up+Tinturas', 'Enjuague Bucal-Refrescante Bucal', 'Cuidado Bucal', 'Protectores Femeninos', 'Toallas Femininas', 'Shampoo', 
-                  'Afeitado-Crema afeitar-Loción de afeitar-Pord. Antes del afeitado', 'Cremas Faciales y Corporales-Cremas de Belleza - Cremas Cuerp y Faciales', 'Protección Solar', 
-                  'Talcos-Talco para pies', 'Tampones Femeninos', 'Jabón de Tocador', 'Cepillos Dentales', 'Pastas Dentales', 'Morrales y MAletas Escoalres', 'Lapices de Colores', 'Lapices De Grafito', 
-                  'Marcadores', 'Cuadernos', 'Útiles Escolares', 'Estudio de Categorías', 'Corporativa', 'Cross Category', 'Cross Category (Bebés)', 'Cross Category (Desayuno)-Yogurt, Cereal, Pan y Queso', 
-                  'Cross Category (Diet y Light)', 'Cross Category (Alimentos Secos)', 'Cross Category (Alimentos)', 'Cross Category (Salsas)-Mayonesas-Ketchup - Salsas Frías', 'Cross Category (Snacks)', 
-                  'Demo', 'Flash', 'Holistic View', 'Mezcla para café instantaneo y crema no láctea', 'Mezclas nutricionales y suplementos', 'Consolidado-Multicategory', 'Pantry Check', 'Inventario', 
-                  'Leche y Cereales Calientes-Cereales Precocidos y Leche Líquida Blanca','Agua Saborizada'],
-    'cod': ['ALCB', 'BEER', 'CARB', 'CWAT', 'COCW', 'COFF', 'CRBE', 'ENDR', 'FLBE', 'GCOF', 'HJUI', 'ITEA', 'ICOF', 'JUNE', 'VEJU', 'WATE', 'CSDW', 'MXCM', 'MXDG', 'MXJM', 'MXJS', 'MXTC', 'JUIC', 'PWDJ', 
-               'RFDR', 'RTDJ', 'RTEA', 'SOYB', 'SPDR', 'TEAA', 'YERB', 'BUTT', 'CHEE', 'CMLK', 'CRCH', 'DYOG', 'EMLK', 'FRMM', 'FMLK', 'FRMK', 'LQDM', 'LLFM', 'MARG', 'MCHE', 'MKCR', 'MXDI', 'MXMI', 'MXYD', 
-               'PTSS', 'PWDM', 'SYOG', 'MILK', 'YOGH', 'CLOT', 'FOOT', 'SOCK', 'AREP', 'BCER', 'BABF', 'BEAN', 'BISC', 'BOUI', 'BREA', 'BRCR', 'BRDC', 'CERE', 'BURG', 'CCMX', 'CAKE', 'FISH', 'CFAV', 'CRML', 
-               'CMLC', 'CBAR', 'CHCK', 'CHOC', 'COCO', 'COLS', 'COMP', 'SPIC', 'CKCH', 'COIL', 'CSAU', 'CNML', 'CNST', 'CNFL', 'CAID', 'DESS', 'DHAM', 'DFNS', 'EBRE', 'EEGG', 'EGGS', 'FLSS', 'FLOU', 'MEAT', 
-               'FRDS', 'FRFO', 'HAMS', 'HCER', 'HOTS', 'ICEC', 'IBRE', 'IMPO', 'INOO', 'JAMS', 'KETC', 'LJDR', 'MALT', 'SEAS', 'MAYO', 'MEAT', 'MLKM', 'MXCO', 'MXBS', 'MXSB', 'MXCH', 'MXCC', 'MXSN', 'COBT', 
-               'COCF', 'CABB', 'MXEC', 'MXDP', 'MXFR', 'MXFM', 'MXMC', 'MXPS', 'MXSO', 'MXSP', 'MXSW', 'MUST', 'NDCR', 'NOOD', 'NUGG', 'OAFL', 'OLIV', 'PANC', 'PANE', 'PAST', 'PSAU', 'PNOU', 'PORK', 'PPMX', 
-               'PWSM', 'PCCE', 'DOUG', 'PPIZ', 'REFR', 'RICE', 'RBIS', 'RTEB', 'RTEM', 'SDRE', 'SALT', 'SLTC', 'SARD', 'SAUS', 'SCHN', 'SNAC', 'SNOO', 'SOUP', 'SOYS', 'SPAG', 'SPCH', 'SUGA', 'SWCO', 'SWSP', 
-               'SWEE', 'TOAS', 'TOMA', 'TUNA', 'VMLK', 'WFLO', 'AIRC', 'BARS', 'BLEA', 'CBLK', 'CGLO', 'CLSP', 'CLTO', 'FILT', 'CRHC', 'CRLA', 'CRPA', 'DISH', 'DPAC', 'DRUB', 'FBRF', 'FWAX', 'FDEO', 'FRNP', 
-               'GBBG', 'GCLE', 'CLEA', 'INSE', 'KITT', 'LAUN', 'LSTA', 'MXBC', 'MXHC', 'MXCB', 'MXLB', 'MXLD', 'CRTO', 'NAPK', 'PLWF', 'SCOU', 'SOFT', 'STRM', 'TOIP', 'WIPE', 'ANLG', 'FSUP', 'GMED', 'VITA', 'nan', 
-               'BATT', 'CGAS', 'PFHH', 'PFIN', 'INKC', 'PETF', 'TELE', 'TILL', 'TOBA', 'ADIP', 'BSHM', 'RAZO', 'BDCR', 'CWIP', 'COMB', 'COND', 'CRHY', 'CRPC', 'DEOD', 'DIAP', 'FCCR', 'FTIS', 'FEMI', 'FRAG', 'HAIR', 
-               'HRCO', 'HREM', 'HRST', 'HSTY', 'HRTR', 'LINI', 'MAKE', 'MEDS', 'CRDT', 'MXMH', 'MOWA', 'ORAL', 'SPAD', 'STOW', 'SHAM', 'SHAV', 'SKCR', 'SUNP', 'TALC', 'TAMP', 'TOIL', 'TOOB', 'TOOT', 'BAGS', 'CLPC', 
-               'GRPC', 'MRKR', 'NTBK', 'SCHS', 'CSTD', 'CORP', 'CROS', 'CRBA', 'CRBR', 'CRDT', 'CRDF', 'CRFO', 'CRSA', 'CRSN', 'DEMO', 'FLSH', 'HLVW', 'COCP', 'CRSN', 'MULT', 'PCHK', 'STCK', 'MIHC','FLWT'],
-})
+CATEG_CSV_DATA = """
+cod,cest,cat
+ALCB,Bebidas,Bebidas Alcohólicas
+BEER,Bebidas,Cervezas
+CARB,Bebidas,Bebidas Gaseosas
+CWAT,Bebidas,Agua Gasificada
+COCW,Bebidas,Água de Coco
+COFF,Bebidas,Café-Consolidado de Café
+CRBE,Bebidas,Cross Category (Bebidas)
+ENDR,Bebidas,Bebidas Energéticas
+FLBE,Bebidas,Bebidas Saborizadas Sin Gas
+GCOF,Bebidas,Café Tostado y Molido
+HJUI,Bebidas,Jugos Caseros
+ITEA,Bebidas,Té Helado
+ICOF,Bebidas,Café Instantáneo-Café Sucedáneo
+JUNE,Bebidas,Jugos y Nectares
+VEJU,Bebidas,Zumos de Vegetales
+WATE,Bebidas,Agua Natural
+CSDW,Bebidas,Gaseosas + Aguas
+MXCM,Bebidas,Mixta Café+Malta
+MXDG,Bebidas,Mixta Dolce Gusto-Mixta Té Helado + Café + Modificadores
+MXJM,Bebidas,Mixta Jugos y Leches
+MXJS,Bebidas,Mixta Jugos Líquidos + Bebidas de Soja
+MXTC,Bebidas,Mixta Té+Café
+JUIC,Bebidas,Jugos Liquidos-Jugos Polvo
+PWDJ,Bebidas,Refrescos en Polvo-Jugos - Bebidas Instantáneas En Polvo - Jugos Polvo
+RFDR,Bebidas,Bebidas Refrescantes
+RTDJ,Bebidas,Refrescos Líquidos-Jugos Líquidos
+RTEA,Bebidas,Té Líquido - Listo para Tomar
+SOYB,Bebidas,Bebidas de Soja
+SPDR,Bebidas,Bebidas Isotónicas
+TEAA,Bebidas,Té e Infusiones-Te-Infusión Hierbas
+YERB,Bebidas,Yerba Mate
+BUTT,Lacteos,Manteca
+CHEE,Lacteos,Queso Fresco y para Untar
+CMLK,Lacteos,Leche Condensada
+CRCH,Lacteos,Queso Untable
+DYOG,Lacteos,Yoghurt p-beber
+EMLK,Lacteos,Leche Culinaria-Leche Evaporada
+FRMM,Lacteos,Leche Fermentada
+FMLK,Lacteos,Leche Líquida Saborizada-Leche Líquida Con Sabor
+FRMK,Lacteos,Fórmulas Infantiles
+LQDM,Lacteos,Leche Líquida
+LLFM,Lacteos,Leche Larga Vida
+MARG,Lacteos,Margarina
+MCHE,Lacteos,Queso Fundido
+MKCR,Lacteos,Crema de Leche
+MXDI,Lacteos,Mixta Lácteos-Postre+Leches+Yogurt
+MXMI,Lacteos,Mixta Leches
+MXYD,Lacteos,Mixta Yoghurt+Postres
+PTSS,Lacteos,Petit Suisse
+PWDM,Lacteos,Leche en Polvo
+SYOG,Lacteos,Yoghurt p-comer
+MILK,Lacteos,Leche-Leche Líquida Blanca - Leche Liq. Natural
+YOGH,Lacteos,Yoghurt
+CLOT,Ropas y Calzados,Ropas
+FOOT,Ropas y Calzados,Calzados
+SOCK,Ropas y Calzados,Medias-Calcetines
+AREP,Alimentos,Arepas
+BCER,Alimentos,Cereales Infantiles
+BABF,Alimentos,Nutrición Infantil-Colados y Picados
+BEAN,Alimentos,Frijoles
+BISC,Alimentos,Galletas
+BOUI,Alimentos,Caldos-Caldos y Sazonadores
+BREA,Alimentos,Pan
+BRCR,Alimentos,Apanados-Empanizadores
+BRDC,Alimentos,Empanados
+CERE,Alimentos,Cereales-Cereales Desayuno-Avenas y Cereales
+BURG,Alimentos,Hamburguesas
+CCMX,Alimentos,Mezclas Listas para Tortas-Preparados Base Harina Trigo
+CAKE,Alimentos,Queques-Ponques Industrializados
+FISH,Alimentos,Conservas De Pescado
+CFAV,Alimentos,Conservas de Frutas y Verduras
+CRML,Alimentos,Dulce de Leche-Manjar
+CMLC,Alimentos,Alfajores
+CBAR,Alimentos,Barras de Cereal
+CHCK,Alimentos,Pollo
+CHOC,Alimentos,Chocolate
+COCO,Alimentos,Chocolate de Taza-Achocolatados - Cocoas
+COLS,Alimentos,Salsas Frías
+COMP,Alimentos,Compotas
+SPIC,Alimentos,Condimentos y Especias
+CKCH,Alimentos,Chocolate de Mesa
+COIL,Alimentos,Aceite-Aceites Comestibles
+CSAU,Alimentos,Salsas Listas-Salsas Caseras Envasadas
+CNML,Alimentos,"Grano, Harina y Masa de Maíz"
+CNST,Alimentos,Fécula de Maíz
+CNFL,Alimentos,Harina De Maíz
+CAID,Alimentos,Ayudantes Culinarios
+DESS,Alimentos,Postres Preparados
+DHAM,Alimentos,Jamón Endiablado
+DFNS,Alimentos,Semillas y Frutos Secos
+EBRE,Alimentos,Pan de Pascua
+EEGG,Alimentos,Huevos de Páscua
+EGGS,Alimentos,Huevos
+FLSS,Alimentos,Flash Cecinas
+FLOU,Alimentos,Harinas
+MEAT,Alimentos,Carne Fresca
+FRDS,Alimentos,Platos Listos Congelados
+FRFO,Alimentos,Alimentos Congelados
+HAMS,Alimentos,Jamones
+HCER,Alimentos,Cereales Calientes-Cereales Precocidos
+HOTS,Alimentos,Salsas Picantes
+ICEC,Alimentos,Helados
+IBRE,Alimentos,Pan Industrializado
+IMPO,Alimentos,Puré Instantáneo
+INOO,Alimentos,Fideos Instantáneos
+JAMS,Alimentos,Mermeladas
+KETC,Alimentos,Ketchup
+LJDR,Alimentos,Jugo de Limon Adereso
+MALT,Alimentos,Maltas
+SEAS,Alimentos,Adobos - Sazonadores
+MAYO,Alimentos,Mayonesa
+MEAT,Alimentos,Cárnicos
+MLKM,Alimentos,Modificadores de Leche-Saborizadores p-leche
+MXCO,Alimentos,Mixta Cereales Infantiles+Avenas
+MXBS,Alimentos,Mixta Caldos + Saborizantes
+MXSB,Alimentos,Mixta Caldos + Sopas
+MXCH,Alimentos,Mixta Cereales + Cereales Calientes
+MXCC,Alimentos,Mixta Chocolate + Manjar
+MXSN,Alimentos,"Galletas, snacks y mini tostadas"
+COBT,Alimentos,Aceites + Mantecas
+COCF,Alimentos,Aceites + Conservas De Pescado
+CABB,Alimentos,Ayudantes Culinarios + Bolsa de Hornear
+MXEC,Alimentos,Mixta Huevos de Páscua + Chocolates
+MXDP,Alimentos,Mixta Platos Listos Congelados + Pasta
+MXFR,Alimentos,Mixta Platos Congelados y Listos para Comer
+MXFM,Alimentos,Mixta Alimentos Congelados + Margarina
+MXMC,Alimentos,Mixta Modificadores + Cocoa
+MXPS,Alimentos,Mixta Pastas
+MXSO,Alimentos,Mixta Sopas+Cremas+Ramen
+MXSP,Alimentos,Mixta Margarina + Mayonesa + Queso Crema
+MXSW,Alimentos,Mixta Azúcar+Endulzantes
+MUST,Alimentos,Mostaza
+NDCR,Alimentos,Sustitutos de Crema
+NOOD,Alimentos,Fideos
+NUGG,Alimentos,Nuggets
+OAFL,Alimentos,Avena en hojuelas-liquidas
+OLIV,Alimentos,Aceitunas
+PANC,Alimentos,Tortilla
+PANE,Alimentos,Panetón
+PAST,Alimentos,Pastas
+PSAU,Alimentos,Salsas para Pasta
+PNOU,Alimentos,Turrón de maní
+PORK,Alimentos,Carne Porcina
+PPMX,Alimentos,Postres en Polvo-Postres para Preparar - Horneables-Gelificables
+PWSM,Alimentos,Leche de Soya en Polvo
+PCCE,Alimentos,Cereales Precocidos
+DOUG,Alimentos,Masas Frescas-Tapas Empanadas y Tarta
+PPIZ,Alimentos,Pre-Pizzas
+REFR,Alimentos,Meriendas listas
+RICE,Alimentos,Arroz
+RBIS,Alimentos,Galletas de Arroz
+RTEB,Alimentos,Frijoles Procesados
+RTEM,Alimentos,Pratos Prontos - Comidas Listas
+SDRE,Alimentos,Aderezos para Ensalada
+SALT,Alimentos,Sal
+SLTC,Alimentos,Galletas Saladas-Galletas No Dulce
+SARD,Alimentos,Sardina Envasada
+SAUS,Alimentos,Cecinas
+SCHN,Alimentos,Milanesas
+SNAC,Alimentos,Snacks
+SNOO,Alimentos,Fideos Sopa
+SOUP,Alimentos,Sopas-Sopas Cremas
+SOYS,Alimentos,Siyau
+SPAG,Alimentos,Tallarines-Spaguetti
+SPCH,Alimentos,Chocolate para Untar
+SUGA,Alimentos,Azucar
+SWCO,Alimentos,Galletas Dulces
+SWSP,Alimentos,Untables Dulces
+SWEE,Alimentos,Endulzantes
+TOAS,Alimentos,Torradas - Tostadas
+TOMA,Alimentos,Salsas de Tomate
+TUNA,Alimentos,Atún Envasado
+VMLK,Alimentos,Leche Vegetal
+WFLO,Alimentos,Harinas de trigo
+AIRC,Cuidado del Hogar,Ambientadores-Desodorante Ambiental
+BARS,Cuidado del Hogar,Jabón en Barra-Jabón de lavar
+BLEA,Cuidado del Hogar,Cloro-Lavandinas-Lejías-Blanqueadores
+CBLK,Cuidado del Hogar,Pastillas para Inodoro
+CGLO,Cuidado del Hogar,Guantes de látex
+CLSP,Cuidado del Hogar,Esponjas de Limpieza-Esponjas y paños
+CLTO,Cuidado del Hogar,Utensilios de Limpieza
+FILT,Cuidado del Hogar,Filtros de Café
+CRHC,Cuidado del Hogar,Cross Category (Limpiadores Domesticos)
+CRLA,Cuidado del Hogar,Cross Category (Lavandería)
+CRPA,Cuidado del Hogar,Cross Category (Productos de Papel)
+DISH,Cuidado del Hogar,Lavavajillas-Lavaplatos - Lavalozas mano
+DPAC,Cuidado del Hogar,Empaques domésticos-Bolsas plásticas-Plástico Adherente-Papel encerado-Papel aluminio
+DRUB,Cuidado del Hogar,Destapacañerias
+FBRF,Cuidado del Hogar,Perfumantes para Ropa-Perfumes para Ropa
+FWAX,Cuidado del Hogar,Cera p-pisos
+FDEO,Cuidado del Hogar,Desodorante para Pies
+FRNP,Cuidado del Hogar,Lustramuebles
+GBBG,Cuidado del Hogar,Bolsas de Basura
+GCLE,Cuidado del Hogar,Limpiadores verdes
+CLEA,Cuidado del Hogar,Limpiadores-Limpiadores y Desinfectantes
+INSE,Cuidado del Hogar,Insecticidas-Raticidas
+KITT,Cuidado del Hogar,Toallas de papel-Papel Toalla - Toallas de Cocina - Rollos Absorbentes de Papel
+LAUN,Cuidado del Hogar,Detergentes para ropa
+LSTA,Cuidado del Hogar,Apresto
+MXBC,Cuidado del Hogar,Mixta Pastillas para Inodoro + Limpiadores
+MXHC,Cuidado del Hogar,Mixta Home Care-Cloro-Limpiadores-Ceras-Ambientadores
+MXCB,Cuidado del Hogar,Mixta Limpiadores + Cloro
+MXLB,Cuidado del Hogar,Mixta Detergentes + Cloro
+MXLD,Cuidado del Hogar,Mixta Detergentes + Lavavajillas
+CRTO,Cuidado del Hogar,Pañitos + Papel Higienico
+NAPK,Cuidado del Hogar,Servilletas
+PLWF,Cuidado del Hogar,Film plastico e papel aluminio
+SCOU,Cuidado del Hogar,Esponjas de Acero
+SOFT,Cuidado del Hogar,Suavizantes de Ropa
+STRM,Cuidado del Hogar,Quitamanchas-Desmanchadores
+TOIP,Cuidado del Hogar,Papel Higiénico
+WIPE,Cuidado del Hogar,Paños de Limpieza
+ANLG,OTC,Analgésicos-Painkillers
+FSUP,OTC,Suplementos alimentares
+GMED,OTC,Gastrointestinales-Efervescentes
+VITA,OTC,Vitaminas y Calcio
+nan,Otros,Categoría Desconocida
+BATT,Otros,Pilas-Baterías
+CGAS,Otros,Combustible Gas
+PFHH,Otros,Panel Financiero de Hogares
+PFIN,Otros,Panel Financiero de Hogares
+INKC,Otros,Cartuchos de Tintas
+PETF,Otros,Alimento para Mascota-Alim.p - perro - gato
+TELE,Otros,Telecomunicaciones - Convergencia
+TILL,Otros,Tickets - Till Rolls
+TOBA,Otros,Tabaco - Cigarrillos
+ADIP,Cuidado Personal,Incontinencia de Adultos
+BSHM,Cuidado Personal,Shampoo Infantil
+RAZO,Cuidado Personal,Maquinas de Afeitar
+BDCR,Cuidado Personal,Cremas Corporales
+CWIP,Cuidado Personal,Paños Húmedos
+COMB,Cuidado Personal,Cremas para Peinar
+COND,Cuidado Personal,Acondicionador-Bálsamo
+CRHY,Cuidado Personal,Cross Category (Higiene)
+CRPC,Cuidado Personal,Cross Category (Personal Care)
+DEOD,Cuidado Personal,Desodorantes
+DIAP,Cuidado Personal,Pañales-Pañales Desechables
+FCCR,Cuidado Personal,Cremas Faciales
+FTIS,Cuidado Personal,Pañuelos Faciales
+FEMI,Cuidado Personal,Protección Femenina-Toallas Femeninas
+FRAG,Cuidado Personal,Fragancias
+HAIR,Cuidado Personal,Cuidado del Cabello-Hair Care
+HRCO,Cuidado Personal,Tintes para el Cabello-Tintes - Tintura - Tintes y Coloración para el cabello
+HREM,Cuidado Personal,Depilación
+HRST,Cuidado Personal,Alisadores para el Cabello
+HSTY,Cuidado Personal,Fijadores para el Cabello-Modeladores-Gel-Fijadores para el cabello
+HRTR,Cuidado Personal,Tratamientos para el Cabello
+LINI,Cuidado Personal,Óleo Calcáreo
+MAKE,Cuidado Personal,Maquillaje-Cosméticos
+MEDS,Cuidado Personal,Jabón Medicinal
+CRDT,Cuidado Personal,Pañitos + Pañales
+MXMH,Cuidado Personal,Mixta Make Up+Tinturas
+MOWA,Cuidado Personal,Enjuague Bucal-Refrescante Bucal
+ORAL,Cuidado Personal,Cuidado Bucal
+SPAD,Cuidado Personal,Protectores Femeninos
+STOW,Cuidado Personal,Toallas Femininas
+SHAM,Cuidado Personal,Shampoo
+SHAV,Cuidado Personal,Afeitado-Crema afeitar-Loción de afeitar-Pord. Antes del afeitado
+SKCR,Cuidado Personal,Cremas Faciales y Corporales-Cremas de Belleza - Cremas Cuerp y Faciales
+SUNP,Cuidado Personal,Protección Solar
+TALC,Cuidado Personal,Talcos-Talco para pies
+TAMP,Cuidado Personal,Tampones Femeninos
+TOIL,Cuidado Personal,Jabón de Tocador
+TOOB,Cuidado Personal,Cepillos Dentales
+TOOT,Cuidado Personal,Pastas Dentales
+BAGS,Material Escolar,Morrales y MAletas Escoalres
+CLPC,Material Escolar,Lapices de Colores
+GRPC,Material Escolar,Lapices De Grafito
+MRKR,Material Escolar,Marcadores
+NTBK,Material Escolar,Cuadernos
+SCHS,Material Escolar,Útiles Escolares
+CSTD,Diversos,Estudio de Categorías
+CORP,Diversos,Corporativa
+CROS,Diversos,Cross Category
+CRBA,Diversos,Cross Category (Bebés)
+CRBR,Diversos,"Cross Category (Desayuno)-Yogurt, Cereal, Pan y Queso"
+CRDT,Diversos,Cross Category (Diet y Light)
+CRDF,Diversos,Cross Category (Alimentos Secos)
+CRFO,Diversos,Cross Category (Alimentos)
+CRSA,Diversos,Cross Category (Salsas)-Mayonesas-Ketchup - Salsas Frías
+CRSN,Diversos,Cross Category (Snacks)
+DEMO,Diversos,Demo
+FLSH,Diversos,Flash
+HLVW,Diversos,Holistic View
+COCP,Diversos,Mezcla para café instantaneo y crema no láctea
+CRSN,Diversos,Mezclas nutricionales y suplementos
+MULT,Diversos,Consolidado-Multicategory
+PCHK,Diversos,Pantry Check
+STCK,Diversos,Inventario
+MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Líquida Blanca
+FLWT,Alimentos,Agua Saborizada
+"""
 
-    #obtém o país,categoria,cesta e fabricante para template e ppt
+categ = pd.read_csv(io.StringIO(CATEG_CSV_DATA), dtype={'cod': str, 'cest': str, 'cat': str})
+
+
+#obtém o país,categoria,cesta e fabricante para template e ppt
 
 base_dir = Path(__file__).resolve().parent
 
