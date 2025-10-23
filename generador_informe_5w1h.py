@@ -586,14 +586,17 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
     ax.set_ylim(bottom=0)
     ax.margins(x=chart_x_margin, y=0.08)
 
+    legend_bottom_margin = chart_bottom_margin
     if lns:
-        legend_columns = max(1, math.ceil(len(legend_labels) / 2))
+        max_columns = 3 if detected_multi else 4
+        legend_columns = max(1, min(len(legend_labels), max_columns))
+        legend_offset = 0.24 if detected_multi else 0.2
         legend = ax.legend(
             lns,
             legend_labels,
-            loc='upper left',
-            bbox_to_anchor=(0, 1),
-            borderaxespad=0.3,
+            loc='upper center',
+            bbox_to_anchor=(0.5, -legend_offset),
+            borderaxespad=0,
             frameon=True,
             prop={'size': legend_base_size},
             ncol=legend_columns,
@@ -602,11 +605,15 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
         frame.set_facecolor('white')
         frame.set_edgecolor('#D3D3D3')
         frame.set_alpha(0.85)
+        legend_bottom_margin += legend_offset + 0.05
 
     plt.title(title, size=title_base_size, pad=10)
+    bottom_margin = min(0.9, max(0.05, legend_bottom_margin))
+    if bottom_margin >= chart_top_margin:
+        bottom_margin = max(0.05, chart_top_margin - 0.05)
     fig.subplots_adjust(
         top=chart_top_margin,
-        bottom=chart_bottom_margin,
+        bottom=bottom_margin,
         left=chart_left_margin,
         right=chart_right_margin,
     )
