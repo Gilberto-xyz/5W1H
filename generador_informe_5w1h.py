@@ -361,7 +361,7 @@ def graf_mat (mat,c_fig,p):
 
 
 #Grafico de Lineas
-def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_chart=None):
+def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_chart=None, share_lookup=None):
     """
     Renderiza la gráfica de tendencias y devuelve un buffer PNG listo para insertar en la slide.
     Cuando se generan múltiples gráficos en la misma diapositiva (multi_chart=True), se aplican
@@ -493,6 +493,8 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
     lns = []
     legend_labels = []
     numeric_series_list = []
+    plotted_columns = []
+    series_points = {}
     for col in colunas:
         if ven > 1:
             estilo = '-' if '.v' in col.lower() else '--'
@@ -509,6 +511,7 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
         valid_points = [(x_idx, y_val) for x_idx, y_val in zip(x_slice, y_slice) if pd.notna(y_val)]
         if not valid_points:
             continue
+        series_points[col] = valid_points
 
         suffix_map = {".c": "Compras", ".v": "Ventas", "_c": "Compras", "_v": "Ventas", "-c": "Compras", "-v": "Ventas"}
         lower_col = col.lower()
@@ -533,6 +536,7 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
         )
         lns.append(line)
         legend_labels.append(legend_label)
+        plotted_columns.append(col)
 
 
     if data_len and start_idx < data_len:
@@ -718,6 +722,87 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
             if no_layout_change:
                 break
 
+    if plotted_columns and share_lookup:
+        legend_label_map = {col: label for col, label in zip(plotted_columns, legend_labels)}
+        annotation_candidates = []
+        share_lookup_lower = {str(key).lower(): value for key, value in share_lookup.items()} if share_lookup else {}
+        for col, line in zip(plotted_columns, lns):
+            points = series_points.get(col)
+            if not points:
+                continue
+            last_x, last_y = points[-1]
+            share_value = share_lookup.get(col)
+            if share_value is None:
+                share_value = share_lookup_lower.get(str(col).lower())
+            annotation_candidates.append({
+                "column": col,
+                "line": line,
+                "legend": legend_label_map.get(col, col),
+                "share": share_value,
+                "last_x": last_x,
+                "last_y": last_y,
+                "color": line.get_color(),
+            })
+
+        total_series = len(annotation_candidates)
+        if total_series:
+            if total_series < 10:
+                selected_series = annotation_candidates
+            else:
+                with_share = [info for info in annotation_candidates if info["share"] is not None]
+                without_share = [info for info in annotation_candidates if info["share"] is None]
+                with_share.sort(key=lambda info: info["share"], reverse=True)
+                selected_series = with_share[:5]
+                if len(selected_series) < 5:
+                    remaining = [info for info in annotation_candidates if info not in selected_series]
+                    selected_series.extend(remaining[: max(0, 5 - len(selected_series))])
+
+            if selected_series:
+                x_limits = ax.get_xlim()
+                y_limits = ax.get_ylim()
+                y_range = y_limits[1] - y_limits[0] if y_limits[1] > y_limits[0] else 1.0
+                min_gap = y_range * 0.04
+                min_margin = y_range * 0.02
+                x_range = x_limits[1] - x_limits[0] if x_limits[1] > x_limits[0] else 1.0
+                x_offset = max(0.8, x_range * 0.06)
+
+                arranged_series = sorted(selected_series, key=lambda info: info["last_y"], reverse=True)
+                placed_positions = []
+                y_max = y_limits[1] - min_margin
+                y_min = y_limits[0] + min_margin
+                for info in arranged_series:
+                    y_pos = max(min(info["last_y"], y_max), y_min)
+                    for prev_y in placed_positions:
+                        if y_pos > prev_y - min_gap:
+                            y_pos = prev_y - min_gap
+                    y_pos = max(y_pos, y_min)
+                    placed_positions.append(y_pos)
+                    info["label_y"] = y_pos
+                    info["label_x"] = info["last_x"] + x_offset
+
+                max_label_x = max(info["label_x"] for info in arranged_series)
+                if max_label_x > x_limits[1]:
+                    ax.set_xlim(x_limits[0], max_label_x + x_offset * 1.15)
+
+                size_factor = 0.7 if detected_multi else 0.8
+                min_size = 6 if detected_multi else 7
+                label_font_size = max(min_size, int(legend_base_size * size_factor))
+                bbox_props = dict(facecolor='white', edgecolor='none', alpha=0.85, boxstyle='round,pad=0.2')
+                for info in arranged_series:
+                    text_value = info["legend"]
+                    ax.text(
+                        info["label_x"],
+                        info["label_y"],
+                        text_value,
+                        ha='left',
+                        va='center',
+                        color=info["color"],
+                        fontsize=label_font_size,
+                        fontweight='bold',
+                        bbox=bbox_props,
+                        clip_on=False,
+                    )
+
     img_stream = io.BytesIO()
     fig.savefig(img_stream, format='png', transparent=True)
     img_stream.seek(0)
@@ -768,6 +853,24 @@ def aporte(df,p,lang,tipo):
             apo.drop(columns=invalid_columns, inplace=True)
 
         apo.attrs["removed_columns"] = list(dict.fromkeys(invalid_columns))
+
+        share_mat_values = {}
+        current_share_row_index = 1
+        if current_share_row_index < len(apo.index):
+            for col_idx in range(1, len(apo.columns)):
+                column_name = str(apo.columns[col_idx])
+                value = apo.iloc[current_share_row_index, col_idx]
+                numeric_value = None
+                try:
+                    numeric_value = float(value)
+                except (TypeError, ValueError):
+                    try:
+                        numeric_value = float(str(value).replace('%', '').replace(',', '.')) / 100.0
+                    except Exception:
+                        numeric_value = None
+                if numeric_value is not None and np.isfinite(numeric_value):
+                    share_mat_values[column_name] = numeric_value
+        apo.attrs["share_mat_values"] = share_mat_values
 
         #Formatação do volume
         apo.iloc[:2, 1:] = apo.iloc[:2, 1:].applymap(lambda x: f"{round(x * 100, 1)}%")
@@ -1461,10 +1564,14 @@ for w in W:
         vertical_spacing = Cm(0.2)
 
         removed_headers = []
+        series_share_lookup = {}
 
         for idx, serie in enumerate(series_configs):
             apo = aporte(serie.data.copy(), serie.pipeline, lang, serie.raw_tipo)
             removed_headers.extend(apo.attrs.get("removed_columns", []))
+            share_values = apo.attrs.get("share_mat_values", {})
+            if share_values:
+                series_share_lookup.update(share_values)
             c_fig += 1
             # Si hay dos tablas, ambas se posicionan a la misma altura y ocupan el espacio óptimo
             if len(series_configs) == 2:
@@ -1513,7 +1620,7 @@ for w in W:
             left_margin = Inches(0.33)
             right_margin = Inches(0.33)
             available_line_width = available_width(ppt, left_margin, right_margin)
-            pic=slide.shapes.add_picture(line_graf(df_full,pipeline_combined,titulo,c_fig,len(series_configs), width_emu=available_line_width, height_emu=Cm(10)), left_margin, Inches(1.15),width=available_line_width,height=Cm(10))
+            pic=slide.shapes.add_picture(line_graf(df_full,pipeline_combined,titulo,c_fig,len(series_configs), width_emu=available_line_width, height_emu=Cm(10), share_lookup=series_share_lookup), left_margin, Inches(1.15),width=available_line_width,height=Cm(10))
         elif plot=="2" and len(series_configs)>1:
             ven_param = max(len(series_configs)-1, 1)
             left_margin = Inches(0.33)
@@ -1534,14 +1641,14 @@ for w in W:
             for idx, serie in enumerate(series_configs):
                 c_fig+=1
                 left_position = left_margin + idx * (chart_width + int(gap))
-                pic=slide.shapes.add_picture(line_graf(serie.data,serie.pipeline,titulo+' '+serie.display_tipo,c_fig,ven_param, width_emu=chart_width, height_emu=Cm(10), multi_chart=True), left_position, Inches(1.15),width=chart_width,height=Cm(10))
+                pic=slide.shapes.add_picture(line_graf(serie.data,serie.pipeline,titulo+' '+serie.display_tipo,c_fig,ven_param, width_emu=chart_width, height_emu=Cm(10), multi_chart=True, share_lookup=series_share_lookup), left_position, Inches(1.15),width=chart_width,height=Cm(10))
                 plt.clf()
         elif series_configs:
             c_fig+=1
             left_margin = Inches(0.33)
             right_margin = Inches(0.33)
             available_single_width = available_width(ppt, left_margin, right_margin)
-            pic=slide.shapes.add_picture(line_graf(series_configs[0].data,series_configs[0].pipeline,titulo,c_fig,len(series_configs), width_emu=available_single_width, height_emu=Cm(10)), left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
+            pic=slide.shapes.add_picture(line_graf(series_configs[0].data,series_configs[0].pipeline,titulo,c_fig,len(series_configs), width_emu=available_single_width, height_emu=Cm(10), share_lookup=series_share_lookup), left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
             plt.clf()
         if w[0] in ['3','5']:
             print_colored(c_w[(lang,w[0]+'-'+w[-1])]+' realizado para ' + w[2:-2], COLOR_GREEN) 
@@ -1610,4 +1717,5 @@ fim = dt.now()
 
 t = int((fim - agora).total_seconds())
 print_colored(f'Tiempo de ejecucion : {t//60} min {t%60} s' if t >= 60 else f'Tiempo de ejecucion : {t} s', COLOR_BLUE)
+
 
