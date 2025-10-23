@@ -952,15 +952,21 @@ def graf_apo(apo,c_fig):
 
     for df_row_idx in volume_row_indexes:
         table_row = df_row_idx + 1
+        row_percentages = {}
+        max_percent = 0.0
+        for col in data_columns:
+            percent = to_percentage(apo.iloc[df_row_idx, col])
+            row_percentages[col] = percent
+            if percent is not None and percent > max_percent:
+                max_percent = percent
         for rel_idx, col in enumerate(data_columns):
-            raw_value = apo.iloc[df_row_idx, col]
-            percent = to_percentage(raw_value)
+            percent = row_percentages.get(col)
             if percent is None:
                 continue
             cell = table[(table_row, col)]
             bar_color = column_colors[rel_idx] if rel_idx < len(column_colors) else VOLUME_BAR_END
             base_rgb = np.array(mcolors.to_rgb(bar_color))
-            intensity = min(percent, 1.0)
+            intensity = min(percent / max_percent, 1.0) if max_percent > 0 else 0.0
             blended_rgb = white_rgb * (1.0 - intensity) + base_rgb * intensity
             cell.set_facecolor(blended_rgb)
             cell.get_text().set_color(TABLE_TEXT_PRIMARY)
