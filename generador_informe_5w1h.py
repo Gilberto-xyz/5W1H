@@ -128,6 +128,7 @@ TREND_COLOR_PALETTE = {
 }
 TREND_COLOR_SEQUENCE = list(TREND_COLOR_PALETTE.values())
 TABLE_WRAP_WIDTH = 14
+DISPLAY_TREND_REFERENCE_TEXT = False
 
 TREND_SCALE_RULES = [
     {
@@ -566,7 +567,7 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
 
     ax.yaxis.set_major_formatter(FuncFormatter(_trend_tick_formatter))
 
-    if suffix:
+    if DISPLAY_TREND_REFERENCE_TEXT and suffix:
         reference_template = scale_rule.get("reference", {})
         reference_text = reference_template.get(lang, reference_template.get('default', '')).strip()
         if reference_text:
