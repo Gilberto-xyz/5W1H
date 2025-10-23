@@ -10,6 +10,7 @@ from datetime import datetime as dt
 import os
 import io
 import math
+import textwrap
 from matplotlib import pyplot as plt
 from datetime import datetime as dt
 from matplotlib.ticker import FuncFormatter
@@ -126,6 +127,7 @@ TREND_COLOR_PALETTE = {
     'trend_70': '#3F51B5'
 }
 TREND_COLOR_SEQUENCE = list(TREND_COLOR_PALETTE.values())
+TABLE_WRAP_WIDTH = 14
 
 TREND_SCALE_RULES = [
     {
@@ -225,10 +227,39 @@ def available_width(presentation, left=Inches(0), right=Inches(0)):
 EMU_PER_INCH = 914400
 DEFAULT_LINE_CHART_RATIO = 3
 TABLE_TARGET_HEIGHT_CM = 4.0
+TABLE_HEADER_FONT_SIZE = 10
+TABLE_WRAP_WIDTH = 14
+
+LINE_CHART_LEFT_MARGIN = 0.045
+LINE_CHART_RIGHT_MARGIN = 0.99
+LINE_CHART_BOTTOM_MARGIN = 0.1
+LINE_CHART_TOP_MARGIN = 0.9
+LINE_CHART_SINGLE_X_MARGIN = 0.16
+
+LINE_CHART_MULTI_LEFT_MARGIN = 0.08
+LINE_CHART_MULTI_RIGHT_MARGIN = 0.98
+LINE_CHART_MULTI_BOTTOM_MARGIN = 0.12
+LINE_CHART_MULTI_TOP_MARGIN = 0.85
+LINE_CHART_MULTI_X_MARGIN = 0.16
 
 
 def emu_to_inches(value: int) -> float:
     return float(value) / EMU_PER_INCH
+
+
+def wrap_table_text(value, max_width: int = TABLE_WRAP_WIDTH):
+    """
+    Return the given value with soft line breaks so long strings wrap nicely inside table cells.
+    Keeps non-string values intact.
+    """
+    if not isinstance(value, str):
+        return value
+    normalized = " ".join(value.split())
+    if not normalized:
+        return ""
+    if len(normalized) <= max_width or " " not in normalized:
+        return normalized
+    return textwrap.fill(normalized, width=max_width, break_long_words=False)
 
 
 pd.set_option('future.no_silent_downcasting', True)
@@ -329,7 +360,38 @@ def graf_mat (mat,c_fig,p):
 
 
 #Grafico de Lineas
-def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None):
+def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_chart=None):
+    """
+    Renderiza la gráfica de tendencias y devuelve un buffer PNG listo para insertar en la slide.
+    Cuando se generan múltiples gráficos en la misma diapositiva (multi_chart=True), se aplican
+    márgenes más amplios para evitar recortes visuales.
+    """
+    if width_emu is not None:
+        try:
+            planned_width = emu_to_inches(width_emu)
+        except Exception:
+            planned_width = None
+    else:
+        planned_width = None
+
+    if multi_chart is None:
+        detected_multi = planned_width is not None and planned_width < 6.0
+    else:
+        detected_multi = bool(multi_chart)
+
+    if detected_multi:
+        chart_top_margin = LINE_CHART_MULTI_TOP_MARGIN
+        chart_bottom_margin = LINE_CHART_MULTI_BOTTOM_MARGIN
+        chart_left_margin = LINE_CHART_MULTI_LEFT_MARGIN
+        chart_right_margin = LINE_CHART_MULTI_RIGHT_MARGIN
+        chart_x_margin = LINE_CHART_MULTI_X_MARGIN
+    else:
+        chart_top_margin = LINE_CHART_TOP_MARGIN
+        chart_bottom_margin = LINE_CHART_BOTTOM_MARGIN
+        chart_left_margin = LINE_CHART_LEFT_MARGIN
+        chart_right_margin = LINE_CHART_RIGHT_MARGIN
+        chart_x_margin = LINE_CHART_SINGLE_X_MARGIN
+
     # Ajusta o tamanho da figura para combinar com o espaco reservado no slide
     width_inches = emu_to_inches(width_emu) if width_emu is not None else None
     height_inches = emu_to_inches(height_emu) if height_emu is not None else None
@@ -522,7 +584,7 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None):
             )
 
     ax.set_ylim(bottom=0)
-    ax.margins(y=0.08)
+    ax.margins(x=chart_x_margin, y=0.08)
 
     if lns:
         legend_columns = max(1, math.ceil(len(legend_labels) / 2))
@@ -542,7 +604,12 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None):
         frame.set_alpha(0.85)
 
     plt.title(title, size=title_base_size, pad=10)
-    fig.subplots_adjust(top=0.85, bottom=0.18, left=0.08, right=0.98)
+    fig.subplots_adjust(
+        top=chart_top_margin,
+        bottom=chart_bottom_margin,
+        left=chart_left_margin,
+        right=chart_right_margin,
+    )
 
     img_stream = io.BytesIO()
     fig.savefig(img_stream, format='png', transparent=True)
@@ -617,9 +684,14 @@ def graf_apo(apo,c_fig):
     ax.axis('off')
     ax.set_facecolor('white')
 
+    display_data = apo.copy()
+    if display_data.shape[1] > 0:
+        display_data.iloc[:, 0] = display_data.iloc[:, 0].map(wrap_table_text)
+    display_col_labels = [wrap_table_text(str(label)) for label in apo.columns]
+
     table = ax.table(
-        cellText=apo.values,
-        colLabels=apo.columns,
+        cellText=display_data.values,
+        colLabels=display_col_labels,
         loc='center',
         cellLoc='center'
     )
@@ -629,7 +701,7 @@ def graf_apo(apo,c_fig):
 
     table.scale(1, 1.2)
     table.auto_set_font_size(False)
-    table.set_fontsize(11)
+    table.set_fontsize(10)
 
     header_main = HEADER_COLOR_PRIMARY
     header_secondary = HEADER_COLOR_SECONDARY
@@ -693,6 +765,7 @@ def graf_apo(apo,c_fig):
         if row == 0:
             text = cell.get_text()
             text.set_weight('bold')
+            text.set_fontsize(TABLE_HEADER_FONT_SIZE)
             text.set_color(HEADER_FONT_COLOR)
             if col == 0 or (total_column_name is not None and apo.columns[col] == total_column_name):
                 cell.set_facecolor(header_main)
@@ -1348,7 +1421,7 @@ for w in W:
             for idx, serie in enumerate(series_configs):
                 c_fig+=1
                 left_position = left_margin + idx * (chart_width + int(gap))
-                pic=slide.shapes.add_picture(line_graf(serie.data,serie.pipeline,titulo+' '+serie.display_tipo,c_fig,ven_param, width_emu=chart_width, height_emu=Cm(10)), left_position, Inches(1.15),width=chart_width,height=Cm(10))
+                pic=slide.shapes.add_picture(line_graf(serie.data,serie.pipeline,titulo+' '+serie.display_tipo,c_fig,ven_param, width_emu=chart_width, height_emu=Cm(10), multi_chart=True), left_position, Inches(1.15),width=chart_width,height=Cm(10))
                 plt.clf()
         elif series_configs:
             c_fig+=1
