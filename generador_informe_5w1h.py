@@ -12,10 +12,10 @@ import io
 import math
 import textwrap
 from matplotlib import pyplot as plt
-from datetime import datetime as dt
 from matplotlib.ticker import FuncFormatter
 from matplotlib import colors as mcolors
 from matplotlib.patches import Rectangle
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
 from pptx import Presentation 
 from pptx.util import Inches, Cm, Pt
@@ -586,26 +586,25 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
     ax.set_ylim(bottom=0)
     ax.margins(x=chart_x_margin, y=0.08)
 
+    legend_gap_base = 0.025 if detected_multi else 0.02
     legend_bottom_margin = chart_bottom_margin
+    legend_columns = 1
+    legend_rows = 1
+    legend_height_fraction = 0.0
+    margin_buffer = 0.01
     if lns:
         max_columns = 3 if detected_multi else 4
         legend_columns = max(1, min(len(legend_labels), max_columns))
-        legend_offset = 0.24 if detected_multi else 0.2
-        legend = ax.legend(
-            lns,
-            legend_labels,
-            loc='upper center',
-            bbox_to_anchor=(0.5, -legend_offset),
-            borderaxespad=0,
-            frameon=True,
-            prop={'size': legend_base_size},
-            ncol=legend_columns,
-        )
-        frame = legend.get_frame()
-        frame.set_facecolor('white')
-        frame.set_edgecolor('#D3D3D3')
-        frame.set_alpha(0.85)
-        legend_bottom_margin += legend_offset + 0.05
+        legend_rows = max(1, math.ceil(len(legend_labels) / legend_columns))
+        legend_font_points = legend_base_size
+        legend_line_height_points = legend_font_points * 1.35
+        legend_height_inches = (legend_line_height_points / 72.0) * legend_rows
+        figure_height_inches = fig.get_size_inches()[1]
+        legend_height_fraction = legend_height_inches / figure_height_inches if figure_height_inches else 0.0
+        legend_bottom_margin = max(
+            chart_bottom_margin,
+            legend_height_fraction + legend_gap_base
+        ) + margin_buffer
 
     plt.title(title, size=title_base_size, pad=10)
     bottom_margin = min(0.9, max(0.05, legend_bottom_margin))
@@ -617,6 +616,106 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
         left=chart_left_margin,
         right=chart_right_margin,
     )
+
+    if lns:
+        axes_height = ax.get_position().height
+        axes_height = axes_height if axes_height > 0 else 1e-3
+        legend_gap_fraction = legend_gap_base
+        legend_offset_axes = legend_gap_fraction / axes_height
+        legend_offset_axes = max(0.0, min(0.35, legend_offset_axes))
+        legend = ax.legend(
+            lns,
+            legend_labels,
+            loc='upper left',
+            bbox_to_anchor=(0.0, -legend_offset_axes, 1.0, 0.0),
+            borderaxespad=0.0,
+            frameon=True,
+            prop={'size': legend_base_size},
+            ncol=legend_columns,
+            mode='expand',
+        )
+        frame = legend.get_frame()
+        frame.set_facecolor('white')
+        frame.set_edgecolor('#D3D3D3')
+        frame.set_alpha(0.85)
+
+        try:
+            if fig.canvas is None:
+                FigureCanvas(fig)
+        except Exception:
+            pass
+
+        adjustment_iterations = 0
+        while adjustment_iterations < 4:
+            adjustment_iterations += 1
+            try:
+                fig.canvas.draw()
+                renderer = fig.canvas.get_renderer()
+            except Exception:
+                break
+
+            figure_height_px = fig.get_size_inches()[1] * fig.dpi
+            if not figure_height_px:
+                break
+
+            legend_bbox = legend.get_window_extent(renderer)
+            tick_bboxes = [
+                label.get_window_extent(renderer)
+                for label in ax.get_xticklabels()
+                if label.get_text()
+            ]
+
+            tick_height_fraction = 0.0
+            min_tick_bottom = None
+            if tick_bboxes:
+                tick_height_fraction = max(bbox.height for bbox in tick_bboxes) / figure_height_px
+                min_tick_bottom = min(bbox.y0 for bbox in tick_bboxes)
+
+            clearance_px = max(4.0, 4.0 * scale)
+            clearance_fraction = clearance_px / figure_height_px
+            desired_gap_fraction = legend_gap_base + tick_height_fraction + clearance_fraction
+
+            if min_tick_bottom is not None:
+                overlap_px = legend_bbox.y1 - (min_tick_bottom - clearance_px)
+                if overlap_px > 0:
+                    desired_gap_fraction += overlap_px / figure_height_px
+
+            required_bottom_margin = max(chart_bottom_margin, legend_height_fraction + desired_gap_fraction) + margin_buffer
+            if legend_bbox.y0 < 0:
+                required_bottom_margin = max(
+                    required_bottom_margin,
+                    bottom_margin + (-legend_bbox.y0 + clearance_px) / figure_height_px
+                )
+
+            required_bottom_margin = min(0.9, required_bottom_margin)
+            if required_bottom_margin >= chart_top_margin:
+                required_bottom_margin = max(0.05, chart_top_margin - 0.05)
+
+            axes_height = ax.get_position().height
+            axes_height = axes_height if axes_height > 0 else 1e-3
+            new_offset_axes = desired_gap_fraction / axes_height
+            new_offset_axes = max(0.0, min(0.45, new_offset_axes))
+
+            no_layout_change = (
+                abs(required_bottom_margin - bottom_margin) < 1e-4 and
+                abs(new_offset_axes - legend_offset_axes) < 1e-4
+            )
+
+            bottom_margin = required_bottom_margin
+            fig.subplots_adjust(
+                top=chart_top_margin,
+                bottom=bottom_margin,
+                left=chart_left_margin,
+                right=chart_right_margin,
+            )
+
+            axes_height = ax.get_position().height
+            axes_height = axes_height if axes_height > 0 else 1e-3
+            legend_offset_axes = max(0.0, min(0.45, desired_gap_fraction / axes_height))
+            legend.set_bbox_to_anchor((0.0, -legend_offset_axes, 1.0, 0.0))
+
+            if no_layout_change:
+                break
 
     img_stream = io.BytesIO()
     fig.savefig(img_stream, format='png', transparent=True)
