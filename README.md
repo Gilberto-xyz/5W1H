@@ -1,7 +1,7 @@
 # 5W1H - Reporte Automatizado desde Excel a PowerPoint 
 
 ## Descripcion general
-El script `WWWWWH.py` genera presentaciones de apoyo para estudios 5W1H a partir de libros de Excel estructurados. Automatiza la creacion de graficos MAT, lineas de compras y ventas, tablas de aporte y la cubierta de presentaciones PowerPoint basadas en la plantilla `Modelo_5W1H.pptx`.
+El script `generador_informe_5w1h.py` genera presentaciones de apoyo para estudios 5W1H a partir de libros de Excel estructurados. Automatiza la creacion de graficos MAT, lineas de compras y ventas, tablas de aporte y la cubierta de presentaciones PowerPoint basadas en la plantilla `Modelo_5W1H.pptx`.
 
 ## Librerias y dependencias
 - Python 3.10 o superior
@@ -18,16 +18,16 @@ pip install pandas numpy matplotlib python-pptx openpyxl
 ```
 
 ## Archivos del proyecto
-- `WWWWWH.py`: script principal que lee los datos y arma la presentacion final.
+- `generador_informe_5w1h.py`: script principal que lee los datos y arma la presentacion final.
 - `Instrucciones de llenado.txt`: guia para preparar cada hoja del libro de Excel 5W1H.
-- `Modelo_5W1H.pptx`: plantilla requerida por el script (debe ubicarse en el mismo directorio que `WWWWWH.py`).
+- `Modelo_5W1H.pptx`: plantilla requerida por el script (debe ubicarse en el mismo directorio que `generador_informe_5w1h.py`).
 - `<codPais>_<codCategoria>_<cliente>.xlsx`: libro de entrada con las hojas 5W1H. Se pueden colocar varios libros en el mismo directorio; el script permite elegir cual procesar.
 
 ## Preparacion de archivos de entrada
 ### Nombre del archivo Excel
 - Use la estructura `<codPais>_<codCategoria>_<cliente>.xlsx`.
 - Los codigos de pais y categoria deben existir en los diccionarios internos del script (`pais` y `categ`). Por ejemplo `54_BISC_Cliente.xlsx` usa el pais Argentina (54) y la categoria "BISC".
-- Coloque el libro en el mismo directorio que `WWWWWH.py` y la plantilla.
+- Coloque el libro en el mismo directorio que `generador_informe_5w1h.py` y la plantilla.
 
 ### Nombres y estructura de las hojas (pestanas)
 - Cada hoja debe seguir el patron `X_ALVO_DEL_5W_Y`:
@@ -65,8 +65,8 @@ pip install pandas numpy matplotlib python-pptx openpyxl
 
 ## Ejecucion paso a paso
 1. Instale las dependencias arriba indicadas.
-2. Coloque `WWWWWH.py`, `Modelo_5W1H.pptx`, `Instrucciones de llenado.txt` y el libro de Excel 5W1H en la misma carpeta.
-3. Abra una terminal en dicha carpeta y ejecute `python WWWWWH.py`.
+2. Coloque `generador_informe_5w1h.py`, `Modelo_5W1H.pptx`, `Instrucciones de llenado.txt` y el libro de Excel 5W1H en la misma carpeta.
+3. Abra una terminal en dicha carpeta y ejecute `python generador_informe_5w1h.py`.
 4. Si hay varios libros `.xlsx`, el script mostrara una lista para que elija cual procesar. Si solo hay uno se selecciona automaticamente.
 5. Seleccione el modo de graficacion para ventas cuando el script lo solicite:
    - `1` une compras y ventas en un solo grafico de lineas.
@@ -83,7 +83,7 @@ pip install pandas numpy matplotlib python-pptx openpyxl
 
 ## Notas y diagnostico rapido
 - El script imprime mensajes en color para facilitar el seguimiento (usar una terminal que soporte ANSI).
-- Si aparece un error relacionado con codigos de pais o categoria revise que el nombre del archivo Excel use los codigos definidos en `WWWWWH.py`.
+- Si aparece un error relacionado con codigos de pais o categoria revise que el nombre del archivo Excel use los codigos definidos en `generador_informe_5w1h.py`.
 - Errores de lectura de fechas suelen deberse a formatos distintos de `mmm-yy`; ajuste las celdas antes de ejecutar el script.
 - El tiempo de ejecucion se muestra al final en segundos o minutos.
 # 5W1H

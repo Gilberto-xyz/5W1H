@@ -1,0 +1,26 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS-specific noise
+.DS_Store
+Thumbs.db
+
+# Office documents generated locally
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.csv
+*.ppt
+*.pptx
+*.odp
+
+# Editor settings
+.idea/
+.vscode/
