@@ -1971,6 +1971,16 @@ for w in W:
         removed_headers = []
         series_share_lookup = {}
         stacked_share_sources = []
+        should_collect_share = False
+        if w:
+            first_char = w[0]
+            last_char = w[-1]
+            if first_char == '6':
+                should_collect_share = True
+            elif first_char == '3' and last_char in {'1', '2'}:
+                should_collect_share = True
+            elif first_char == '5' and last_char == '2':
+                should_collect_share = True
 
         for idx, serie in enumerate(series_configs):
             apo = aporte(serie.data.copy(), serie.pipeline, lang, serie.raw_tipo)
@@ -1978,7 +1988,7 @@ for w in W:
             share_values = apo.attrs.get("share_mat_values", {})
             if share_values:
                 series_share_lookup.update(share_values)
-            if w[0] == '6':
+            if should_collect_share:
                 share_periods = apo.attrs.get("share_period_values", [])
                 if share_periods:
                     stacked_share_sources.append(
@@ -2075,7 +2085,7 @@ for w in W:
             available_single_width = available_width(ppt, left_margin, right_margin)
             pic=slide.shapes.add_picture(line_graf(series_configs[0].data,series_configs[0].pipeline,titulo,c_fig,len(series_configs), width_emu=available_single_width, height_emu=Cm(10), share_lookup=series_share_lookup), left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
             plt.clf()
-        if w[0] == '6' and stacked_share_sources:
+        if should_collect_share and stacked_share_sources:
             priority_entry = next((entry for entry in stacked_share_sources if entry["display_tipo"].lower() == 'ventas'), stacked_share_sources[0])
             periods_to_plot = []
             for period_label, shares in priority_entry["share_periods"]:
@@ -2084,6 +2094,8 @@ for w in W:
                 if len(periods_to_plot) == 2:
                     break
             if periods_to_plot:
+                previous_shares = periods_to_plot[0][1] if len(periods_to_plot) > 1 else None
+                delta_header = 'Crescimento vs ano anterior' if lang == 'P' else 'Crecimiento vs año anterior'
                 share_slide = ppt.slides.add_slide(ppt.slide_layouts[1])
                 share_title_box = share_slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
                 share_tf = share_title_box.text_frame
@@ -2172,6 +2184,55 @@ for w in W:
                     caption_paragraph.font.size = Pt(11)
                     caption_paragraph.font.bold = True
                     caption_paragraph.font.color.rgb = RGBColor(80, 80, 80)
+
+                    if previous_shares is not None and idx_chart == len(periods_to_plot[:2]) - 1:
+                        delta_box_width = Inches(2.6)
+                        delta_box_left = chart_shape.left + chart_shape.width + Inches(0.2)
+                        slide_right_limit = ppt.slide_width - Inches(0.2)
+                        if delta_box_left + delta_box_width > slide_right_limit:
+                            adjusted_left = slide_right_limit - delta_box_width
+                            if adjusted_left < Inches(0.4):
+                                delta_box_left = max(chart_shape.left - delta_box_width - Inches(0.2), Inches(0.4))
+                            else:
+                                delta_box_left = adjusted_left
+                        delta_box = share_slide.shapes.add_textbox(
+                            delta_box_left,
+                            chart_top,
+                            delta_box_width,
+                            target_height
+                        )
+                        delta_tf = delta_box.text_frame
+                        delta_tf.clear()
+                        delta_tf.word_wrap = True
+                        header_para = delta_tf.paragraphs[0]
+                        header_para.text = delta_header
+                        header_para.font.bold = True
+                        header_para.font.size = Pt(12)
+                        header_para.font.color.rgb = RGBColor(70, 70, 70)
+
+                        growth_entries = []
+                        for brand, current_value in shares.items():
+                            prev_value = previous_shares.get(brand, 0.0) if previous_shares else 0.0
+                            if current_value is None or not np.isfinite(current_value):
+                                current_value = 0.0
+                            if prev_value is None or not np.isfinite(prev_value):
+                                prev_value = 0.0
+                            delta_value = (current_value - prev_value) * 100
+                            growth_entries.append((brand, delta_value, current_value))
+                        growth_entries.sort(key=lambda item: item[1], reverse=True)
+
+                        for brand, delta_value, _ in growth_entries:
+                            para = delta_tf.add_paragraph()
+                            para.level = 1
+                            para.text = f"{brand}: {delta_value:+.1f} pp"
+                            para.font.size = Pt(11)
+                            color_hex = color_mapping.get(brand)
+                            if color_hex:
+                                rgb_tuple = mcolors.to_rgb(color_hex)
+                                color_rgb = tuple(int(round(c * 255)) for c in rgb_tuple)
+                                para.font.color.rgb = RGBColor(*color_rgb)
+                            else:
+                                para.font.color.rgb = RGBColor(90, 90, 90)
 
                     current_left += target_width + horizontal_gap
                     plt.clf()
