@@ -22,6 +22,7 @@ from pptx.util import Inches, Cm, Pt
 from pptx.dml.color import RGBColor
 from typing import NamedTuple
 from pathlib import Path
+from collections import OrderedDict
 
 COLOR_BLUE = '\033[94m'
 COLOR_YELLOW = '\033[93m'
@@ -814,6 +815,154 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
 
     return img_stream
 
+
+#Normaliza etiquetas de periodo eliminando prefijos genéricos
+def normalize_period_label(label) -> str:
+    if label is None:
+        return ""
+    text = str(label).strip()
+    if not text:
+        return text
+    parts = text.split(None, 1)
+    if parts and parts[0].lower().rstrip('.') in {'vol', 'volume', 'volumen'} and len(parts) > 1:
+        return parts[1].strip()
+    return text
+
+
+#Grafico de barras apiladas 100% para share por periodo
+def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=None):
+    """
+    Genera un gráfico 100% apilado a partir de la participación de un periodo puntual.
+    """
+    if not isinstance(share_values, (dict, OrderedDict)):
+        share_values = {}
+
+    palette_values = TREND_COLOR_SEQUENCE or [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
+
+    normalized_items = []
+    total = 0.0
+    for key, value in share_values.items():
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            try:
+                numeric_value = float(str(value).replace('%', '').replace(',', '.')) / 100.0
+            except Exception:
+                numeric_value = 0.0
+        if not np.isfinite(numeric_value) or numeric_value < 0:
+            numeric_value = 0.0
+        total += numeric_value
+        normalized_items.append([key, numeric_value])
+
+    if total <= 0:
+        total = 1.0
+
+    for item in normalized_items:
+        item[1] = item[1] / total
+
+    normalized_items = [item for item in normalized_items if item[1] > 0]
+
+    segments = len(normalized_items)
+    base_height = 6.2
+    incremental_height = 0.6
+    figure_height = max(base_height, 4.5 + segments * incremental_height)
+    figure_height = min(7.0, figure_height)
+    figure_width = 4.6
+    fig, ax = plt.subplots(num=c_fig, figsize=(figure_width, figure_height))
+
+    bottom = 0.0
+    bar_width = 0.65
+    label_infos = []
+    for idx, (key, value) in enumerate(normalized_items):
+        color = color_mapping.get(key)
+        if color is None:
+            color = palette_values[idx % len(palette_values)]
+            color_mapping[key] = color
+        ax.bar(0, value, width=bar_width, bottom=bottom, color=color, edgecolor='white')
+        center_y = bottom + value / 2 if value > 0 else bottom
+        share_label = f"{value * 100:.1f}%"
+        label_infos.append(
+            {
+                "key": key,
+                "text": f"{key} ({share_label})",
+                "color": color,
+                "center_y": center_y,
+            }
+        )
+        bottom += value
+
+    if label_infos:
+        label_infos.sort(key=lambda info: info["center_y"])
+        min_gap = max(0.035, min(0.12, 0.95 / max(segments, 1)))
+        min_y = 0.04
+        max_y = 0.96
+        adjusted_positions = []
+        for info in label_infos:
+            proposed = np.clip(info["center_y"], min_y, max_y)
+            if adjusted_positions and proposed - adjusted_positions[-1] < min_gap:
+                proposed = min(max_y, adjusted_positions[-1] + min_gap)
+            adjusted_positions.append(proposed)
+        for idx in range(len(adjusted_positions) - 2, -1, -1):
+            if adjusted_positions[idx + 1] - adjusted_positions[idx] < min_gap:
+                adjusted_positions[idx] = max(min_y, adjusted_positions[idx + 1] - min_gap)
+        for info, position in zip(label_infos, adjusted_positions):
+            info["label_y"] = position
+
+        max_text_len = max(len(info["text"]) for info in label_infos)
+        label_offset = 1.1 + max(0, (max_text_len - 22) * 0.014)
+        label_offset = min(label_offset, 1.8)
+        label_x = bar_width / 2 + label_offset
+    else:
+        label_x = bar_width / 2 + 1.15
+
+    connector_x = bar_width / 2 + 0.1
+    label_font_size = 9 if segments <= 10 else (8 if segments <= 16 else 7)
+    if label_infos:
+        for info in label_infos:
+            ax.plot(
+                [connector_x, label_x - 0.1],
+                [info["center_y"], info["label_y"]],
+                color=info["color"],
+                linewidth=1.2,
+                alpha=0.65,
+            )
+            ax.text(
+                label_x,
+                info["label_y"],
+                info["text"],
+                ha='left',
+                va='center',
+                color=info["color"],
+                fontsize=label_font_size,
+                fontweight='bold'
+            )
+
+    ax.set_ylim(0, 1)
+    axis_right = label_x + 1.0 if label_infos else (bar_width / 2 + 1.4)
+    ax.set_xlim(-0.75, axis_right)
+    ax.set_xticks([])
+    ax.set_ylabel('')
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x * 100:.0f}%"))
+    ax.set_title(title or period_label, fontsize=15, pad=24, fontweight='bold')
+    ax.set_yticks(np.linspace(0, 1, 5))
+    ax.yaxis.tick_left()
+    ax.grid(axis='y', linestyle='--', alpha=0.25)
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    fig.subplots_adjust(left=0.05, right=0.92, top=0.995, bottom=0.02)
+    img_stream = io.BytesIO()
+    fig.savefig(img_stream, format='png', transparent=True, bbox_inches=None)
+    img_stream.seek(0)
+
+    try:
+        plt.close(fig)
+    except Exception:
+        pass
+
+    return img_stream, fig.get_size_inches()
+
 #Função que cria a tabela de aporte
 def aporte(df,p,lang,tipo):
 
@@ -854,12 +1003,17 @@ def aporte(df,p,lang,tipo):
 
         apo.attrs["removed_columns"] = list(dict.fromkeys(invalid_columns))
 
-        share_mat_values = {}
-        current_share_row_index = 1
-        if current_share_row_index < len(apo.index):
+        share_period_values = []
+        max_share_rows = min(2, len(apo.index))
+        for row_idx in range(max_share_rows):
+            period_label = normalize_period_label(apo.iloc[row_idx, 0])
+            period_shares = OrderedDict()
             for col_idx in range(1, len(apo.columns)):
                 column_name = str(apo.columns[col_idx])
-                value = apo.iloc[current_share_row_index, col_idx]
+                normalized_name = column_name.strip().lower()
+                if not normalized_name or normalized_name == 'total':
+                    continue
+                value = apo.iloc[row_idx, col_idx]
                 numeric_value = None
                 try:
                     numeric_value = float(value)
@@ -868,8 +1022,21 @@ def aporte(df,p,lang,tipo):
                         numeric_value = float(str(value).replace('%', '').replace(',', '.')) / 100.0
                     except Exception:
                         numeric_value = None
-                if numeric_value is not None and np.isfinite(numeric_value):
-                    share_mat_values[column_name] = numeric_value
+                if numeric_value is None or not np.isfinite(numeric_value) or numeric_value < 0:
+                    numeric_value = 0.0
+                period_shares[column_name] = numeric_value
+            share_period_values.append((period_label, period_shares))
+
+        apo.attrs["share_period_values"] = share_period_values
+
+        share_mat_values = {}
+        if len(share_period_values) > 1:
+            _, current_period_shares = share_period_values[1]
+            share_mat_values = {
+                column_name: value
+                for column_name, value in current_period_shares.items()
+                if np.isfinite(value)
+            }
         apo.attrs["share_mat_values"] = share_mat_values
 
         #Formatação do volume
@@ -1781,6 +1948,7 @@ for w in W:
 
         removed_headers = []
         series_share_lookup = {}
+        stacked_share_sources = []
 
         for idx, serie in enumerate(series_configs):
             apo = aporte(serie.data.copy(), serie.pipeline, lang, serie.raw_tipo)
@@ -1788,6 +1956,20 @@ for w in W:
             share_values = apo.attrs.get("share_mat_values", {})
             if share_values:
                 series_share_lookup.update(share_values)
+            if w[0] == '6':
+                share_periods = apo.attrs.get("share_period_values", [])
+                if share_periods:
+                    stacked_share_sources.append(
+                        {
+                            "display_tipo": serie.display_tipo,
+                            "share_periods": share_periods,
+                            "columns": [
+                                str(col)
+                                for col in apo.columns[1:]
+                                if str(col).strip() and str(col).strip().lower() != 'total'
+                            ],
+                        }
+                    )
             c_fig += 1
             # Si hay dos tablas, ambas se posicionan a la misma altura y ocupan el espacio óptimo
             if len(series_configs) == 2:
@@ -1866,6 +2048,106 @@ for w in W:
             available_single_width = available_width(ppt, left_margin, right_margin)
             pic=slide.shapes.add_picture(line_graf(series_configs[0].data,series_configs[0].pipeline,titulo,c_fig,len(series_configs), width_emu=available_single_width, height_emu=Cm(10), share_lookup=series_share_lookup), left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
             plt.clf()
+        if w[0] == '6' and stacked_share_sources:
+            priority_entry = next((entry for entry in stacked_share_sources if entry["display_tipo"].lower() == 'ventas'), stacked_share_sources[0])
+            periods_to_plot = []
+            for period_label, shares in priority_entry["share_periods"]:
+                if shares and any(value > 0 for value in shares.values()):
+                    periods_to_plot.append((period_label, shares))
+                if len(periods_to_plot) == 2:
+                    break
+            if periods_to_plot:
+                share_slide = ppt.slides.add_slide(ppt.slide_layouts[1])
+                share_title_box = share_slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
+                share_tf = share_title_box.text_frame
+                share_tf.clear()
+                share_title_paragraph = share_tf.paragraphs[0]
+                share_title_paragraph.text = f"{titulo} - Share 100% Apilado"
+                share_title_paragraph.font.bold = True
+                share_title_paragraph.font.size = Inches(0.33)
+
+                comment_box = share_slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
+                comment_tf = comment_box.text_frame
+                comment_tf.clear()
+                comment_paragraph = comment_tf.paragraphs[0]
+                comment_paragraph.text = "Comentário"
+                comment_paragraph.font.size = Inches(0.25)
+
+                palette_values = TREND_COLOR_SEQUENCE or [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
+                color_mapping = {}
+                column_candidates = [col for col in priority_entry["columns"] if col]
+                if not column_candidates:
+                    for _, shares in periods_to_plot:
+                        for column_name in shares.keys():
+                            if column_name and column_name not in column_candidates:
+                                column_candidates.append(column_name)
+                for idx_color, column_name in enumerate(column_candidates):
+                    color_mapping[column_name] = palette_values[idx_color % len(palette_values)]
+
+                chart_top = Inches(0.55)
+                left_start = Inches(2.0)
+                right_margin = Inches(0.6)
+                horizontal_gap = Inches(0.5)
+                caption_gap = Inches(0.12)
+                caption_height = Inches(0.35)
+                current_left = left_start
+
+                reference_label = 'Corte em' if lang == 'P' else 'Corte a'
+
+                for idx_chart, (period_label, shares) in enumerate(periods_to_plot[:2]):
+                    total_share = sum(max(value, 0) for value in shares.values())
+                    if total_share <= 0:
+                        continue
+                    c_fig += 1
+                    chart_stream, fig_size = stacked_share_chart(
+                        period_label,
+                        shares,
+                        color_mapping,
+                        c_fig,
+                        title=f"{priority_entry['display_tipo']} - {period_label}"
+                    )
+                    fig_width_in, fig_height_in = fig_size
+                    if fig_height_in <= 0:
+                        continue
+                    aspect_ratio = fig_width_in / fig_height_in if fig_height_in else 1.0
+                    target_height_in = max(6.0, fig_height_in * 1.05)
+                    slide_height_in = emu_to_inches(ppt.slide_height)
+                    chart_top_in = emu_to_inches(chart_top)
+                    caption_gap_in = emu_to_inches(caption_gap)
+                    caption_height_in = emu_to_inches(caption_height)
+                    available_height_in = max(3.0, slide_height_in - chart_top_in - caption_gap_in - caption_height_in - 0.2)
+                    target_height_in = min(available_height_in, target_height_in)
+                    target_width_in = max(3.8, target_height_in * aspect_ratio)
+                    slide_width_in = emu_to_inches(ppt.slide_width)
+                    available_width_in = slide_width_in - emu_to_inches(current_left) - emu_to_inches(right_margin)
+                    if available_width_in <= 0:
+                        continue
+                    if target_width_in > available_width_in:
+                        target_width_in = available_width_in
+                        target_height_in = target_width_in / aspect_ratio if aspect_ratio else target_height_in
+                    target_height = Inches(target_height_in)
+                    target_width = Inches(target_width_in)
+                    chart_shape = share_slide.shapes.add_picture(
+                        chart_stream,
+                        current_left,
+                        chart_top,
+                        width=target_width,
+                        height=target_height
+                    )
+                    caption_left = chart_shape.left
+                    caption_width = target_width
+                    caption_top = chart_top + target_height + caption_gap
+                    caption_box = share_slide.shapes.add_textbox(caption_left, caption_top, caption_width, caption_height)
+                    caption_tf = caption_box.text_frame
+                    caption_tf.clear()
+                    caption_paragraph = caption_tf.paragraphs[0]
+                    caption_paragraph.text = f"{reference_label}: {period_label}"
+                    caption_paragraph.font.size = Pt(11)
+                    caption_paragraph.font.bold = True
+                    caption_paragraph.font.color.rgb = RGBColor(80, 80, 80)
+
+                    current_left += target_width + horizontal_gap
+                    plt.clf()
         if w[0] in ['3','5']:
             print_colored(c_w[(lang,w[0]+'-'+w[-1])]+' realizado para ' + w[2:-2], COLOR_GREEN) 
         elif w[0]=='6':
