@@ -226,9 +226,27 @@ def available_width(presentation, left=Inches(0), right=Inches(0)):
     return presentation.slide_width - int(left) - int(right)
 
 
+def constrain_picture_width(picture, max_width):
+    """Clamp picture width to max_width while preserving aspect ratio."""
+    if max_width is None:
+        return
+    max_width = int(max_width)
+    if max_width <= 0:
+        return
+    current_width = int(picture.width)
+    if current_width <= max_width:
+        return
+    current_height = int(picture.height)
+    scale = current_width / max_width
+    picture.width = max_width
+    picture.height = max(int(round(current_height / scale)), 1)
+
+
 EMU_PER_INCH = 914400
 DEFAULT_LINE_CHART_RATIO = 3
 TABLE_TARGET_HEIGHT_CM = 4.0
+TABLE_SIDE_MARGIN_CM = 1.2
+TABLE_PAIR_GAP_CM = 0.5
 TABLE_HEADER_FONT_SIZE = 10
 TABLE_WRAP_WIDTH = 14
 
@@ -1943,8 +1961,13 @@ for w in W:
         #Controle posicao tabela aporte
         target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
         bottom_margin = Cm(1.5)
-        left_margin = Cm(1.2)
+        left_margin = int(Cm(TABLE_SIDE_MARGIN_CM))
+        right_margin = left_margin
         vertical_spacing = Cm(0.2)
+        target_table_height_emu = int(target_table_height)
+        bottom_margin_emu = int(bottom_margin)
+        slide_width = int(ppt.slide_width)
+        slide_height = int(ppt.slide_height)
 
         removed_headers = []
         series_share_lookup = {}
@@ -1973,19 +1996,24 @@ for w in W:
             c_fig += 1
             # Si hay dos tablas, ambas se posicionan a la misma altura y ocupan el espacio óptimo
             if len(series_configs) == 2:
-                left_margin = Cm(1.2)
-                right_margin = Cm(1.2)
-                gap = Cm(0.5)
-                top_position = ppt.slide_height - target_table_height - bottom_margin
+                gap = Cm(TABLE_PAIR_GAP_CM)
+                top_position = slide_height - target_table_height_emu - bottom_margin_emu
+                half_slide_width = slide_width // 2
+                gap_half = int(gap) // 2
                 if serie.display_tipo.lower() == 'ventas':
-                    left_position = ppt.slide_width / 2 + gap / 2
+                    left_position = half_slide_width + gap_half
+                    max_width = slide_width - left_position - right_margin
                 else:
                     left_position = left_margin
+                    max_width = half_slide_width - left_position - gap_half
                 pic = slide.shapes.add_picture(graf_apo(apo, c_fig), left_position, top_position, height=target_table_height)
+                constrain_picture_width(pic, max_width)
             else:
-                top_position = ppt.slide_height - target_table_height - bottom_margin
+                top_position = slide_height - target_table_height_emu - bottom_margin_emu
                 left_position = left_margin
+                max_width = slide_width - left_position - right_margin
                 pic = slide.shapes.add_picture(graf_apo(apo, c_fig), left_position, top_position, height=target_table_height)
+                constrain_picture_width(pic, max_width)
             plt.clf()
 
         #Cuadro de texto que indica los encabezados eliminados
