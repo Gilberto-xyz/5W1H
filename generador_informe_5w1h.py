@@ -19,7 +19,7 @@ from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_
 from pptx import Presentation 
 from pptx.util import Inches, Cm, Pt
 from pptx.dml.color import RGBColor
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 from pathlib import Path
 from collections import OrderedDict
 
@@ -1743,7 +1743,7 @@ c_w={
 ('P','5-1'):'5W - Onde? Regiões',
 ('P','5-2'):'5W - Onde? Canais',
 ('P','6'):'Players',
-
+('P','6-1'):'Players - Preco indexado',
 ('E','1'):'1W - ¿Cuándo?',
 ('E','3-1'):'3W - ¿Qué tamaños?',
 ('E','3-2'):'3W - ¿Qué marcas?',
@@ -1751,7 +1751,8 @@ c_w={
 ('E','4'):'4W - ¿Quiénes? NSE (Nivel Socioeconómico)',
 ('E','5-1'):'5W - ¿Dónde? Regiones',
 ('E','5-2'):'5W - ¿Dónde? Canales',
-('E','6'):'Players'
+('E','6'):'Players',
+('E','6-1'):'Players - Precio indexado'
 }
 
 #Etiquetas dos slides
@@ -1853,6 +1854,220 @@ def prepare_series_configs(df_list, lang, p_ventas):
     return configs
 
 
+def extract_players_base_key(sheet_name: str) -> Optional[str]:
+    if not isinstance(sheet_name, str):
+        return None
+    if not sheet_name or not sheet_name.startswith('6'):
+        return None
+    parts = [part for part in sheet_name.split('_') if part]
+    if not parts:
+        return None
+    if parts[-1].isdigit():
+        if len(parts) > 1:
+            return '_'.join(parts[:-1])
+        return parts[0]
+    return '_'.join(parts)
+
+
+def is_price_index_sheet(sheet_name: str) -> bool:
+    if not isinstance(sheet_name, str):
+        return False
+    if not sheet_name.startswith('6'):
+        return False
+    parts = [part for part in sheet_name.split('_') if part]
+    if len(parts) < 3:
+        return False
+    last_part = parts[-1]
+    return last_part == '1'
+
+
+def prepare_price_index_dataframe(series_config: SeriesConfig, top10_columns: list[str]) -> tuple[pd.DataFrame, list[str]]:
+    df_price = series_config.data.copy()
+    if df_price.empty or df_price.shape[1] <= 1:
+        return pd.DataFrame(), []
+
+    date_col = df_price.columns[0]
+    data_cols = list(df_price.columns[1:])
+    if not data_cols:
+        return pd.DataFrame(), []
+
+    total_col = next(
+        (col for col in data_cols if 'total' in str(col).strip().lower()),
+        data_cols[0]
+    )
+
+    df_price[total_col] = pd.to_numeric(df_price[total_col], errors='coerce')
+    df_price = df_price[df_price[total_col].notna()]
+    df_price = df_price[df_price[total_col] > 0]
+    if df_price.empty:
+        return pd.DataFrame(columns=[date_col]), []
+
+    normalized_top10 = {str(col).strip().lower() for col in top10_columns if str(col).strip()}
+    candidate_columns = []
+    filtered_columns = []
+
+    for col in data_cols:
+        if col == total_col:
+            continue
+        numeric_series = pd.to_numeric(df_price[col], errors='coerce')
+        if numeric_series.dropna().empty:
+            continue
+        if (numeric_series == 0).any():
+            continue
+        candidate_columns.append(col)
+        col_lower = str(col).strip().lower()
+        if not normalized_top10 or col_lower in normalized_top10:
+            filtered_columns.append(col)
+
+    if normalized_top10 and not filtered_columns:
+        return pd.DataFrame(columns=[date_col]), []
+
+    if not filtered_columns:
+        filtered_columns = candidate_columns[:10]
+
+    if not filtered_columns:
+        return pd.DataFrame(columns=[date_col]), []
+
+    ratio_df = df_price[[date_col] + filtered_columns].copy()
+    total_series = df_price[total_col].astype(float)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        for col in filtered_columns:
+            ratio_df[col] = pd.to_numeric(df_price[col], errors='coerce').astype(float) / total_series
+    ratio_df = ratio_df.replace([np.inf, -np.inf], np.nan)
+    ratio_df.dropna(subset=filtered_columns, how='all', inplace=True)
+    return ratio_df, filtered_columns
+
+
+def build_price_index_slide(
+    ppt: Presentation,
+    lang: str,
+    cat: str,
+    apo_entries: list[dict],
+    removed_headers: list[str],
+    price_df: pd.DataFrame,
+    chart_pipeline: int,
+    chart_share_lookup: dict,
+    c_fig: int
+) -> int:
+    slide = ppt.slides.add_slide(ppt.slide_layouts[1])
+
+    titulo_base = c_w.get((lang, '6-1'), 'Precio indexado')
+    titulo_completo = f"{titulo_base} | {labels[(lang,'comp')]}{cat}"
+
+    title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
+    title_tf = title_box.text_frame
+    title_tf.clear()
+    title_paragraph = title_tf.paragraphs[0]
+    title_paragraph.text = titulo_completo
+    title_paragraph.font.bold = True
+    title_paragraph.font.size = Inches(0.33)
+
+    comment_box = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
+    comment_tf = comment_box.text_frame
+    comment_tf.clear()
+    comment_paragraph = comment_tf.paragraphs[0]
+    comment_paragraph.text = "Comentário" if lang == 'P' else "Comentario"
+    comment_paragraph.font.size = Inches(0.25)
+
+    target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
+    bottom_margin = Cm(1.5)
+    left_margin = int(Cm(TABLE_SIDE_MARGIN_CM))
+    right_margin = left_margin
+    target_table_height_emu = int(target_table_height)
+    bottom_margin_emu = int(bottom_margin)
+    slide_width = int(ppt.slide_width)
+    slide_height = int(ppt.slide_height)
+
+    if apo_entries:
+        if len(apo_entries) == 2:
+            gap = Cm(TABLE_PAIR_GAP_CM)
+            top_position = slide_height - target_table_height_emu - bottom_margin_emu
+            half_slide_width = slide_width // 2
+            gap_half = int(gap) // 2
+            for entry in apo_entries:
+                c_fig += 1
+                display_tipo = str(entry.get("display_tipo", "")).lower()
+                apo_df = entry.get("apo")
+                if apo_df is None:
+                    continue
+                if display_tipo == 'ventas':
+                    left_position = half_slide_width + gap_half
+                    max_width = slide_width - left_position - right_margin
+                else:
+                    left_position = left_margin
+                    max_width = half_slide_width - left_position - gap_half
+                pic = slide.shapes.add_picture(
+                    graf_apo(apo_df, c_fig),
+                    left_position,
+                    top_position,
+                    height=target_table_height
+                )
+                constrain_picture_width(pic, max_width)
+                plt.clf()
+        else:
+            top_position = slide_height - target_table_height_emu - bottom_margin_emu
+            max_width = slide_width - left_margin - right_margin
+            for entry in apo_entries:
+                apo_df = entry.get("apo")
+                if apo_df is None:
+                    continue
+                c_fig += 1
+                pic = slide.shapes.add_picture(
+                    graf_apo(apo_df, c_fig),
+                    left_margin,
+                    top_position,
+                    height=target_table_height
+                )
+                constrain_picture_width(pic, max_width)
+                plt.clf()
+
+    unique_removed_headers = [header for header in dict.fromkeys(removed_headers) if header]
+    if unique_removed_headers:
+        footer_left = Cm(4.6)
+        footer_right_margin = Cm(1.2)
+        footer_width = ppt.slide_width - footer_left - footer_right_margin
+        if footer_width < Cm(2):
+            footer_width = Cm(2)
+        footer_top = ppt.slide_height - bottom_margin + Cm(0.1)
+        footer_height = Cm(0.9)
+        footer_box = slide.shapes.add_textbox(footer_left, footer_top, footer_width, footer_height)
+        footer_tf = footer_box.text_frame
+        footer_tf.clear()
+        footer_tf.word_wrap = True
+        footer_tf.text = "Se eliminaron los encabezados sin informacion: " + ", ".join(unique_removed_headers)
+        footer_run = footer_tf.paragraphs[0].runs[0]
+        footer_font = footer_run.font
+        footer_font.name = 'Arial'
+        footer_font.size = Pt(10)
+        footer_font.color.rgb = RGBColor(120, 120, 120)
+
+    if not price_df.empty and price_df.shape[1] > 1:
+        left_margin_chart = Inches(0.33)
+        right_margin_chart = Inches(0.33)
+        available_line_width = available_width(ppt, left_margin_chart, right_margin_chart)
+        c_fig += 1
+        chart_height = Cm(10)
+        slide.shapes.add_picture(
+            line_graf(
+                price_df,
+                chart_pipeline,
+                titulo_completo,
+                c_fig,
+                1,
+                width_emu=available_line_width,
+                height_emu=chart_height,
+                share_lookup=chart_share_lookup
+            ),
+            left_margin_chart,
+            Inches(1.15),
+            width=available_line_width,
+            height=chart_height
+        )
+        plt.clf()
+
+    return c_fig
+
+
 
 
 
@@ -1864,8 +2079,60 @@ c_fig=0
 
 plot=plot_ven()
 last_reference_source = None
+players_share_context = {}
 #---------------------------------------------------------------------------------------------------------------------
 for w in W:
+
+    if is_price_index_sheet(w):
+        players_base_key = extract_players_base_key(w)
+        context = players_share_context.get(players_base_key)
+        if context is None:
+            print_colored(f"No se encontro contexto de Players para la hoja {w}. Se omite Precio indexado.", COLOR_YELLOW)
+            continue
+
+        df_start = file.parse(w)
+        df_list, p_ventas = split_compras_ventas(df_start)
+        series_configs = prepare_series_configs(df_list, lang, p_ventas)
+        price_series = None
+        for cfg in series_configs:
+            if cfg.display_tipo.lower() == 'compras':
+                price_series = cfg
+                break
+        if price_series is None:
+            price_series = series_configs[0] if series_configs else None
+
+        if price_series is None:
+            print_colored(f"No se detecto informacion de Compras en la hoja {w}.", COLOR_YELLOW)
+            continue
+
+        price_df, selected_columns = prepare_price_index_dataframe(price_series, context.get('compras_top10', []))
+        share_lookup_context = context.get('share_lookup', {})
+        chart_share_lookup = {}
+        if share_lookup_context and selected_columns:
+            share_lookup_lower = {
+                str(key).strip().lower(): value
+                for key, value in share_lookup_context.items()
+            }
+            for col in selected_columns:
+                share_val = share_lookup_lower.get(str(col).strip().lower())
+                if share_val is not None:
+                    chart_share_lookup[col] = share_val
+
+        c_fig = build_price_index_slide(
+            ppt,
+            lang,
+            cat,
+            context.get('apo_entries', []),
+            context.get('removed_headers', []),
+            price_df,
+            price_series.pipeline,
+            chart_share_lookup,
+            c_fig
+        )
+        last_reference_source = price_series.data
+        titulo_precio = c_w.get((lang, '6-1'), 'Precio indexado')
+        print_colored(f"{titulo_precio} realizado para {labels[(lang,'comp')]}{cat}", COLOR_GREEN)
+        continue
 
     #1- Quando, grafico de variações MAT
     if w[0]=='1':
@@ -1972,6 +2239,7 @@ for w in W:
         series_share_lookup = {}
         stacked_share_sources = []
         should_collect_share = False
+        apo_entries = []
         if w:
             first_char = w[0]
             last_char = w[-1]
@@ -1984,6 +2252,10 @@ for w in W:
 
         for idx, serie in enumerate(series_configs):
             apo = aporte(serie.data.copy(), serie.pipeline, lang, serie.raw_tipo)
+            apo_entries.append({
+                "apo": apo,
+                "display_tipo": serie.display_tipo,
+            })
             removed_headers.extend(apo.attrs.get("removed_columns", []))
             share_values = apo.attrs.get("share_mat_values", {})
             if share_values:
@@ -2045,6 +2317,40 @@ for w in W:
             footer_font.name = 'Arial'
             footer_font.size = Pt(10)
             footer_font.color.rgb = RGBColor(120, 120, 120)
+
+        compras_top10 = []
+        if series_share_lookup:
+            compras_items = []
+            for col_name, share_value in series_share_lookup.items():
+                if col_name is None:
+                    continue
+                col_str = str(col_name).strip()
+                if not col_str:
+                    continue
+                if col_str.lower().find('total') != -1:
+                    continue
+                if not col_str.lower().endswith('.c'):
+                    continue
+                try:
+                    numeric_share = float(share_value)
+                except (TypeError, ValueError):
+                    continue
+                if not np.isfinite(numeric_share):
+                    continue
+                compras_items.append((col_name, numeric_share))
+            if compras_items:
+                compras_items.sort(key=lambda item: item[1], reverse=True)
+                compras_top10 = [item[0] for item in compras_items[:10]]
+
+        players_base_key = extract_players_base_key(w)
+        if players_base_key and apo_entries:
+            players_share_context[players_base_key] = {
+                "apo_entries": apo_entries,
+                "removed_headers": unique_removed_headers,
+                "share_lookup": dict(series_share_lookup),
+                "titulo": titulo,
+                "compras_top10": compras_top10,
+            }
 
         if plot=="1" and len(series_configs)>1:
             df_full = series_configs[0].data.copy()
