@@ -379,7 +379,7 @@ def graf_mat (mat,c_fig,p):
 
 
 #Grafico de Lineas
-def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_chart=None, share_lookup=None):
+def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_chart=None, share_lookup=None, y_axis_percent=False, top_value_annotations=0):
     """
     Renderiza la gráfica de tendencias y devuelve un buffer PNG listo para insertar en la slide.
     Cuando se generan múltiples gráficos en la misma diapositiva (multi_chart=True), se aplican
@@ -568,6 +568,7 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
     y_tick_size = max(8, int(10 * scale))
     ax.tick_params(axis='y', labelsize=y_tick_size)
 
+    axis_percent = bool(y_axis_percent)
     max_abs_value = 0.0
     for series in numeric_series_list:
         numeric_values = series.to_numpy()
@@ -580,31 +581,44 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
         if series_max > max_abs_value:
             max_abs_value = series_max
 
-    scale_rule = select_trend_scale_rule(max_abs_value)
-    divisor = scale_rule["divisor"] or 1
-    suffix = scale_rule["suffix"]
+    if axis_percent:
+        def _trend_tick_formatter(value, _):
+            return f"{value:.1f}%"
 
-    def _trend_tick_formatter(value, _):
-        return format_value_with_suffix(value, divisor, suffix)
+        ax.yaxis.set_major_formatter(FuncFormatter(_trend_tick_formatter))
+    else:
+        scale_rule = select_trend_scale_rule(max_abs_value)
+        divisor = scale_rule["divisor"] or 1
+        suffix = scale_rule["suffix"]
 
-    ax.yaxis.set_major_formatter(FuncFormatter(_trend_tick_formatter))
+        def _trend_tick_formatter(value, _):
+            return format_value_with_suffix(value, divisor, suffix)
 
-    if DISPLAY_TREND_REFERENCE_TEXT and suffix:
-        reference_template = scale_rule.get("reference", {})
-        reference_text = reference_template.get(lang, reference_template.get('default', '')).strip()
-        if reference_text:
-            reference_font_size = max(8, int(9 * scale))
-            ax.text(
-                0.02,
-                0.95,
-                reference_text,
-                transform=ax.transAxes,
-                ha='left',
-                va='top',
-                fontsize=reference_font_size,
-                color='#4D4D4D',
-                alpha=0.85,
-            )
+        ax.yaxis.set_major_formatter(FuncFormatter(_trend_tick_formatter))
+
+        if DISPLAY_TREND_REFERENCE_TEXT and suffix:
+            reference_template = scale_rule.get("reference", {})
+            reference_text = reference_template.get(lang, reference_template.get('default', '')).strip()
+            if reference_text:
+                reference_font_size = max(8, int(9 * scale))
+                ax.text(
+                    0.02,
+                    0.95,
+                    reference_text,
+                    transform=ax.transAxes,
+                    ha='left',
+                    va='top',
+                    fontsize=reference_font_size,
+                    color='#4D4D4D',
+                    alpha=0.85,
+                )
+
+    if axis_percent:
+        def _format_axis_value(value):
+            return f"{value:.1f}%"
+    else:
+        def _format_axis_value(value):
+            return format_value_with_suffix(value, divisor, suffix)
 
     ax.set_ylim(bottom=0)
     ax.margins(x=chart_x_margin, y=0.08)
@@ -820,6 +834,67 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
                         bbox=bbox_props,
                         clip_on=False,
                     )
+
+    if top_value_annotations and plotted_columns and lns:
+        point_candidates = []
+        line_lookup = {col: line for col, line in zip(plotted_columns, lns)}
+        for col in plotted_columns:
+            line = line_lookup.get(col)
+            if line is None:
+                continue
+            for x_idx, y_val in series_points.get(col, []):
+                if not np.isfinite(y_val):
+                    continue
+                point_candidates.append({
+                    "column": col,
+                    "line": line,
+                    "x": x_idx,
+                    "y": float(y_val),
+                })
+        if point_candidates:
+            point_candidates.sort(key=lambda item: item["y"], reverse=True)
+            y_limits = ax.get_ylim()
+            y_range = y_limits[1] - y_limits[0] if y_limits[1] > y_limits[0] else 1.0
+            label_offset = max(y_range * 0.03, 0.5 if axis_percent else y_range * 0.03)
+            label_font_size = max(8, int(10 * scale))
+            annotated = 0
+            seen_points = set()
+            for point in point_candidates:
+                point_key = (point["x"], round(point["y"], 6))
+                if point_key in seen_points:
+                    continue
+                seen_points.add(point_key)
+                label_y = point["y"] + label_offset
+                if label_y > y_limits[1]:
+                    label_y = min(y_limits[1], point["y"] + label_offset * 0.6)
+                text_value = _format_axis_value(point["y"])
+                ax.annotate(
+                    text_value,
+                    xy=(point["x"], point["y"]),
+                    xytext=(point["x"], label_y),
+                    textcoords='data',
+                    ha='center',
+                    va='bottom',
+                    fontsize=label_font_size,
+                    color=point["line"].get_color(),
+                    fontweight='bold',
+                    bbox=dict(
+                        boxstyle='round,pad=0.2',
+                        facecolor='white',
+                        edgecolor=point["line"].get_color(),
+                        linewidth=0.6,
+                        alpha=0.85
+                    ),
+                    arrowprops=dict(
+                        arrowstyle='-',
+                        color=point["line"].get_color(),
+                        linewidth=max(0.6, base_linewidth * 0.5)
+                    ),
+                    clip_on=False,
+                )
+                annotated += 1
+                if annotated >= top_value_annotations:
+                    break
 
     img_stream = io.BytesIO()
     fig.savefig(img_stream, format='png', transparent=True)
@@ -1935,6 +2010,8 @@ def prepare_price_index_dataframe(series_config: SeriesConfig, top10_columns: li
             ratio_df[col] = pd.to_numeric(df_price[col], errors='coerce').astype(float) / total_series
     ratio_df = ratio_df.replace([np.inf, -np.inf], np.nan)
     ratio_df.dropna(subset=filtered_columns, how='all', inplace=True)
+    if not ratio_df.empty:
+        ratio_df.loc[:, filtered_columns] = ratio_df.loc[:, filtered_columns].astype(float) * 100.0
     return ratio_df, filtered_columns
 
 
@@ -1968,6 +2045,8 @@ def build_price_index_slide(
     comment_paragraph = comment_tf.paragraphs[0]
     comment_paragraph.text = "Comentário" if lang == 'P' else "Comentario"
     comment_paragraph.font.size = Inches(0.25)
+
+    chart_share_lookup = chart_share_lookup or {}
 
     target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
     bottom_margin = Cm(1.5)
@@ -2056,7 +2135,9 @@ def build_price_index_slide(
                 1,
                 width_emu=available_line_width,
                 height_emu=chart_height,
-                share_lookup=chart_share_lookup
+                share_lookup=chart_share_lookup,
+                y_axis_percent=True,
+                top_value_annotations=2
             ),
             left_margin_chart,
             Inches(1.15),
