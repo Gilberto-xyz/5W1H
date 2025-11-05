@@ -1172,7 +1172,7 @@ def aporte(df,p,lang,tipo):
 
 #Função que cria o gráfico tabela de aporte
 
-def graf_apo(apo,c_fig):
+def graf_apo(apo, c_fig, column_color_mapping=None):
     fig, ax = plt.subplots(num=c_fig)
     row_height = 0.45
     col_width = 1.0
@@ -1213,6 +1213,46 @@ def graf_apo(apo,c_fig):
     bar_padding_ratio = 0.08
     bar_height_ratio = 0.55
 
+    column_color_mapping = column_color_mapping or {}
+    exact_color_mapping = {
+        str(key).strip(): value
+        for key, value in column_color_mapping.items()
+        if key is not None and value
+    }
+    normalized_color_mapping = {
+        key.lower(): value
+        for key, value in exact_color_mapping.items()
+        if key
+    }
+
+    suffix_variants = ('.c', '.v', '_c', '_v', '-c', '-v')
+
+    def resolve_column_color(column_name):
+        if column_name is None:
+            return None
+        key = str(column_name).strip()
+        if not key:
+            return None
+        color_value = exact_color_mapping.get(key)
+        if color_value:
+            return color_value
+        lower_key = key.lower()
+        color_value = normalized_color_mapping.get(lower_key)
+        if color_value:
+            return color_value
+        for suffix in suffix_variants:
+            if lower_key.endswith(suffix):
+                base = key[:-len(suffix)].strip()
+                if not base:
+                    continue
+                color_value = exact_color_mapping.get(base)
+                if color_value:
+                    return color_value
+                color_value = normalized_color_mapping.get(base.lower())
+                if color_value:
+                    return color_value
+        return None
+
     total_column_name = next((col for col in apo.columns if str(col).strip().lower() == 'total'), None)
 
     data_columns = [
@@ -1235,7 +1275,16 @@ def graf_apo(apo,c_fig):
             colors.append(mcolors.to_hex(rgb))
         return colors
 
-    column_colors = share_colors(len(data_columns))
+    fallback_column_colors = share_colors(len(data_columns))
+    column_colors = []
+    for rel_idx, col_idx in enumerate(data_columns):
+        resolved = resolve_column_color(apo.columns[col_idx])
+        if resolved is None:
+            resolved = fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END
+        try:
+            column_colors.append(mcolors.to_hex(resolved))
+        except (ValueError, TypeError):
+            column_colors.append(fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END)
     white_rgb = np.array([1.0, 1.0, 1.0])
     volume_row_indexes = [idx for idx, label in enumerate(apo.iloc[:, 0]) if str(label).lower().startswith('vol')]
     aporte_row_index = next((idx for idx, label in enumerate(apo.iloc[:, 0]) if str(label).strip().lower() == 'aporte'), None)
@@ -1267,11 +1316,22 @@ def graf_apo(apo,c_fig):
             text = cell.get_text()
             text.set_weight('bold')
             text.set_fontsize(TABLE_HEADER_FONT_SIZE)
-            text.set_color(HEADER_FONT_COLOR)
+            header_text_color = HEADER_FONT_COLOR
             if col == 0 or (total_column_name is not None and apo.columns[col] == total_column_name):
                 cell.set_facecolor(header_main)
             else:
-                cell.set_facecolor(header_secondary)
+                header_color = resolve_column_color(apo.columns[col])
+                if header_color is None:
+                    cell.set_facecolor(header_secondary)
+                else:
+                    try:
+                        cell.set_facecolor(header_color)
+                        rgb = mcolors.to_rgb(header_color)
+                        luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+                        header_text_color = '#FFFFFF' if luminance < 0.6 else TABLE_TEXT_PRIMARY
+                    except (ValueError, TypeError):
+                        cell.set_facecolor(header_secondary)
+            text.set_color(header_text_color)
         else:
             label = str(apo.iloc[row - 1, 0])
             text = cell.get_text()
@@ -2421,6 +2481,7 @@ for w in W:
         stacked_share_sources = []
         should_collect_share = False
         apo_entries = []
+        chart_color_mappings = {}
         if w:
             first_char = w[0]
             last_char = w[-1]
@@ -2455,28 +2516,6 @@ for w in W:
                             ],
                         }
                     )
-            c_fig += 1
-            # Si hay dos tablas, ambas se posicionan a la misma altura y ocupan el espacio óptimo
-            if len(series_configs) == 2:
-                gap = Cm(TABLE_PAIR_GAP_CM)
-                top_position = slide_height - target_table_height_emu - bottom_margin_emu
-                half_slide_width = slide_width // 2
-                gap_half = int(gap) // 2
-                if serie.display_tipo.lower() == 'ventas':
-                    left_position = half_slide_width + gap_half
-                    max_width = slide_width - left_position - right_margin
-                else:
-                    left_position = left_margin
-                    max_width = half_slide_width - left_position - gap_half
-                pic = slide.shapes.add_picture(graf_apo(apo, c_fig), left_position, top_position, height=target_table_height)
-                constrain_picture_width(pic, max_width)
-            else:
-                top_position = slide_height - target_table_height_emu - bottom_margin_emu
-                left_position = left_margin
-                max_width = slide_width - left_position - right_margin
-                pic = slide.shapes.add_picture(graf_apo(apo, c_fig), left_position, top_position, height=target_table_height)
-                constrain_picture_width(pic, max_width)
-            plt.clf()
 
         #Cuadro de texto que indica los encabezados eliminados
         unique_removed_headers = [header for header in dict.fromkeys(removed_headers) if header]
@@ -2542,7 +2581,21 @@ for w in W:
             left_margin = Inches(0.33)
             right_margin = Inches(0.33)
             available_line_width = available_width(ppt, left_margin, right_margin)
-            pic=slide.shapes.add_picture(line_graf(df_full,pipeline_combined,titulo,c_fig,len(series_configs), width_emu=available_line_width, height_emu=Cm(10), share_lookup=series_share_lookup), left_margin, Inches(1.15),width=available_line_width,height=Cm(10))
+            chart_colors = {}
+            chart_stream = line_graf(
+                df_full,
+                pipeline_combined,
+                titulo,
+                c_fig,
+                len(series_configs),
+                width_emu=available_line_width,
+                height_emu=Cm(10),
+                share_lookup=series_share_lookup,
+                color_collector=chart_colors
+            )
+            if isinstance(chart_colors, dict):
+                chart_color_mappings.update(chart_colors)
+            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(1.15),width=available_line_width,height=Cm(10))
         elif plot=="2" and len(series_configs)>1:
             ven_param = max(len(series_configs)-1, 1)
             left_margin = Inches(0.33)
@@ -2563,15 +2616,131 @@ for w in W:
             for idx, serie in enumerate(series_configs):
                 c_fig+=1
                 left_position = left_margin + idx * (chart_width + int(gap))
-                pic=slide.shapes.add_picture(line_graf(serie.data,serie.pipeline,titulo+' '+serie.display_tipo,c_fig,ven_param, width_emu=chart_width, height_emu=Cm(10), multi_chart=True, share_lookup=series_share_lookup), left_position, Inches(1.15),width=chart_width,height=Cm(10))
+                chart_colors = {}
+                chart_stream = line_graf(
+                    serie.data,
+                    serie.pipeline,
+                    titulo+' '+serie.display_tipo,
+                    c_fig,
+                    ven_param,
+                    width_emu=chart_width,
+                    height_emu=Cm(10),
+                    multi_chart=True,
+                    share_lookup=series_share_lookup,
+                    color_collector=chart_colors
+                )
+                if isinstance(chart_colors, dict):
+                    chart_color_mappings.update(chart_colors)
+                pic=slide.shapes.add_picture(chart_stream, left_position, Inches(1.15),width=chart_width,height=Cm(10))
                 plt.clf()
         elif series_configs:
             c_fig+=1
             left_margin = Inches(0.33)
             right_margin = Inches(0.33)
             available_single_width = available_width(ppt, left_margin, right_margin)
-            pic=slide.shapes.add_picture(line_graf(series_configs[0].data,series_configs[0].pipeline,titulo,c_fig,len(series_configs), width_emu=available_single_width, height_emu=Cm(10), share_lookup=series_share_lookup), left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
+            chart_colors = {}
+            chart_stream = line_graf(
+                series_configs[0].data,
+                series_configs[0].pipeline,
+                titulo,
+                c_fig,
+                len(series_configs),
+                width_emu=available_single_width,
+                height_emu=Cm(10),
+                share_lookup=series_share_lookup,
+                color_collector=chart_colors
+            )
+            if isinstance(chart_colors, dict):
+                chart_color_mappings.update(chart_colors)
+            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
             plt.clf()
+        if apo_entries:
+            normalized_colors = {
+                str(key).strip(): value
+                for key, value in chart_color_mappings.items()
+                if key is not None and value
+            }
+            normalized_colors_lower = {
+                key.lower(): value
+                for key, value in normalized_colors.items()
+                if key
+            }
+            suffix_options = ('.c', '.v', '_c', '_v', '-c', '-v')
+
+            def column_color_for_table(column_name):
+                if column_name is None:
+                    return None
+                key = str(column_name).strip()
+                if not key or key.lower() == 'total':
+                    return None
+                color_value = normalized_colors.get(key)
+                if color_value:
+                    return color_value
+                lower_key = key.lower()
+                color_value = normalized_colors_lower.get(lower_key)
+                if color_value:
+                    return color_value
+                for suffix in suffix_options:
+                    if lower_key.endswith(suffix):
+                        base = key[:-len(suffix)].strip()
+                        if not base:
+                            continue
+                        color_value = normalized_colors.get(base)
+                        if color_value:
+                            return color_value
+                        color_value = normalized_colors_lower.get(base.lower())
+                        if color_value:
+                            return color_value
+                return None
+
+            def build_table_color_mapping(apo_df):
+                mapping = {}
+                for column in apo_df.columns[1:]:
+                    color_value = column_color_for_table(column)
+                    if color_value:
+                        mapping[column] = color_value
+                return mapping
+
+            table_top = slide_height - target_table_height_emu - bottom_margin_emu
+            if len(apo_entries) == 2:
+                gap = Cm(TABLE_PAIR_GAP_CM)
+                half_slide_width = slide_width // 2
+                gap_half = int(gap) // 2
+                for entry in apo_entries:
+                    apo_df = entry["apo"]
+                    display_tipo = str(entry.get("display_tipo", "")).strip().lower()
+                    if display_tipo == 'ventas':
+                        left_position = half_slide_width + gap_half
+                        max_width = slide_width - left_position - right_margin
+                    else:
+                        left_position = left_margin
+                        max_width = half_slide_width - left_position - gap_half
+                    c_fig += 1
+                    table_colors = build_table_color_mapping(apo_df)
+                    pic = slide.shapes.add_picture(
+                        graf_apo(apo_df, c_fig, column_color_mapping=table_colors),
+                        left_position,
+                        table_top,
+                        height=target_table_height
+                    )
+                    constrain_picture_width(pic, max_width)
+                    plt.clf()
+            else:
+                for entry in apo_entries:
+                    apo_df = entry["apo"]
+                    c_fig += 1
+                    table_colors = build_table_color_mapping(apo_df)
+                    top_position = slide_height - target_table_height_emu - bottom_margin_emu
+                    left_position = left_margin
+                    max_width = slide_width - left_position - right_margin
+                    pic = slide.shapes.add_picture(
+                        graf_apo(apo_df, c_fig, column_color_mapping=table_colors),
+                        left_position,
+                        top_position,
+                        height=target_table_height
+                    )
+                    constrain_picture_width(pic, max_width)
+                    plt.clf()
         if should_collect_share and stacked_share_sources:
             priority_entry = next((entry for entry in stacked_share_sources if entry["display_tipo"].lower() == 'ventas'), stacked_share_sources[0])
             periods_to_plot = []
