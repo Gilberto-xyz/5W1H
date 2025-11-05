@@ -379,7 +379,22 @@ def graf_mat (mat,c_fig,p):
 
 
 #Grafico de Lineas
-def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_chart=None, share_lookup=None, y_axis_percent=False, top_value_annotations=0):
+def line_graf(
+    df,
+    p,
+    title,
+    c_fig,
+    ven,
+    width_emu=None,
+    height_emu=None,
+    multi_chart=None,
+    share_lookup=None,
+    y_axis_percent=False,
+    top_value_annotations=0,
+    color_collector=None,
+    color_overrides=None,
+    linestyle_overrides=None,
+):
     """
     Renderiza la gráfica de tendencias y devuelve un buffer PNG listo para insertar en la slide.
     Cuando se generan múltiples gráficos en la misma diapositiva (multi_chart=True), se aplican
@@ -484,6 +499,9 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
     colunas = list(aux.columns[1:])
     palette_values = TREND_COLOR_SEQUENCE or [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
     color_mapping = {}
+    if color_overrides:
+        for name, hex_color in color_overrides.items():
+            color_mapping[name] = hex_color
     color_index = 0
 
     if ven > 1:
@@ -505,8 +523,9 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
                 color_index += 1
     else:
         for base in colunas:
-            color_mapping[base] = palette_values[color_index % len(palette_values)]
-            color_index += 1
+            if base not in color_mapping:
+                color_mapping[base] = palette_values[color_index % len(palette_values)]
+                color_index += 1
 
     lns = []
     legend_labels = []
@@ -520,6 +539,9 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
             estilo = '-'
 
         cor = color_mapping.get(col, palette_values[0])
+        if color_overrides and col in color_overrides:
+            cor = color_overrides[col]
+            color_mapping[col] = cor
 
         numeric_series = pd.to_numeric(aux[col], errors='coerce')
         numeric_series_list.append(numeric_series)
@@ -538,6 +560,9 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
             if lower_col.endswith(suffix):
                 legend_label = f"{col[:-len(suffix)].strip()} ({suffix_text})"
                 break
+
+        if linestyle_overrides and col in linestyle_overrides:
+            estilo = linestyle_overrides[col]
 
         line, = ax.plot(
             x_slice,
@@ -839,6 +864,8 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
         point_candidates = []
         line_lookup = {col: line for col, line in zip(plotted_columns, lns)}
         for col in plotted_columns:
+            if str(col).strip().lower() == 'total':
+                continue
             line = line_lookup.get(col)
             if line is None:
                 continue
@@ -895,6 +922,11 @@ def line_graf(df, p, title, c_fig, ven, width_emu=None, height_emu=None, multi_c
                 annotated += 1
                 if annotated >= top_value_annotations:
                     break
+
+    if isinstance(color_collector, dict):
+        color_collector.clear()
+        for col, line in zip(plotted_columns, lns):
+            color_collector[col] = line.get_color()
 
     img_stream = io.BytesIO()
     fig.savefig(img_stream, format='png', transparent=True)
@@ -1956,15 +1988,15 @@ def is_price_index_sheet(sheet_name: str) -> bool:
     return last_part == '1'
 
 
-def prepare_price_index_dataframe(series_config: SeriesConfig, top10_columns: list[str]) -> tuple[pd.DataFrame, list[str]]:
+def prepare_price_index_dataframe(series_config: SeriesConfig, top10_columns: list[str]) -> tuple[pd.DataFrame, list[str], pd.DataFrame]:
     df_price = series_config.data.copy()
     if df_price.empty or df_price.shape[1] <= 1:
-        return pd.DataFrame(), []
+        return pd.DataFrame(), [], pd.DataFrame()
 
     date_col = df_price.columns[0]
     data_cols = list(df_price.columns[1:])
     if not data_cols:
-        return pd.DataFrame(), []
+        return pd.DataFrame(), [], pd.DataFrame()
 
     total_col = next(
         (col for col in data_cols if 'total' in str(col).strip().lower()),
@@ -1975,7 +2007,7 @@ def prepare_price_index_dataframe(series_config: SeriesConfig, top10_columns: li
     df_price = df_price[df_price[total_col].notna()]
     df_price = df_price[df_price[total_col] > 0]
     if df_price.empty:
-        return pd.DataFrame(columns=[date_col]), []
+        return pd.DataFrame(columns=[date_col]), [], pd.DataFrame(columns=[date_col])
 
     normalized_top10 = {str(col).strip().lower() for col in top10_columns if str(col).strip()}
     candidate_columns = []
@@ -1995,24 +2027,92 @@ def prepare_price_index_dataframe(series_config: SeriesConfig, top10_columns: li
             filtered_columns.append(col)
 
     if normalized_top10 and not filtered_columns:
-        return pd.DataFrame(columns=[date_col]), []
+        return pd.DataFrame(columns=[date_col]), [], pd.DataFrame(columns=[date_col])
 
     if not filtered_columns:
         filtered_columns = candidate_columns[:10]
 
     if not filtered_columns:
-        return pd.DataFrame(columns=[date_col]), []
+        return pd.DataFrame(columns=[date_col]), [], pd.DataFrame(columns=[date_col])
 
-    ratio_df = df_price[[date_col] + filtered_columns].copy()
-    total_series = df_price[total_col].astype(float)
+    total_numeric = pd.to_numeric(df_price[total_col], errors='coerce')
+    ratio_df = pd.DataFrame({date_col: df_price[date_col]})
+    ratio_df['Total'] = np.where(total_numeric.notna(), 100.0, np.nan)
+    original_df = pd.DataFrame({date_col: df_price[date_col], 'Total': total_numeric})
+    for col in filtered_columns:
+        numeric_series = pd.to_numeric(df_price[col], errors='coerce')
+        original_df[col] = numeric_series
+        ratio_df[col] = numeric_series
+    total_series = total_numeric.astype(float)
     with np.errstate(divide='ignore', invalid='ignore'):
         for col in filtered_columns:
-            ratio_df[col] = pd.to_numeric(df_price[col], errors='coerce').astype(float) / total_series
+            ratio_df[col] = ratio_df[col].astype(float) / total_series * 100.0
     ratio_df = ratio_df.replace([np.inf, -np.inf], np.nan)
     ratio_df.dropna(subset=filtered_columns, how='all', inplace=True)
-    if not ratio_df.empty:
-        ratio_df.loc[:, filtered_columns] = ratio_df.loc[:, filtered_columns].astype(float) * 100.0
-    return ratio_df, filtered_columns
+    return ratio_df, ['Total'] + filtered_columns, original_df
+
+
+def graf_price_index_table(
+    columns: list[str],
+    averages: dict[str, float],
+    color_mapping: dict[str, str],
+    metric_label: str,
+    c_fig: int
+) -> tuple[io.BytesIO, tuple[float, float]]:
+    column_count = max(len(columns), 1)
+    fig_width = max(6.0, 1.25 * column_count)
+    fig_height = 1.5
+    fig, ax = plt.subplots(num=c_fig, figsize=(fig_width, fig_height))
+    ax.axis('off')
+    ax.set_facecolor('white')
+
+    header_labels = ['Indicador'] + [wrap_table_text(str(col)) for col in columns]
+    display_columns = ['Indicador'] + columns
+    row_values = [metric_label]
+    for col in columns:
+        value = averages.get(col)
+        if value is None or not np.isfinite(value):
+            row_values.append('-')
+        else:
+            row_values.append(f"{value:.2f}%")
+
+    row_values[0] = wrap_table_text(row_values[0])
+
+    table = ax.table(
+        cellText=[row_values],
+        colLabels=header_labels,
+        cellLoc='center',
+        loc='center'
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.05, 1.4)
+
+    default_header_color = HEADER_COLOR_PRIMARY
+    header_cell = table[(0, 0)]
+    header_cell.set_facecolor(default_header_color)
+    header_cell.set_text_props(color='white', weight='bold')
+    header_cell.set_height(header_cell.get_height() * 1.5)
+    for idx, col in enumerate(columns, start=1):
+        header_cell = table[(0, idx)]
+        header_color = color_mapping.get(col, '#777777')
+        header_cell.set_facecolor(header_color)
+        header_cell.set_text_props(color='white', weight='bold')
+        header_cell.set_height(header_cell.get_height() * 1.5)
+
+    for idx in range(len(display_columns)):
+        data_cell = table[(1, idx)]
+        data_cell.set_height(data_cell.get_height() * 1.35)
+        data_cell.set_facecolor('#FFFFFF')
+        data_cell.set_edgecolor('#DDDDDD')
+
+    fig.tight_layout(pad=0.2)
+    img_stream = io.BytesIO()
+    fig.savefig(img_stream, format='png', transparent=True, dpi=220)
+    img_stream.seek(0)
+    plt.close(fig)
+    return img_stream, fig.get_size_inches()
 
 
 def build_price_index_slide(
@@ -2022,6 +2122,7 @@ def build_price_index_slide(
     apo_entries: list[dict],
     removed_headers: list[str],
     price_df: pd.DataFrame,
+    price_original_df: pd.DataFrame,
     chart_pipeline: int,
     chart_share_lookup: dict,
     c_fig: int
@@ -2047,85 +2148,15 @@ def build_price_index_slide(
     comment_paragraph.font.size = Inches(0.25)
 
     chart_share_lookup = chart_share_lookup or {}
-
-    target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
-    bottom_margin = Cm(1.5)
-    left_margin = int(Cm(TABLE_SIDE_MARGIN_CM))
-    right_margin = left_margin
-    target_table_height_emu = int(target_table_height)
-    bottom_margin_emu = int(bottom_margin)
-    slide_width = int(ppt.slide_width)
-    slide_height = int(ppt.slide_height)
-
-    if apo_entries:
-        if len(apo_entries) == 2:
-            gap = Cm(TABLE_PAIR_GAP_CM)
-            top_position = slide_height - target_table_height_emu - bottom_margin_emu
-            half_slide_width = slide_width // 2
-            gap_half = int(gap) // 2
-            for entry in apo_entries:
-                c_fig += 1
-                display_tipo = str(entry.get("display_tipo", "")).lower()
-                apo_df = entry.get("apo")
-                if apo_df is None:
-                    continue
-                if display_tipo == 'ventas':
-                    left_position = half_slide_width + gap_half
-                    max_width = slide_width - left_position - right_margin
-                else:
-                    left_position = left_margin
-                    max_width = half_slide_width - left_position - gap_half
-                pic = slide.shapes.add_picture(
-                    graf_apo(apo_df, c_fig),
-                    left_position,
-                    top_position,
-                    height=target_table_height
-                )
-                constrain_picture_width(pic, max_width)
-                plt.clf()
-        else:
-            top_position = slide_height - target_table_height_emu - bottom_margin_emu
-            max_width = slide_width - left_margin - right_margin
-            for entry in apo_entries:
-                apo_df = entry.get("apo")
-                if apo_df is None:
-                    continue
-                c_fig += 1
-                pic = slide.shapes.add_picture(
-                    graf_apo(apo_df, c_fig),
-                    left_margin,
-                    top_position,
-                    height=target_table_height
-                )
-                constrain_picture_width(pic, max_width)
-                plt.clf()
-
-    unique_removed_headers = [header for header in dict.fromkeys(removed_headers) if header]
-    if unique_removed_headers:
-        footer_left = Cm(4.6)
-        footer_right_margin = Cm(1.2)
-        footer_width = ppt.slide_width - footer_left - footer_right_margin
-        if footer_width < Cm(2):
-            footer_width = Cm(2)
-        footer_top = ppt.slide_height - bottom_margin + Cm(0.1)
-        footer_height = Cm(0.9)
-        footer_box = slide.shapes.add_textbox(footer_left, footer_top, footer_width, footer_height)
-        footer_tf = footer_box.text_frame
-        footer_tf.clear()
-        footer_tf.word_wrap = True
-        footer_tf.text = "Se eliminaron los encabezados sin informacion: " + ", ".join(unique_removed_headers)
-        footer_run = footer_tf.paragraphs[0].runs[0]
-        footer_font = footer_run.font
-        footer_font.name = 'Arial'
-        footer_font.size = Pt(10)
-        footer_font.color.rgb = RGBColor(120, 120, 120)
+    slide_height_in = emu_to_inches(ppt.slide_height)
 
     if not price_df.empty and price_df.shape[1] > 1:
         left_margin_chart = Inches(0.33)
         right_margin_chart = Inches(0.33)
         available_line_width = available_width(ppt, left_margin_chart, right_margin_chart)
         c_fig += 1
-        chart_height = Cm(10)
+        chart_height = Cm(12)
+        chart_colors = {}
         slide.shapes.add_picture(
             line_graf(
                 price_df,
@@ -2137,7 +2168,10 @@ def build_price_index_slide(
                 height_emu=chart_height,
                 share_lookup=chart_share_lookup,
                 y_axis_percent=True,
-                top_value_annotations=2
+                top_value_annotations=2,
+                color_collector=chart_colors,
+                color_overrides={'Total': '#000000'},
+                linestyle_overrides={'Total': '--'}
             ),
             left_margin_chart,
             Inches(1.15),
@@ -2145,6 +2179,71 @@ def build_price_index_slide(
             height=chart_height
         )
         plt.clf()
+        chart_colors.setdefault('Total', '#000000')
+
+        if not price_original_df.empty and chart_colors:
+            data_cols = [col for col in price_df.columns[1:] if col in chart_colors]
+            if 'Total' in data_cols:
+                data_cols = ['Total'] + [col for col in data_cols if col != 'Total']
+            if data_cols:
+                tail_df = price_original_df.iloc[-12:] if len(price_original_df) >= 12 else price_original_df
+                averages_raw: dict[str, float] = {}
+                for col in data_cols:
+                    series = pd.to_numeric(tail_df[col], errors='coerce')
+                    avg_value = series.mean() if not series.dropna().empty else np.nan
+                    averages_raw[col] = avg_value
+
+                total_key = next((col for col in data_cols if str(col).strip().lower() == 'total'), None)
+                total_avg = averages_raw.get(total_key) if total_key else np.nan
+
+                averages = {}
+                if total_key and np.isfinite(total_avg) and not np.isclose(total_avg, 0.0):
+                    for col, avg_value in averages_raw.items():
+                        if avg_value is None or not np.isfinite(avg_value):
+                            averages[col] = np.nan
+                        elif col == total_key:
+                            averages[col] = 100.0
+                        else:
+                            averages[col] = (avg_value / total_avg) * 100.0
+                else:
+                    for col, avg_value in averages_raw.items():
+                        averages[col] = avg_value if avg_value is not None and np.isfinite(avg_value) else np.nan
+                if any(np.isfinite(val) for val in averages.values()):
+                    c_fig += 1
+                    metric_label = "Preco indexado\nmedio 12 meses" if lang == 'P' else "Precio indexado 12m"
+                    table_stream, fig_size = graf_price_index_table(
+                        data_cols,
+                        averages,
+                        chart_colors,
+                        metric_label,
+                        c_fig
+                    )
+                    fig_width_in, fig_height_in = fig_size
+                    if fig_width_in <= 0 or fig_height_in <= 0:
+                        fig_width_in, fig_height_in = 6.0, 1.5
+                    available_width_in = emu_to_inches(available_line_width)
+                    if available_width_in <= 0:
+                        available_width_in = fig_width_in
+                    scale_ratio = available_width_in / fig_width_in
+                    target_height_in = fig_height_in * scale_ratio
+                    target_height_in = max(1.0, min(target_height_in, 2.2))
+                    chart_top_in = 1.15
+                    chart_height_in = emu_to_inches(chart_height)
+                    table_gap_in = 0.2
+                    table_top_in = chart_top_in + chart_height_in + table_gap_in
+                    if table_top_in + target_height_in > slide_height_in - 0.3:
+                        table_top_in = max(chart_top_in + chart_height_in + 0.05, slide_height_in - target_height_in - 0.3)
+                    table_top = Inches(table_top_in)
+                    table_width = available_line_width
+                    table_height = Inches(target_height_in)
+                    slide.shapes.add_picture(
+                        table_stream,
+                        left_margin_chart,
+                        table_top,
+                        width=table_width,
+                        height=table_height
+                    )
+                    plt.clf()
 
     return c_fig
 
@@ -2186,7 +2285,7 @@ for w in W:
             print_colored(f"No se detecto informacion de Compras en la hoja {w}.", COLOR_YELLOW)
             continue
 
-        price_df, selected_columns = prepare_price_index_dataframe(price_series, context.get('compras_top10', []))
+        price_df, selected_columns, price_original_df = prepare_price_index_dataframe(price_series, context.get('compras_top10', []))
         share_lookup_context = context.get('share_lookup', {})
         chart_share_lookup = {}
         if share_lookup_context and selected_columns:
@@ -2206,6 +2305,7 @@ for w in W:
             context.get('apo_entries', []),
             context.get('removed_headers', []),
             price_df,
+            price_original_df,
             price_series.pipeline,
             chart_share_lookup,
             c_fig
@@ -2690,5 +2790,3 @@ fim = dt.now()
 
 t = int((fim - agora).total_seconds())
 print_colored(f'Tiempo de ejecucion : {t//60} min {t%60} s' if t >= 60 else f'Tiempo de ejecucion : {t} s', COLOR_BLUE)
-
-
