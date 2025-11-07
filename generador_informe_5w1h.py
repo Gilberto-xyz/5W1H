@@ -10,6 +10,8 @@ import os
 import io
 import math
 import textwrap
+import re
+import unicodedata
 from matplotlib import pyplot as plt
 from matplotlib.ticker import FuncFormatter
 from matplotlib import colors as mcolors
@@ -498,34 +500,39 @@ def line_graf(
 
     colunas = list(aux.columns[1:])
     palette_values = TREND_COLOR_SEQUENCE or [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
-    color_mapping = {}
+    color_mapping: dict[str, str] = {}
+    color_key_lookup: dict[str, str] = {}
+
+    def _register_color_keys(label: str, color_value: str, key_list: Optional[list[str]] = None) -> None:
+        keys = key_list if key_list is not None else generate_color_lookup_keys(label)
+        for key in keys:
+            if key and key not in color_key_lookup:
+                color_key_lookup[key] = color_value
+
     if color_overrides:
         for name, hex_color in color_overrides.items():
             color_mapping[name] = hex_color
+            _register_color_keys(name, hex_color)
+
     color_index = 0
 
-    if ven > 1:
-        comp = colunas[:len(colunas) // 2]
-        vent = colunas[len(colunas) // 2:]
-        pair_count = min(len(comp), len(vent))
-        for idx in range(pair_count):
-            color = palette_values[color_index % len(palette_values)]
-            color_index += 1
-            color_mapping[comp[idx]] = color
-            color_mapping[vent[idx]] = color
-        for base in comp[pair_count:]:
-            if base not in color_mapping:
-                color_mapping[base] = palette_values[color_index % len(palette_values)]
-                color_index += 1
-        for base in vent[pair_count:]:
-            if base not in color_mapping:
-                color_mapping[base] = palette_values[color_index % len(palette_values)]
-                color_index += 1
-    else:
-        for base in colunas:
-            if base not in color_mapping:
-                color_mapping[base] = palette_values[color_index % len(palette_values)]
-                color_index += 1
+    def _resolve_or_assign_color(label: str) -> str:
+        nonlocal color_index
+        existing_color = color_mapping.get(label)
+        if existing_color:
+            return existing_color
+        keys = generate_color_lookup_keys(label)
+        for key in keys:
+            reused_color = color_key_lookup.get(key)
+            if reused_color:
+                color_mapping[label] = reused_color
+                _register_color_keys(label, reused_color, keys)
+                return reused_color
+        assigned_color = palette_values[color_index % len(palette_values)]
+        color_index += 1
+        color_mapping[label] = assigned_color
+        _register_color_keys(label, assigned_color, keys)
+        return assigned_color
 
     lns = []
     legend_labels = []
@@ -538,10 +545,7 @@ def line_graf(
         else:
             estilo = '-'
 
-        cor = color_mapping.get(col, palette_values[0])
-        if color_overrides and col in color_overrides:
-            cor = color_overrides[col]
-            color_mapping[col] = cor
+        cor = _resolve_or_assign_color(col)
 
         numeric_series = pd.to_numeric(aux[col], errors='coerce')
         numeric_series_list.append(numeric_series)
@@ -1941,6 +1945,70 @@ class SeriesConfig(NamedTuple):
     pipeline: int
 
 
+COLOR_TOKEN_STOPWORDS = {
+    'gr', 'gr.', 'grupo', 'grup', 'compras', 'compra', 'ventas', 'venta',
+    'canal', 'canales', 'channel', 'channels', 'marca', 'marcas', 'brand',
+    'brands'
+}
+COLOR_SUFFIXES = ('.c', '.v', '_c', '_v', '-c', '-v')
+COLOR_TOKEN_SPLIT_PATTERN = re.compile(r'[^0-9a-z]+')
+
+
+def normalize_color_text(value) -> str:
+    if value is None:
+        return ''
+    if not isinstance(value, str):
+        value = str(value)
+    normalized = unicodedata.normalize('NFKD', value)
+    normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+    return normalized.lower().strip()
+
+
+def strip_color_suffixes(text: str) -> str:
+    base = text.strip()
+    for suffix in COLOR_SUFFIXES:
+        if base.endswith(suffix):
+            base = base[:-len(suffix)]
+            break
+    return base.strip()
+
+
+def generate_color_lookup_keys(label: str) -> list[str]:
+    normalized = normalize_color_text(label)
+    if not normalized:
+        return []
+    base = strip_color_suffixes(normalized)
+    seen = set()
+    keys: list[str] = []
+
+    def _push(candidate: str):
+        candidate = candidate.strip()
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            keys.append(candidate)
+
+    _push(base)
+    collapsed = ' '.join(base.split())
+    _push(collapsed)
+    alnum = COLOR_TOKEN_SPLIT_PATTERN.sub('', base)
+    _push(alnum)
+    digit_key = ''.join(ch for ch in base if ch.isdigit())
+    if digit_key:
+        digit_key = digit_key.lstrip('0') or '0'
+        _push(digit_key)
+
+    raw_tokens = [tok for tok in COLOR_TOKEN_SPLIT_PATTERN.split(base) if tok]
+    filtered_tokens = [tok for tok in raw_tokens if tok not in COLOR_TOKEN_STOPWORDS]
+    if filtered_tokens:
+        _push(' '.join(filtered_tokens))
+        _push(''.join(filtered_tokens))
+        if len(filtered_tokens) > 1:
+            _push(' '.join(sorted(filtered_tokens)))
+    if raw_tokens:
+        _push(' '.join(raw_tokens))
+    return keys
+
+
 def _extract_pipeline(col_name: str) -> int:
     if not isinstance(col_name, str):
         return 0
@@ -2591,7 +2659,8 @@ for w in W:
                 width_emu=available_line_width,
                 height_emu=Cm(10),
                 share_lookup=series_share_lookup,
-                color_collector=chart_colors
+                color_collector=chart_colors,
+                color_overrides=chart_color_mappings
             )
             if isinstance(chart_colors, dict):
                 chart_color_mappings.update(chart_colors)
@@ -2627,7 +2696,8 @@ for w in W:
                     height_emu=Cm(10),
                     multi_chart=True,
                     share_lookup=series_share_lookup,
-                    color_collector=chart_colors
+                    color_collector=chart_colors,
+                    color_overrides=chart_color_mappings
                 )
                 if isinstance(chart_colors, dict):
                     chart_color_mappings.update(chart_colors)
@@ -2648,7 +2718,8 @@ for w in W:
                 width_emu=available_single_width,
                 height_emu=Cm(10),
                 share_lookup=series_share_lookup,
-                color_collector=chart_colors
+                color_collector=chart_colors,
+                color_overrides=chart_color_mappings
             )
             if isinstance(chart_colors, dict):
                 chart_color_mappings.update(chart_colors)
@@ -2660,37 +2731,26 @@ for w in W:
                 for key, value in chart_color_mappings.items()
                 if key is not None and value
             }
-            normalized_colors_lower = {
-                key.lower(): value
-                for key, value in normalized_colors.items()
-                if key
-            }
-            suffix_options = ('.c', '.v', '_c', '_v', '-c', '-v')
+            color_lookup_keys: dict[str, str] = {}
+            for original_key, color_value in normalized_colors.items():
+                if not original_key:
+                    continue
+                if original_key.lower() == 'total':
+                    continue
+                for lookup_key in generate_color_lookup_keys(original_key):
+                    if lookup_key and lookup_key not in color_lookup_keys:
+                        color_lookup_keys[lookup_key] = color_value
 
             def column_color_for_table(column_name):
                 if column_name is None:
                     return None
-                key = str(column_name).strip()
-                if not key or key.lower() == 'total':
+                raw_key = str(column_name).strip()
+                if not raw_key or raw_key.lower() == 'total':
                     return None
-                color_value = normalized_colors.get(key)
-                if color_value:
-                    return color_value
-                lower_key = key.lower()
-                color_value = normalized_colors_lower.get(lower_key)
-                if color_value:
-                    return color_value
-                for suffix in suffix_options:
-                    if lower_key.endswith(suffix):
-                        base = key[:-len(suffix)].strip()
-                        if not base:
-                            continue
-                        color_value = normalized_colors.get(base)
-                        if color_value:
-                            return color_value
-                        color_value = normalized_colors_lower.get(base.lower())
-                        if color_value:
-                            return color_value
+                for lookup_key in generate_color_lookup_keys(raw_key):
+                    color_value = color_lookup_keys.get(lookup_key)
+                    if color_value:
+                        return color_value
                 return None
 
             def build_table_color_mapping(apo_df):
