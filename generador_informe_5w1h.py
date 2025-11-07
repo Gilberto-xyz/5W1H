@@ -1914,7 +1914,7 @@ c_w={
 ('P','5-1'):'5W - Onde? Regiões',
 ('P','5-2'):'5W - Onde? Canais',
 ('P','6'):'Players',
-('P','6-1'):'Players - Preco indexado',
+('P','6-1'):'Players - Preço indexado',
 ('E','1'):'1W - ¿Cuándo?',
 ('E','3-1'):'3W - ¿Qué tamaños?',
 ('E','3-2'):'3W - ¿Qué marcas?',
@@ -2008,6 +2008,45 @@ def generate_color_lookup_keys(label: str) -> list[str]:
         _push(' '.join(raw_tokens))
     return keys
 
+def build_color_lookup_dict(color_mapping: dict[str, str]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    if not color_mapping:
+        return lookup
+    for original_key, color_value in color_mapping.items():
+        if color_value is None:
+            continue
+        normalized_key = str(original_key).strip()
+        if not normalized_key or normalized_key.lower() == 'total':
+            continue
+        for lookup_key in generate_color_lookup_keys(normalized_key):
+            if lookup_key and lookup_key not in lookup:
+                lookup[lookup_key] = color_value
+    return lookup
+
+def lookup_color_for_label(label, lookup_dict: dict[str, str]) -> Optional[str]:
+    if not lookup_dict or label is None:
+        return None
+    raw_key = str(label).strip()
+    if not raw_key or raw_key.lower() == 'total':
+        return None
+    for lookup_key in generate_color_lookup_keys(raw_key):
+        color_value = lookup_dict.get(lookup_key)
+        if color_value:
+            return color_value
+    return None
+
+def register_color_lookup(label, color_value: str, lookup_dict: dict[str, str], overwrite: bool = False) -> None:
+    if label is None or not color_value:
+        return
+    raw_key = str(label).strip()
+    if not raw_key or raw_key.lower() == 'total':
+        return
+    for lookup_key in generate_color_lookup_keys(raw_key):
+        if not lookup_key:
+            continue
+        if overwrite or lookup_key not in lookup_dict:
+            lookup_dict[lookup_key] = color_value
+
 
 def _extract_pipeline(col_name: str) -> int:
     if not isinstance(col_name, str):
@@ -2087,6 +2126,24 @@ def prepare_series_configs(df_list, lang, p_ventas):
         pipeline = 0 if is_compras else p_ventas
         configs.append(SeriesConfig(df_local, raw_tipo, display_tipo, pipeline))
     return configs
+
+def format_origin_label(display_tipo: Optional[str], lang: str) -> str:
+    """
+    Normaliza la etiqueta de origen de datos (Compras/Ventas) para textos como 'Corte a:'.
+    """
+    if not display_tipo:
+        return ""
+    base = str(display_tipo).strip()
+    if not base:
+        return ""
+    normalized = base.lower()
+    if normalized.startswith('comp') or 'compra' in normalized or normalized.endswith('.c'):
+        return 'Compras'
+    if normalized.startswith('vent') or 'venta' in normalized or normalized.endswith('.v') or 'sell-out' in normalized:
+        return 'Vendas' if lang == 'P' else 'Ventas'
+    if 'sell-in' in normalized:
+        return 'Compras'
+    return base
 
 
 def extract_players_base_key(sheet_name: str) -> Optional[str]:
@@ -2387,6 +2444,7 @@ c_fig=0
 
 plot=plot_ven()
 last_reference_source = None
+last_reference_origin = None
 players_share_context = {}
 #---------------------------------------------------------------------------------------------------------------------
 for w in W:
@@ -2439,6 +2497,7 @@ for w in W:
             c_fig
         )
         last_reference_source = price_series.data
+        last_reference_origin = price_series.display_tipo
         titulo_precio = c_w.get((lang, '6-1'), 'Precio indexado')
         print_colored(f"{titulo_precio} realizado para {labels[(lang,'comp')]}{cat}", COLOR_GREEN)
         continue
@@ -2465,6 +2524,7 @@ for w in W:
         mat=df_mat(file.parse(w),p)
 
         last_reference_source = mat
+        last_reference_origin = None
         
         #Elimina linhas com divisão com zero devido ao pipeline
         mat=mat[~np.isinf(mat.iloc[:, 3])]
@@ -2502,6 +2562,7 @@ for w in W:
 
         series_configs = prepare_series_configs(df_list, lang, p_ventas)
         last_reference_source = series_configs[0].data if series_configs else df_start
+        last_reference_origin = series_configs[0].display_tipo if series_configs else None
         #Cria o slide
         slide = ppt.slides.add_slide(ppt.slide_layouts[1])
 
@@ -2725,33 +2786,11 @@ for w in W:
                 chart_color_mappings.update(chart_colors)
             pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
             plt.clf()
-        if apo_entries:
-            normalized_colors = {
-                str(key).strip(): value
-                for key, value in chart_color_mappings.items()
-                if key is not None and value
-            }
-            color_lookup_keys: dict[str, str] = {}
-            for original_key, color_value in normalized_colors.items():
-                if not original_key:
-                    continue
-                if original_key.lower() == 'total':
-                    continue
-                for lookup_key in generate_color_lookup_keys(original_key):
-                    if lookup_key and lookup_key not in color_lookup_keys:
-                        color_lookup_keys[lookup_key] = color_value
+        color_lookup_keys = build_color_lookup_dict(chart_color_mappings)
 
+        if apo_entries:
             def column_color_for_table(column_name):
-                if column_name is None:
-                    return None
-                raw_key = str(column_name).strip()
-                if not raw_key or raw_key.lower() == 'total':
-                    return None
-                for lookup_key in generate_color_lookup_keys(raw_key):
-                    color_value = color_lookup_keys.get(lookup_key)
-                    if color_value:
-                        return color_value
-                return None
+                return lookup_color_for_label(column_name, color_lookup_keys)
 
             def build_table_color_mapping(apo_df):
                 mapping = {}
@@ -2801,157 +2840,290 @@ for w in W:
                     )
                     constrain_picture_width(pic, max_width)
                     plt.clf()
+
+        render_share_items = []
         if should_collect_share and stacked_share_sources:
-            priority_entry = next((entry for entry in stacked_share_sources if entry["display_tipo"].lower() == 'ventas'), stacked_share_sources[0])
-            periods_to_plot = []
-            for period_label, shares in priority_entry["share_periods"]:
-                if shares and any(value > 0 for value in shares.values()):
-                    periods_to_plot.append((period_label, shares))
-                if len(periods_to_plot) == 2:
-                    break
-            if periods_to_plot:
-                previous_shares = periods_to_plot[0][1] if len(periods_to_plot) > 1 else None
-                delta_header = 'Crescimento vs ano anterior' if lang == 'P' else 'Crecimiento vs año anterior'
-                share_slide = ppt.slides.add_slide(ppt.slide_layouts[1])
-                share_title_box = share_slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
-                share_tf = share_title_box.text_frame
-                share_tf.clear()
-                share_title_paragraph = share_tf.paragraphs[0]
-                share_title_paragraph.text = f"{titulo} - Share 100% Apilado"
-                share_title_paragraph.font.bold = True
-                share_title_paragraph.font.size = Inches(0.33)
+            preferred_order = ['compras', 'ventas']
+            ordered_sources = []
+            consumed_indexes = set()
 
-                comment_box = share_slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
-                comment_tf = comment_box.text_frame
-                comment_tf.clear()
-                comment_paragraph = comment_tf.paragraphs[0]
-                comment_paragraph.text = "Comentário"
-                comment_paragraph.font.size = Inches(0.25)
+            for desired in preferred_order:
+                for idx_source, entry in enumerate(stacked_share_sources):
+                    if idx_source in consumed_indexes:
+                        continue
+                    display_tipo = (entry.get("display_tipo") or "").strip().lower()
+                    if display_tipo == desired:
+                        ordered_sources.append(entry)
+                        consumed_indexes.add(idx_source)
+                        break
 
+            for idx_source, entry in enumerate(stacked_share_sources):
+                if idx_source not in consumed_indexes:
+                    ordered_sources.append(entry)
+                    consumed_indexes.add(idx_source)
+
+            def _sanitize_share_periods(entry_dict):
+                valid_periods = []
+                for period_label, shares in entry_dict.get("share_periods", []):
+                    if not isinstance(shares, dict):
+                        continue
+                    sanitized = {}
+                    has_positive = False
+                    for column_name, value in shares.items():
+                        if column_name is None:
+                            continue
+                        try:
+                            numeric_value = float(value)
+                        except (TypeError, ValueError):
+                            continue
+                        if not np.isfinite(numeric_value):
+                            continue
+                        if numeric_value < 0:
+                            numeric_value = 0.0
+                        sanitized[column_name] = numeric_value
+                        if numeric_value > 0:
+                            has_positive = True
+                    if sanitized and has_positive:
+                        valid_periods.append((period_label, sanitized))
+                if len(valid_periods) > 2:
+                    valid_periods = valid_periods[-2:]
+                return valid_periods
+
+            share_chart_entries = []
+            for entry in ordered_sources:
+                sanitized_periods = _sanitize_share_periods(entry)
+                if sanitized_periods:
+                    share_chart_entries.append(
+                        {
+                            "display_tipo": entry.get("display_tipo") or "",
+                            "columns": entry.get("columns") or [],
+                            "periods": sanitized_periods,
+                        }
+                    )
+
+            if share_chart_entries:
+                max_sections = 2
+                share_chart_entries = share_chart_entries[:max_sections]
                 palette_values = TREND_COLOR_SEQUENCE or [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
-                color_mapping = {}
-                column_candidates = [col for col in priority_entry["columns"] if col]
-                if not column_candidates:
-                    for _, shares in periods_to_plot:
+                share_color_lookup = dict(color_lookup_keys)
+                used_color_values = {value for value in share_color_lookup.values() if value}
+                palette_index = [0]
+                palette_length = len(palette_values)
+
+                def _next_palette_color():
+                    if not palette_values:
+                        return '#888888'
+                    attempts = 0
+                    while attempts < max(1, palette_length):
+                        candidate = palette_values[palette_index[0] % palette_length]
+                        palette_index[0] += 1
+                        attempts += 1
+                        if candidate not in used_color_values:
+                            used_color_values.add(candidate)
+                            return candidate
+                    candidate = palette_values[palette_index[0] % palette_length]
+                    palette_index[0] += 1
+                    return candidate
+
+                label_color_cache: dict[str, str] = {}
+
+                def _color_for_share_label(label):
+                    if label is None:
+                        return _next_palette_color()
+                    normalized_label = str(label).strip()
+                    if not normalized_label or normalized_label.lower() == 'total':
+                        return _next_palette_color()
+                    cached_color = label_color_cache.get(normalized_label)
+                    if cached_color:
+                        return cached_color
+                    color_value = lookup_color_for_label(normalized_label, share_color_lookup)
+                    if color_value:
+                        label_color_cache[normalized_label] = color_value
+                        register_color_lookup(normalized_label, color_value, share_color_lookup, overwrite=False)
+                        return color_value
+                    color_value = _next_palette_color()
+                    label_color_cache[normalized_label] = color_value
+                    register_color_lookup(normalized_label, color_value, share_color_lookup, overwrite=False)
+                    return color_value
+
+                if len(share_chart_entries) == 1:
+                    entry_info = share_chart_entries[0]
+                    column_candidates = [col for col in entry_info["columns"] if col]
+                    for _, shares in entry_info["periods"]:
                         for column_name in shares.keys():
                             if column_name and column_name not in column_candidates:
                                 column_candidates.append(column_name)
-                for idx_color, column_name in enumerate(column_candidates):
-                    color_mapping[column_name] = palette_values[idx_color % len(palette_values)]
+                    color_mapping = {}
+                    for column_name in column_candidates:
+                        color_mapping[column_name] = _color_for_share_label(column_name)
 
-                chart_top = Inches(0.55)
-                left_start = Inches(2.0)
-                right_margin = Inches(0.6)
-                horizontal_gap = Inches(0.5)
-                caption_gap = Inches(0.12)
-                caption_height = Inches(0.35)
-                current_left = left_start
-
-                reference_label = 'Corte em' if lang == 'P' else 'Corte a'
-
-                for idx_chart, (period_label, shares) in enumerate(periods_to_plot[:2]):
-                    total_share = sum(max(value, 0) for value in shares.values())
-                    if total_share <= 0:
-                        continue
-                    c_fig += 1
-                    chart_stream, fig_size = stacked_share_chart(
-                        period_label,
-                        shares,
-                        color_mapping,
-                        c_fig,
-                        title=f"{priority_entry['display_tipo']} - {period_label}"
-                    )
-                    fig_width_in, fig_height_in = fig_size
-                    if fig_height_in <= 0:
-                        continue
-                    aspect_ratio = fig_width_in / fig_height_in if fig_height_in else 1.0
-                    target_height_in = max(6.0, fig_height_in * 1.05)
-                    slide_height_in = emu_to_inches(ppt.slide_height)
-                    chart_top_in = emu_to_inches(chart_top)
-                    caption_gap_in = emu_to_inches(caption_gap)
-                    caption_height_in = emu_to_inches(caption_height)
-                    available_height_in = max(3.0, slide_height_in - chart_top_in - caption_gap_in - caption_height_in - 0.2)
-                    target_height_in = min(available_height_in, target_height_in)
-                    target_width_in = max(3.8, target_height_in * aspect_ratio)
-                    slide_width_in = emu_to_inches(ppt.slide_width)
-                    available_width_in = slide_width_in - emu_to_inches(current_left) - emu_to_inches(right_margin)
-                    if available_width_in <= 0:
-                        continue
-                    if target_width_in > available_width_in:
-                        target_width_in = available_width_in
-                        target_height_in = target_width_in / aspect_ratio if aspect_ratio else target_height_in
-                    target_height = Inches(target_height_in)
-                    target_width = Inches(target_width_in)
-                    chart_shape = share_slide.shapes.add_picture(
-                        chart_stream,
-                        current_left,
-                        chart_top,
-                        width=target_width,
-                        height=target_height
-                    )
-                    caption_left = chart_shape.left
-                    caption_width = target_width
-                    caption_top = chart_top + target_height + caption_gap
-                    caption_box = share_slide.shapes.add_textbox(caption_left, caption_top, caption_width, caption_height)
-                    caption_tf = caption_box.text_frame
-                    caption_tf.clear()
-                    caption_paragraph = caption_tf.paragraphs[0]
-                    caption_paragraph.text = f"{reference_label}: {period_label}"
-                    caption_paragraph.font.size = Pt(11)
-                    caption_paragraph.font.bold = True
-                    caption_paragraph.font.color.rgb = RGBColor(80, 80, 80)
-
-                    if previous_shares is not None and idx_chart == len(periods_to_plot[:2]) - 1:
-                        delta_box_width = Inches(2.6)
-                        delta_box_left = chart_shape.left + chart_shape.width + Inches(0.2)
-                        slide_right_limit = ppt.slide_width - Inches(0.2)
-                        if delta_box_left + delta_box_width > slide_right_limit:
-                            adjusted_left = slide_right_limit - delta_box_width
-                            if adjusted_left < Inches(0.4):
-                                delta_box_left = max(chart_shape.left - delta_box_width - Inches(0.2), Inches(0.4))
-                            else:
-                                delta_box_left = adjusted_left
-                        delta_box = share_slide.shapes.add_textbox(
-                            delta_box_left,
-                            chart_top,
-                            delta_box_width,
-                            target_height
+                    for idx_period, (period_label, shares) in enumerate(entry_info["periods"]):
+                        previous_shares = entry_info["periods"][idx_period - 1][1] if idx_period > 0 else None
+                        render_share_items.append(
+                            {
+                                "display_tipo": entry_info["display_tipo"],
+                                "period_label": period_label,
+                                "shares": shares,
+                                "previous_shares": previous_shares,
+                                "color_mapping": color_mapping,
+                                "show_delta": previous_shares is not None,
+                            }
                         )
-                        delta_tf = delta_box.text_frame
-                        delta_tf.clear()
-                        delta_tf.word_wrap = True
-                        header_para = delta_tf.paragraphs[0]
-                        header_para.text = delta_header
-                        header_para.font.bold = True
-                        header_para.font.size = Pt(12)
-                        header_para.font.color.rgb = RGBColor(70, 70, 70)
+                else:
+                    for entry_info in share_chart_entries:
+                        column_candidates = [col for col in entry_info["columns"] if col]
+                        for _, shares in entry_info["periods"]:
+                            for column_name in shares.keys():
+                                if column_name and column_name not in column_candidates:
+                                    column_candidates.append(column_name)
+                        color_mapping = {}
+                        for column_name in column_candidates:
+                            color_mapping[column_name] = _color_for_share_label(column_name)
+                        latest_label, latest_shares = entry_info["periods"][-1]
+                        previous_shares = entry_info["periods"][-2][1] if len(entry_info["periods"]) > 1 else None
+                        render_share_items.append(
+                            {
+                                "display_tipo": entry_info["display_tipo"],
+                                "period_label": latest_label,
+                                "shares": latest_shares,
+                                "previous_shares": previous_shares,
+                                "color_mapping": color_mapping,
+                                "show_delta": False,
+                            }
+                        )
 
-                        growth_entries = []
-                        for brand, current_value in shares.items():
-                            prev_value = previous_shares.get(brand, 0.0) if previous_shares else 0.0
-                            if current_value is None or not np.isfinite(current_value):
-                                current_value = 0.0
-                            if prev_value is None or not np.isfinite(prev_value):
-                                prev_value = 0.0
-                            delta_value = (current_value - prev_value) * 100
-                            growth_entries.append((brand, delta_value, current_value))
-                        growth_entries.sort(key=lambda item: item[1], reverse=True)
+        if render_share_items:
+            delta_header = 'Crescimento vs ano anterior' if lang == 'P' else 'Crecimiento vs año anterior'
+            share_slide = ppt.slides.add_slide(ppt.slide_layouts[1])
+            share_title_box = share_slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
+            share_tf = share_title_box.text_frame
+            share_tf.clear()
+            share_title_paragraph = share_tf.paragraphs[0]
+            share_title_paragraph.text = f"{titulo} - Share 100% Apilado"
+            share_title_paragraph.font.bold = True
+            share_title_paragraph.font.size = Inches(0.33)
 
-                        for brand, delta_value, _ in growth_entries:
-                            para = delta_tf.add_paragraph()
-                            para.level = 1
-                            para.text = f"{brand}: {delta_value:+.1f} pp"
-                            para.font.size = Pt(11)
-                            color_hex = color_mapping.get(brand)
-                            if color_hex:
-                                rgb_tuple = mcolors.to_rgb(color_hex)
-                                color_rgb = tuple(int(round(c * 255)) for c in rgb_tuple)
-                                para.font.color.rgb = RGBColor(*color_rgb)
-                            else:
-                                para.font.color.rgb = RGBColor(90, 90, 90)
+            comment_box = share_slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
+            comment_tf = comment_box.text_frame
+            comment_tf.clear()
+            comment_paragraph = comment_tf.paragraphs[0]
+            comment_paragraph.text = "Comentário"
+            comment_paragraph.font.size = Inches(0.25)
 
-                    current_left += target_width + horizontal_gap
-                    plt.clf()
+            chart_top = Inches(0.55)
+            multiple_sections = len(render_share_items) > 1
+            left_start = Inches(1.25) if multiple_sections else Inches(2.0)
+            right_margin = Inches(0.6)
+            horizontal_gap = Inches(0.4) if multiple_sections else Inches(0.5)
+            caption_gap = Inches(0.12)
+            caption_height = Inches(0.35)
+            current_left = left_start
+            reference_label = 'Corte em' if lang == 'P' else 'Corte a'
+
+            for idx_chart, item in enumerate(render_share_items):
+                shares = item["shares"]
+                total_share = sum(max(value, 0) for value in shares.values())
+                if total_share <= 0:
+                    continue
+                c_fig += 1
+                chart_stream, fig_size = stacked_share_chart(
+                    item["period_label"],
+                    shares,
+                    item["color_mapping"],
+                    c_fig,
+                    title=f"{item['display_tipo']} - {item['period_label']}"
+                )
+                fig_width_in, fig_height_in = fig_size
+                if fig_height_in <= 0:
+                    continue
+                aspect_ratio = fig_width_in / fig_height_in if fig_height_in else 1.0
+                target_height_in = max(6.0, fig_height_in * 1.05)
+                slide_height_in = emu_to_inches(ppt.slide_height)
+                chart_top_in = emu_to_inches(chart_top)
+                caption_gap_in = emu_to_inches(caption_gap)
+                caption_height_in = emu_to_inches(caption_height)
+                available_height_in = max(3.0, slide_height_in - chart_top_in - caption_gap_in - caption_height_in - 0.2)
+                target_height_in = min(available_height_in, target_height_in)
+                target_width_in = max(3.8, target_height_in * aspect_ratio)
+                slide_width_in = emu_to_inches(ppt.slide_width)
+                available_width_in = slide_width_in - emu_to_inches(current_left) - emu_to_inches(right_margin)
+                if available_width_in <= 0:
+                    continue
+                if target_width_in > available_width_in:
+                    target_width_in = available_width_in
+                    target_height_in = target_width_in / aspect_ratio if aspect_ratio else target_height_in
+                target_height = Inches(target_height_in)
+                target_width = Inches(target_width_in)
+                chart_shape = share_slide.shapes.add_picture(
+                    chart_stream,
+                    current_left,
+                    chart_top,
+                    width=target_width,
+                    height=target_height
+                )
+                caption_left = chart_shape.left
+                caption_width = target_width
+                caption_top = chart_top + target_height + caption_gap
+                caption_box = share_slide.shapes.add_textbox(caption_left, caption_top, caption_width, caption_height)
+                caption_tf = caption_box.text_frame
+                caption_tf.clear()
+                caption_paragraph = caption_tf.paragraphs[0]
+                origin_label = format_origin_label(item.get("display_tipo"), lang)
+                origin_suffix = f" - {origin_label}" if origin_label else ""
+                caption_paragraph.text = f"{reference_label}: {item['period_label']}{origin_suffix}"
+                caption_paragraph.font.size = Pt(11)
+                caption_paragraph.font.bold = True
+                caption_paragraph.font.color.rgb = RGBColor(80, 80, 80)
+
+                should_show_delta = item["show_delta"] and item["previous_shares"] is not None and idx_chart == len(render_share_items) - 1
+                if should_show_delta:
+                    delta_box_width = Inches(2.6)
+                    delta_box_left = chart_shape.left + chart_shape.width + Inches(0.2)
+                    slide_right_limit = ppt.slide_width - Inches(0.2)
+                    if delta_box_left + delta_box_width > slide_right_limit:
+                        delta_box_left = slide_right_limit - delta_box_width
+                    delta_box = share_slide.shapes.add_textbox(
+                        delta_box_left,
+                        chart_top,
+                        delta_box_width,
+                        chart_shape.height + caption_gap + caption_height
+                    )
+                    delta_tf = delta_box.text_frame
+                    delta_tf.clear()
+                    delta_tf.word_wrap = True
+                    header_para = delta_tf.paragraphs[0]
+                    header_para.text = delta_header
+                    header_para.font.bold = True
+                    header_para.font.size = Pt(12)
+                    header_para.font.color.rgb = RGBColor(70, 70, 70)
+
+                    growth_entries = []
+                    previous_shares = item["previous_shares"] or {}
+                    for brand, current_value in shares.items():
+                        prev_value = previous_shares.get(brand, 0.0)
+                        if current_value is None or not np.isfinite(current_value):
+                            current_value = 0.0
+                        if prev_value is None or not np.isfinite(prev_value):
+                            prev_value = 0.0
+                        delta_value = (current_value - prev_value) * 100
+                        growth_entries.append((brand, delta_value, current_value))
+                    growth_entries.sort(key=lambda val: val[1], reverse=True)
+
+                    for brand, delta_value, _ in growth_entries:
+                        para = delta_tf.add_paragraph()
+                        para.level = 1
+                        para.text = f"{brand}: {delta_value:+.1f} pp"
+                        para.font.size = Pt(11)
+                        color_hex = item["color_mapping"].get(brand)
+                        if color_hex:
+                            rgb_tuple = mcolors.to_rgb(color_hex)
+                            color_rgb = tuple(int(round(c * 255)) for c in rgb_tuple)
+                            para.font.color.rgb = RGBColor(*color_rgb)
+                        else:
+                            para.font.color.rgb = RGBColor(90, 90, 90)
+
+                current_left += target_width + horizontal_gap
+                plt.clf()
         if w[0] in ['3','5']:
             print_colored(c_w[(lang,w[0]+'-'+w[-1])]+' realizado para ' + w[2:-2], COLOR_GREEN) 
         elif w[0]=='6':
@@ -2998,7 +3170,11 @@ tf.clear()
 t = tf.paragraphs[0]
 reference_label = 'Corte em' if lang == 'P' else 'Corte a'
 display_ref = ref_display if ref_display != 'NA' else ref
-t.text = f"{reference_label} {display_ref}"
+origin_label = format_origin_label(last_reference_origin, lang)
+reference_text = f"{reference_label} {display_ref}"
+if origin_label:
+    reference_text = f"{reference_text} - {origin_label}"
+t.text = reference_text
 run = t.runs[0]
 font = run.font
 font.name, font.size, font.bold = 'Arial', Inches(0.32), True
