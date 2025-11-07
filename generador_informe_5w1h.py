@@ -17,6 +17,7 @@ from matplotlib.ticker import FuncFormatter
 from matplotlib import colors as mcolors
 from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.font_manager import FontProperties
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
 from pptx import Presentation 
 from pptx.util import Inches, Cm, Pt
@@ -456,7 +457,9 @@ def line_graf(
     base_linewidth = 2.0 * max(0.6, scale)
     title_base_size = max(10, int(18 * scale))
     legend_base_size = max(8, int(10 * scale))
-    xtick_size = max(8, int(10 * scale))
+    xtick_size = max(6, int(8 * scale))
+    xtick_font = FontProperties(family='DejaVu Sans', size=xtick_size, weight='regular')
+    xtick_pad = max(6, int(8 * scale))
     marker_size = max(3.5, 4.5 * scale)
 
     aux = df.copy()
@@ -588,7 +591,14 @@ def line_graf(
 
     if data_len and start_idx < data_len:
         ax.set_xticks(x_positions[start_idx:])
-        ax.set_xticklabels(ran[start_idx:], rotation=30, fontsize=xtick_size)
+        ax.set_xticklabels(
+            ran[start_idx:],
+            rotation=90,
+            fontproperties=xtick_font,
+            ha='center',
+            va='center',
+        )
+        ax.tick_params(axis='x', pad=xtick_pad)
         ax.set_xlim(x_positions[start_idx], x_positions[-1])
     else:
         ax.set_xticks([])
