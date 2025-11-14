@@ -2553,7 +2553,7 @@ for w in W:
         left_margin = Inches(0.33)
         right_margin = Inches(0.33)
         available = available_width(ppt, left_margin, right_margin)
-        pic=slide.shapes.add_picture(graf_mat(mat,c_fig,p), left_margin, Inches(0.95),width=available)
+        pic=slide.shapes.add_picture(graf_mat(mat,c_fig,p), left_margin, Inches(1.15),width=available)
 
         #Insere caixa de texto para comentário do slide
         txTitle = slide.shapes.add_textbox(Inches(0.33), Inches(5.8), Inches(10), Inches(0.5))
@@ -2611,9 +2611,9 @@ for w in W:
         t.text ="Comentário"
         t.font.size= Inches(0.25)
 
-        #Controle posicao tabela aporte
+        # Control para la tabla de aporte
         target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
-        bottom_margin = Cm(1.2)
+        bottom_margin = Cm(1.5)
         left_margin = int(Cm(TABLE_SIDE_MARGIN_CM))
         right_margin = left_margin
         vertical_spacing = Cm(0.2)
@@ -2743,7 +2743,7 @@ for w in W:
             )
             if isinstance(chart_colors, dict):
                 chart_color_mappings.update(chart_colors)
-            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(0.95),width=available_line_width,height=Cm(10))
+            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(1.15),width=available_line_width,height=Cm(10))
         elif plot=="2" and len(series_configs)>1:
             ven_param = max(len(series_configs)-1, 1)
             left_margin = Inches(0.33)
@@ -2780,7 +2780,7 @@ for w in W:
                 )
                 if isinstance(chart_colors, dict):
                     chart_color_mappings.update(chart_colors)
-                pic=slide.shapes.add_picture(chart_stream, left_position, Inches(0.95),width=chart_width,height=Cm(10))
+                pic=slide.shapes.add_picture(chart_stream, left_position, Inches(1.15),width=chart_width,height=Cm(10))
                 plt.clf()
         elif series_configs:
             c_fig+=1
@@ -2803,7 +2803,7 @@ for w in W:
             )
             if isinstance(chart_colors, dict):
                 chart_color_mappings.update(chart_colors)
-            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(0.95),width=available_single_width,height=Cm(10))
+            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
             plt.clf()
         color_lookup_keys = build_color_lookup_dict(chart_color_mappings)
 
