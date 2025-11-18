@@ -1882,6 +1882,8 @@ FLWT,Alimentos,Agua Saborizada
 
 categ = pd.read_csv(io.StringIO(CATEG_CSV_DATA), dtype={'cod': str, 'cest': str, 'cat': str})
 
+CLIENT_NAME_SUFFIX_PATTERN = re.compile(r'[\s_-]*5w1h$', re.IGNORECASE)
+
 
 #obtém o país,categoria,cesta e fabricante para template e ppt
 
@@ -1901,7 +1903,13 @@ W = file.sheet_names
 
 
 #Obtém o pais cesta categoria fabricante marca e idioma para o qual se fará o estudo
-land, cesta, cat, client = pais.loc[pais.cod==int(excel.split('_')[0]),'pais'].iloc[0], categ.loc[categ.cod==excel.split('_')[1],'cest'].iloc[0] ,categ.loc[categ.cod==excel.split('_')[1],'cat'].iloc[0] ,excel.split('_')[2].rsplit('.', 1)[0]
+excel_parts = excel.split('_')
+land = pais.loc[pais.cod==int(excel_parts[0]),'pais'].iloc[0]
+cesta = categ.loc[categ.cod==excel_parts[1],'cest'].iloc[0]
+cat = categ.loc[categ.cod==excel_parts[1],'cat'].iloc[0]
+raw_client = excel_parts[2].rsplit('.', 1)[0]
+sanitized_client = CLIENT_NAME_SUFFIX_PATTERN.sub('', raw_client).strip()
+client = sanitized_client if sanitized_client else raw_client.strip()
 
 lang= "P" if land=='Brasil' else "E"
 
