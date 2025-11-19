@@ -1111,8 +1111,48 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
 def aporte(df,p,lang,tipo):
 
         aux = df.copy()
+        removed_non_numeric: list[str] = []
+        if aux.empty:
+            apo = pd.DataFrame(columns=[tipo])
+            apo.attrs["removed_columns"] = []
+            apo.attrs["share_period_values"] = []
+            apo.attrs["share_mat_values"] = {}
+            return apo
 
-        aux['Total'] = aux.iloc[:len(df),1:].sum(axis=1)
+        first_col_name = aux.columns[0]
+        first_col = aux.iloc[:, 0].copy()
+        numeric_data = OrderedDict()
+        for idx in range(1, aux.shape[1]):
+            col_name = aux.columns[idx]
+            series = aux.iloc[:, idx]
+            if np.issubdtype(series.dtype, np.datetime64):
+                removed_non_numeric.append(str(col_name))
+                continue
+            numeric_series = pd.to_numeric(series, errors='coerce')
+            if numeric_series.dropna().empty:
+                removed_non_numeric.append(str(col_name))
+                continue
+            numeric_data[col_name] = numeric_series
+
+        if numeric_data:
+            sanitized_aux = pd.concat(
+                [first_col.to_frame(name=first_col_name), pd.DataFrame(numeric_data)],
+                axis=1
+            )
+        else:
+            sanitized_aux = first_col.to_frame(name=first_col_name)
+        sanitized_aux.reset_index(drop=True, inplace=True)
+        aux = sanitized_aux
+
+        if aux.shape[1] <= 1:
+            apo = pd.DataFrame(columns=[tipo])
+            apo.attrs["removed_columns"] = list(dict.fromkeys(removed_non_numeric))
+            apo.attrs["share_period_values"] = []
+            apo.attrs["share_mat_values"] = {}
+            return apo
+
+        aux_numeric = aux.iloc[:, 1:].apply(pd.to_numeric, errors='coerce')
+        aux['Total'] = aux_numeric.sum(axis=1, skipna=True)
 
         apo=pd.DataFrame(columns=[tipo] + aux.columns[1:].tolist())
         #Vol ultimo MAT
@@ -1145,7 +1185,8 @@ def aporte(df,p,lang,tipo):
         if invalid_columns:
             apo.drop(columns=invalid_columns, inplace=True)
 
-        apo.attrs["removed_columns"] = list(dict.fromkeys(invalid_columns))
+        removed_all = list(dict.fromkeys(removed_non_numeric + invalid_columns))
+        apo.attrs["removed_columns"] = removed_all
 
         share_period_values = []
         max_share_rows = min(2, len(apo.index))
@@ -2091,15 +2132,72 @@ def _is_separator_column(col) -> bool:
     return not stripped or stripped.lower().startswith('unnamed')
 
 
-def split_compras_ventas(df: pd.DataFrame) -> tuple[list[pd.DataFrame], int]:
+def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
+    warning_context = f" en la hoja {sheet_name}" if sheet_name else ""
+    normalized_columns = [
+        str(col).strip().lower() if isinstance(col, str) else ''
+        for col in df.columns
+    ]
+    has_compras_header = any('compra' in col for col in normalized_columns)
+    has_ventas_header = any('venta' in col for col in normalized_columns)
+    if not has_compras_header:
+        print_colored(
+            f"No se encontro el encabezado de Compras{warning_context}. Se usaran los datos disponibles.",
+            COLOR_RED
+        )
+
     ventas_idx = None
+    pipeline_header = None
     for idx, col in enumerate(df.columns):
         if isinstance(col, str) and 'ventas' in col.lower():
             ventas_idx = idx
-            pipeline = _extract_pipeline(col)
+            pipeline_header = col
             break
+
+    fallback_separator_idx = None
+    for idx in range(len(df.columns) - 1):
+        if _is_separator_column(df.columns[idx]):
+            next_idx = idx + 1
+            if next_idx < len(df.columns) and not _is_separator_column(df.columns[next_idx]):
+                fallback_separator_idx = idx
+                break
+
+    suffix_hint = any(
+        isinstance(col, str) and col.endswith('.1')
+        for col in df.columns
+    )
+    fallback_used = False
+    if ventas_idx is None and fallback_separator_idx is not None:
+        candidate_idx = fallback_separator_idx + 1
+        if candidate_idx < len(df.columns):
+            ventas_idx = candidate_idx
+            pipeline_header = df.columns[candidate_idx]
+            fallback_used = True
+
+    pipeline = _extract_pipeline(pipeline_header) if pipeline_header is not None else 0
+    has_pipeline_digits = isinstance(pipeline_header, str) and any(ch.isdigit() for ch in pipeline_header)
+
     if ventas_idx is None:
+        if (fallback_separator_idx is not None or suffix_hint) and not has_ventas_header:
+            print_colored(
+                f"No se encontro el encabezado de Ventas{warning_context}. No se pudo dividir la hoja.",
+                COLOR_RED
+            )
         return [df], 0
+
+    if fallback_used and not has_ventas_header:
+        print_colored(
+            f"No se encontro el encabezado de Ventas{warning_context}. Se detecto el bloque por la columna en blanco y se graficara con pipeline = 0.",
+            COLOR_RED
+        )
+        pipeline = 0
+
+    if pipeline == 0 and pipeline_header is not None and not has_pipeline_digits:
+        print_colored(
+            f"No se definio un pipeline numerico en la columna '{pipeline_header}'{warning_context}. Se usara pipeline = 0.",
+            COLOR_RED
+        )
+        pipeline = 0
 
     separator_idx = ventas_idx - 1
     has_separator = separator_idx >= 0 and _is_separator_column(df.columns[separator_idx])
@@ -2482,7 +2580,7 @@ for w in W:
             continue
 
         df_start = file.parse(w)
-        df_list, p_ventas = split_compras_ventas(df_start)
+        df_list, p_ventas = split_compras_ventas(df_start, sheet_name=w)
         series_configs = prepare_series_configs(df_list, lang, p_ventas)
         price_series = None
         for cfg in series_configs:
@@ -2583,7 +2681,7 @@ for w in W:
         #Carrega a base
         df_start=file.parse(w)
 
-        df_list, p_ventas = split_compras_ventas(df_start)
+        df_list, p_ventas = split_compras_ventas(df_start, sheet_name=w)
 
         series_configs = prepare_series_configs(df_list, lang, p_ventas)
         last_reference_source = series_configs[0].data if series_configs else df_start
