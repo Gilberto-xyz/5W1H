@@ -1266,7 +1266,7 @@ def graficar_arbol(metrics_calculated, volumen_unidad='Units', output_dir=None, 
         ax.text(0.06, 0.92, "Atribucion del cambio en el gasto", ha="left", va="center",
                 fontsize=14, weight="bold", color="#333333")
         draw_key(ax)
-    fig = plt.figure(figsize=(21, 13))
+    fig = plt.figure(figsize=(21, 9))
     ax = plt.gca()
     ax.set_axis_off()
     ax.set_xlim(0, 1)
