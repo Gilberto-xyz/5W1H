@@ -2689,7 +2689,7 @@ for w in W:
         if fig_size:
             fig_width_in, fig_height_in = fig_size
         else:
-            fig_width_in, fig_height_in = (21, 13)
+            fig_width_in, fig_height_in = (21, 9)
         slide = ppt.slides.add_slide(ppt.slide_layouts[1])
         titulo_arbol = c_w.get((lang, '2'), '2W - Arbol de Medidas')
         match_nombre = re.match(r'^\d+_(.+?)(?:_[A-Za-z])?$', w)
