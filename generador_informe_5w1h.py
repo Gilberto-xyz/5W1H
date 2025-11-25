@@ -1034,8 +1034,11 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
     factores = {
         'Units': 1,
         'Litros': 1,
-        'Kilos': 100,
-        'Toneladas': 1000,
+        # La base viene en kilos: en kilos no se escala, en toneladas se divide por 1000.
+        'Kilos': 1,
+        # Para toneladas la base viene en kilos, se divide por 1000 en volumen
+        # y se multiplica por 1000 en precios; factor < 1 corrige el inflado observado.
+        'Toneladas': 0.001,
         'Rollos': 10,
         'Metros': 100
     }
@@ -1075,11 +1078,13 @@ def _format_val(label_key, value):
         "Precio Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "Gasto Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "Compradores 000s": {"scale": 1 / 1000, "decimals": 0, "thousands": True},
-        "Volumen Promedio": {"scale": 1, "decimals": 0, "thousands": False},
+        # Mostrar con 1 decimal para que se vea 0.2 en lugar de 0 ó 170
+        "Volumen Promedio": {"scale": 1, "decimals": 1, "thousands": False},
         "% Penetracion": {"scale": 1, "decimals": 1, "thousands": False},
         "Total HHolds 000s": {"scale": 1 / 1000, "decimals": 0, "thousands": True},
         "Frecuencia": {"scale": 1, "decimals": 1, "thousands": False},
-        "Volumen por Viaje": {"scale": 1, "decimals": 0, "thousands": False},
+        # Mostrar con 1 decimal (p.ej. 0.1) en lugar de redondear a entero
+        "Volumen por Viaje": {"scale": 1, "decimals": 1, "thousands": False},
         "Gasto por Ticket": {"scale": 1, "decimals": 2, "thousands": False},
     }
     regla = next((v for k, v in reglas.items() if label_key.startswith(k)), {"scale": 1, "decimals": 2, "thousands": False})
