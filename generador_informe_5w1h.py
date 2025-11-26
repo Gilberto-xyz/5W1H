@@ -2239,6 +2239,34 @@ def _is_separator_column(col) -> bool:
         return False
     stripped = col.strip()
     return not stripped or stripped.lower().startswith('unnamed')
+def _find_compras_header_row(df: pd.DataFrame) -> Optional[int]:
+    if df is None or df.empty:
+        return None
+    compras_idx = None
+    table_idx = None
+    for idx, row in df.iterrows():
+        for value in row:
+            if isinstance(value, str) and 'compras' in value.strip().lower():
+                compras_idx = idx
+                break
+            if isinstance(value, str) and 'table' in value.strip().lower():
+                if table_idx is None:
+                    table_idx = idx
+        if compras_idx is not None:
+            break
+    if compras_idx is not None:
+        return compras_idx
+    return table_idx
+def parse_sheet_with_compras_header(excel_file: pd.ExcelFile, sheet_name: str) -> pd.DataFrame:
+    """
+    Carga la hoja buscando la fila con 'Compras' como encabezado para tolerar filas vacias o
+    textos previos; si no se encuentra, usa el encabezado por defecto.
+    """
+    raw_df = excel_file.parse(sheet_name, header=None)
+    header_row = _find_compras_header_row(raw_df)
+    if header_row is None:
+        return excel_file.parse(sheet_name)
+    return excel_file.parse(sheet_name, header=header_row)
 def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
     warning_context = f" en la hoja {sheet_name}" if sheet_name else ""
     normalized_columns = [
@@ -2625,7 +2653,7 @@ for w in W:
         if context is None:
             print_colored(f"No se encontro contexto de Players para la hoja {w}. Se omite Precio indexado.", COLOR_YELLOW)
             continue
-        df_start = file.parse(w)
+        df_start = parse_sheet_with_compras_header(file, w)
         df_list, p_ventas = split_compras_ventas(df_start, sheet_name=w)
         series_configs = prepare_series_configs(df_list, lang, p_ventas)
         price_series = None
@@ -2746,6 +2774,7 @@ for w in W:
         continue
     #1- Quando, grafico de variacoes MAT
     if w[0]=='1':
+        sheet_df = parse_sheet_with_compras_header(file, w)
         #Cria o slide
         slide = ppt.slides.add_slide(ppt.slide_layouts[1])
         #Define o titulo
@@ -2757,9 +2786,9 @@ for w in W:
         t.font.bold = True
         t.font.size = Inches(0.35)
         #Obtém pipeline das vendas
-        p=int(file.parse(w).columns[1].split("_")[1])
+        p=int(sheet_df.columns[1].split("_")[1])
         #Cria a base
-        mat=df_mat(file.parse(w),p)
+        mat=df_mat(sheet_df,p)
         last_reference_source = mat
         last_reference_origin = None
         #Elimina linhas com divisão com zero devido ao pipeline
@@ -2785,7 +2814,7 @@ for w in W:
     #Outros
     else: 
         #Carrega a base
-        df_start=file.parse(w)
+        df_start=parse_sheet_with_compras_header(file, w)
         df_list, p_ventas = split_compras_ventas(df_start, sheet_name=w)
         series_configs = prepare_series_configs(df_list, lang, p_ventas)
         last_reference_source = series_configs[0].data if series_configs else df_start
@@ -3328,7 +3357,7 @@ for w in W:
         else:
             print_colored(c_w[(lang,w[0])]+' realizado para '+ w[2:], COLOR_GREEN)
 #Referencia da base
-ref_source = last_reference_source if last_reference_source is not None else file.parse(W[0])
+ref_source = last_reference_source if last_reference_source is not None else parse_sheet_with_compras_header(file, W[0])
 last_value = ref_source.iloc[-1, 0] if not ref_source.empty else None
 if last_value is None:
     ref = 'NA'
