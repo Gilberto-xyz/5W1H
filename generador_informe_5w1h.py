@@ -2224,6 +2224,65 @@ def register_color_lookup(label, color_value: str, lookup_dict: dict[str, str], 
             continue
         if overwrite or lookup_key not in lookup_dict:
             lookup_dict[lookup_key] = color_value
+
+def hex_to_rgb_color(color_value: str) -> Optional[RGBColor]:
+    try:
+        rgb_float = mcolors.to_rgb(color_value)
+    except (ValueError, TypeError):
+        return None
+    rgb_int = tuple(int(round(val * 255)) for val in rgb_float)
+    return RGBColor(*rgb_int)
+
+def assign_brand_palette_color(label: str, lookup_dict: dict[str, str], palette_sequence: Optional[list[str]] = None) -> Optional[str]:
+    if not label:
+        return None
+    color_value = lookup_color_for_label(label, lookup_dict)
+    if color_value:
+        return color_value
+    palette = palette_sequence if palette_sequence else TREND_COLOR_SEQUENCE
+    if not palette:
+        return None
+    used_colors = {value for value in lookup_dict.values() if value}
+    for candidate in palette:
+        if candidate not in used_colors:
+            register_color_lookup(label, candidate, lookup_dict, overwrite=False)
+            return candidate
+    fallback = palette[len(used_colors) % len(palette)]
+    register_color_lookup(label, fallback, lookup_dict, overwrite=False)
+    return fallback
+
+def set_title_with_brand_color(
+    text_frame,
+    prefix_text: str,
+    brand_text: Optional[str],
+    suffix_text: str,
+    font_size_inches: float,
+    brand_lookup: dict[str, str]
+) -> None:
+    text_frame.clear()
+    paragraph = text_frame.paragraphs[0]
+    paragraph.text = ''
+    base_size = Inches(font_size_inches)
+    def _add_run(text: str, color_hex: Optional[str] = None):
+        if not text:
+            return
+        run = paragraph.add_run()
+        run.text = text
+        font = run.font
+        font.bold = True
+        font.size = base_size
+        if color_hex:
+            rgb_color = hex_to_rgb_color(color_hex)
+            if rgb_color:
+                font.color.rgb = rgb_color
+    _add_run(prefix_text)
+    brand_segment = (brand_text or '').strip()
+    if brand_segment:
+        brand_color = assign_brand_palette_color(brand_segment, brand_lookup)
+        _add_run(brand_segment, brand_color)
+    _add_run(suffix_text)
+
+BRAND_TITLE_COLOR_LOOKUP: dict[str, str] = {}
 def _extract_pipeline(col_name: str) -> int:
     if not isinstance(col_name, str):
         return 0
@@ -2780,11 +2839,9 @@ for w in W:
         #Define o titulo
         txTitle = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
         tf = txTitle.text_frame
-        tf.clear()
-        t = tf.paragraphs[0]
-        t.text = c_w[(lang,w[0])]+' '+ labels[(lang,'MAT')]+' | ' + w[2:] 
-        t.font.bold = True
-        t.font.size = Inches(0.35)
+        title_prefix = c_w[(lang,w[0])]+' '+ labels[(lang,'MAT')]+' | '
+        title_brand = w[2:].strip()
+        set_title_with_brand_color(tf, title_prefix, title_brand, '', 0.35, BRAND_TITLE_COLOR_LOOKUP)
         #Obtém pipeline das vendas
         p=int(sheet_df.columns[1].split("_")[1])
         #Cria a base
@@ -2824,21 +2881,21 @@ for w in W:
         #Define o titulo
         txTitle = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
         tf = txTitle.text_frame
-        tf.clear()
-        t = tf.paragraphs[0]
+        title_prefix = ''
+        title_brand_label = None
+        title_font_inches = 0.35
         if w[0] in ['3','5']:
-            titulo = c_w[(lang,w[0]+'-'+w[-1])]+' | ' + w[2:-2] 
-            t.text = titulo
-            t.font.size = Inches(0.35)
+            title_prefix = c_w[(lang,w[0]+'-'+w[-1])]+' | '
+            title_brand_label = w[2:-2].strip()
+            titulo = f"{title_prefix}{title_brand_label}"
         elif w[0]=='6':
-            titulo =  c_w[(lang,w[0])] + ' | ' + labels[(lang,'comp')] + cat
-            t.text =  titulo
-            t.font.size = Inches(0.33)
+            title_prefix =  c_w[(lang,w[0])] + ' | ' + labels[(lang,'comp')] + cat
+            titulo =  title_prefix
+            title_font_inches = 0.33
         else:
-            titulo = c_w[(lang,w[0])]+' | '+ w[2:] 
-            t.text = titulo 
-            t.font.size = Inches(0.35)
-        t.font.bold = True
+            title_prefix = c_w[(lang,w[0])]+' | '+ w[2:] 
+            titulo = title_prefix
+        set_title_with_brand_color(tf, title_prefix, title_brand_label, '', title_font_inches, BRAND_TITLE_COLOR_LOOKUP)
         #Insere caixa de texto para comentário do slide
         txTitle = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
         tf = txTitle.text_frame
@@ -3230,11 +3287,15 @@ for w in W:
             share_slide = ppt.slides.add_slide(ppt.slide_layouts[1])
             share_title_box = share_slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
             share_tf = share_title_box.text_frame
-            share_tf.clear()
-            share_title_paragraph = share_tf.paragraphs[0]
-            share_title_paragraph.text = f"{titulo} - Share 100% Apilado"
-            share_title_paragraph.font.bold = True
-            share_title_paragraph.font.size = Inches(0.33)
+            share_suffix = " - Share 100% Apilado"
+            set_title_with_brand_color(
+                share_tf,
+                title_prefix,
+                title_brand_label,
+                share_suffix,
+                0.33,
+                BRAND_TITLE_COLOR_LOOKUP
+            )
             comment_box = share_slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
             comment_tf = comment_box.text_frame
             comment_tf.clear()
