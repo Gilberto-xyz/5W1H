@@ -2703,10 +2703,55 @@ def build_price_index_slide(
                     plt.clf()
     return c_fig
 #Variavel de controle do numero de graficos
+def _try_parse_reference_date(value):
+    month_token_map = {
+        'jan': 1, 'ene': 1,
+        'feb': 2,
+        'mar': 3,
+        'apr': 4, 'abr': 4,
+        'may': 5,
+        'jun': 6,
+        'jul': 7,
+        'aug': 8, 'ago': 8,
+        'sep': 9, 'set': 9,
+        'oct': 10,
+        'nov': 11,
+        'dec': 12, 'dic': 12
+    }
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+        match = re.search(r'([A-Za-z]{3})[-/](\d{2,4})', value)
+        if match:
+            month_token, year_token = match.groups()
+            month = month_token_map.get(month_token.lower())
+            if month:
+                year = int(year_token)
+                if year < 100:
+                    year += 2000 if year < 50 else 1900
+                return dt(year, month, 1)
+        # Intentar formatos cortos antes de delegar en pandas
+        for fmt in ('%b-%y', '%b-%y  '):
+            try:
+                return dt.strptime(value, fmt)
+            except ValueError:
+                continue
+    try:
+        parsed = pd.to_datetime(value, errors='coerce')
+    except Exception:
+        return None
+    if pd.isna(parsed):
+        return None
+    return parsed.to_pydatetime() if hasattr(parsed, 'to_pydatetime') else parsed
+
 c_fig=0
 plot=plot_ven()
 last_reference_source = None
 last_reference_origin = None
+last_tree_period_dt = None
 players_share_context = {}
 #---------------------------------------------------------------------------------------------------------------------
 for w in W:
@@ -2770,6 +2815,9 @@ for w in W:
             continue
         unidad_detectada = _unidad_desde_nombre_hoja(w) or 'Units'
         periodo_inicial, periodo_final = tree_periods[-2], tree_periods[-1]
+        parsed_tree_dt = _try_parse_reference_date(periodo_final)
+        if parsed_tree_dt is not None:
+            last_tree_period_dt = parsed_tree_dt
         try:
             metrics_calculated = calcular_cambios(tree_table, periodo_inicial, periodo_final, unidad_detectada)
         except KeyError as exc:
@@ -3423,18 +3471,19 @@ for w in W:
             print_colored(c_w[(lang,w[0])]+' realizado para '+ w[2:], COLOR_GREEN)
 #Referencia da base
 ref_source = last_reference_source if last_reference_source is not None else parse_sheet_with_compras_header(file, W[0])
-last_value = ref_source.iloc[-1, 0] if not ref_source.empty else None
-if last_value is None:
+last_dt = None
+if ref_source is not None and not ref_source.empty:
+    for val in reversed(ref_source.iloc[:, 0].tolist()):
+        last_dt = _try_parse_reference_date(val)
+        if last_dt is not None:
+            break
+if last_dt is None and last_tree_period_dt is not None:
+    last_dt = last_tree_period_dt
+
+if last_dt is None:
     ref = 'NA'
     ref_display = 'NA'
 else:
-    if isinstance(last_value, str):
-        try:
-            last_dt = dt.strptime(last_value, '%b-%y  ')
-        except ValueError:
-            last_dt = pd.to_datetime(last_value).to_pydatetime()
-    else:
-        last_dt = pd.to_datetime(last_value).to_pydatetime()
     ref = last_dt.strftime('%m-%y')
     month_list = MONTH_NAMES.get(lang, MONTH_NAMES['E'])
     month_name = month_list[last_dt.month - 1]
