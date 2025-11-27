@@ -2164,6 +2164,11 @@ COLOR_TOKEN_STOPWORDS = {
 }
 COLOR_SUFFIXES = ('.c', '.v', '_c', '_v', '-c', '-v')
 COLOR_TOKEN_SPLIT_PATTERN = re.compile(r'[^0-9a-z]+')
+COLOR_UNIT_SUFFIX_PATTERN = re.compile(
+    r'(?:[_-](?:k|m|g|kg|grs?|gr|l|lt|lts|ml))+$',
+    re.IGNORECASE
+)
+
 def normalize_color_text(value) -> str:
     if value is None:
         return ''
@@ -2178,6 +2183,8 @@ def strip_color_suffixes(text: str) -> str:
         if base.endswith(suffix):
             base = base[:-len(suffix)]
             break
+    # Ignora sufijos de unidad (p. ej. _K, _M) para compartir color entre variantes
+    base = COLOR_UNIT_SUFFIX_PATTERN.sub('', base)
     return base.strip()
 def generate_color_lookup_keys(label: str) -> list[str]:
     normalized = normalize_color_text(label)
