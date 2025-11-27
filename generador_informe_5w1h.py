@@ -1043,6 +1043,10 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         'Metros': 100
     }
     factor = factores.get(unidad, 1)
+    # Los promedios por comprador/viaje ya vienen en la unidad correcta
+    # (sin escalar) para todas las unidades.
+    factor_volumen_prom = 1
+    factor_volumen_viaje = 1
     def leer_metric(metrico, columna):
         serie = df.loc[df['Metric'] == metrico, columna]
         if serie.empty:
@@ -1062,11 +1066,11 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         etiquetas["precio"]: build_entry(etiquetas["precio"], 'Weighted PM1_LC', lambda v, _: v / factor),
         etiquetas["gasto"]: build_entry(etiquetas["gasto"], 'Weighted VALC_BUY'),
         etiquetas["compradores"]: build_entry(etiquetas["compradores"], 'Weighted BUYERS'),
-        etiquetas["volumen_prom"]: build_entry(etiquetas["volumen_prom"], 'Weighted VO1_BUY', lambda v, _: v * factor),
+        etiquetas["volumen_prom"]: build_entry(etiquetas["volumen_prom"], 'Weighted VO1_BUY', lambda v, _: v * factor_volumen_prom),
         etiquetas["penetracion"]: build_entry(etiquetas["penetracion"], 'Weighted PENET'),
         etiquetas["hholds"]: build_entry(etiquetas["hholds"], 'Weighted HHOLDS'),
         etiquetas["frecuencia"]: build_entry(etiquetas["frecuencia"], 'Weighted FREQ'),
-        etiquetas["volumen_viaje"]: build_entry(etiquetas["volumen_viaje"], 'Weighted VO1_DAY', lambda v, _: v * factor),
+        etiquetas["volumen_viaje"]: build_entry(etiquetas["volumen_viaje"], 'Weighted VO1_DAY', lambda v, _: v * factor_volumen_viaje),
         etiquetas["ticket"]: build_entry(etiquetas["ticket"], 'Weighted VALC_DAY'),
     }
     return metrics_calculated
@@ -1079,12 +1083,12 @@ def _format_val(label_key, value):
         "Gasto Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "Compradores 000s": {"scale": 1 / 1000, "decimals": 0, "thousands": True},
         # Mostrar con 1 decimal para que se vea 0.2 en lugar de 0 ó 170
-        "Volumen Promedio": {"scale": 1, "decimals": 1, "thousands": False},
+        "Volumen Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "% Penetracion": {"scale": 1, "decimals": 1, "thousands": False},
         "Total HHolds 000s": {"scale": 1 / 1000, "decimals": 0, "thousands": True},
         "Frecuencia": {"scale": 1, "decimals": 1, "thousands": False},
         # Mostrar con 1 decimal (p.ej. 0.1) en lugar de redondear a entero
-        "Volumen por Viaje": {"scale": 1, "decimals": 1, "thousands": False},
+        "Volumen por Viaje": {"scale": 1, "decimals": 2, "thousands": False},
         "Gasto por Ticket": {"scale": 1, "decimals": 2, "thousands": False},
     }
     regla = next((v for k, v in reglas.items() if label_key.startswith(k)), {"scale": 1, "decimals": 2, "thousands": False})
