@@ -6,6 +6,7 @@ import numpy as np
 import warnings
 from datetime import datetime as dt
 import os
+import sys
 import io
 import math
 import textwrap
@@ -25,6 +26,21 @@ from pptx.dml.color import RGBColor
 from typing import NamedTuple, Optional
 from pathlib import Path
 from collections import OrderedDict
+
+# Fuerza E/S en UTF-8 para soportar acentos y ñ en la terminal de Windows
+def _configure_utf8_io():
+    try:
+        os.environ.setdefault('PYTHONUTF8', '1')
+        os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+        for stream_name in ('stdout', 'stderr', 'stdin'):
+            stream = getattr(sys, stream_name, None)
+            if stream is not None and hasattr(stream, 'reconfigure'):
+                stream.reconfigure(encoding='utf-8')
+    except Exception:
+        # Si la consola no soporta reconfigure, seguimos sin romper ejecución
+        pass
+
+_configure_utf8_io()
 COLOR_BLUE = '\033[94m'
 COLOR_YELLOW = '\033[93m'
 COLOR_GREEN = '\033[92m'
@@ -2318,6 +2334,69 @@ def colorize_brand_for_terminal(
         return colorize(label, ansi_color)
     return label
 
+def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Optional[str]:
+    """
+    Devuelve un label corto y legible (ej: '3W Marcas - X').
+    """
+    if not sheet_name:
+        return None
+    sheet_clean = sheet_name.strip()
+    if not sheet_clean:
+        return None
+    first_char = sheet_clean[0]
+    suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
+    step_label = None
+    brand_label = ''
+    # Precio indexado (6-1) siempre usa categoría
+    if sheet_clean.startswith('6-1') or sheet_clean.startswith('6_1'):
+        step_label = 'Precio indexado'
+        brand_label = category_name
+    elif first_char == '6':
+        step_label = 'Players'
+        brand_label = category_name
+    elif first_char == '5':
+        step_label = '5W Regiones' if suffix_char == '1' else '5W Canales' if suffix_char == '2' else '5W'
+        brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else ''
+    elif first_char == '4':
+        step_label = '4W NSE'
+        brand_label = sheet_clean[2:].strip()
+    elif first_char == '3':
+        if suffix_char == '1':
+            step_label = '3W Tamaños'
+        elif suffix_char == '2':
+            step_label = '3W Marcas'
+        elif suffix_char == '3':
+            step_label = '3W Sabores'
+        else:
+            step_label = '3W'
+        brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else sheet_clean[2:].strip()
+    elif first_char == '2':
+        step_label = '2W Por que'
+        brand_label = sheet_clean[2:].strip()
+    elif first_char == '1':
+        step_label = '1W Cuando'
+        brand_label = sheet_clean[2:].strip()
+    if step_label is None:
+        return None
+    brand_terminal = colorize_brand_for_terminal(brand_label) if brand_label else ''
+    detail = f" - {brand_terminal}" if brand_terminal else ''
+    return f"{step_label}{detail}"
+
+def build_terminal_progress_message(sheet_name: str, lang: str, category_name: str) -> Optional[str]:
+    """
+    Mensaje de progreso claro (ej: 'Generando 3W Marcas - X (hoja 3_Marca_P)').
+    """
+    label = build_terminal_label(sheet_name, lang, category_name)
+    if not label:
+        return None
+    return f"Generando {label} (hoja {sheet_name})"
+
+def build_terminal_done_message(sheet_name: str, lang: str, category_name: str) -> Optional[str]:
+    label = build_terminal_label(sheet_name, lang, category_name)
+    if not label:
+        return None
+    return f"Listo {label}"
+
 def _extract_pipeline(col_name: str) -> int:
     if not isinstance(col_name, str):
         return 0
@@ -2792,6 +2871,9 @@ last_tree_period_dt = None
 players_share_context = {}
 #---------------------------------------------------------------------------------------------------------------------
 for w in W:
+    progress_message = build_terminal_progress_message(w, lang, cat)
+    if progress_message:
+        print_colored(progress_message, COLOR_QUESTION)
     if is_price_index_sheet(w):
         players_base_key = extract_players_base_key(w)
         context = players_share_context.get(players_base_key)
@@ -2837,8 +2919,6 @@ for w in W:
         )
         last_reference_source = price_series.data
         last_reference_origin = price_series.display_tipo
-        titulo_precio = c_w.get((lang, '6-1'), 'Precio indexado')
-        print_colored(f"{titulo_precio} realizado para {labels[(lang,'comp')]}{cat}", COLOR_GREEN)
         continue
     #2- Por que? Arbol de medidas
     if w.startswith('2_'):
@@ -2922,8 +3002,7 @@ for w in W:
         comment_para = comment_tf.paragraphs[0]
         comment_para.text = "Comentario"
         comment_para.font.size = Inches(0.25)
-        display_target_colored = colorize_brand_for_terminal(display_target)
-        print_colored(f"{titulo_arbol} realizado para {display_target_colored}", COLOR_GREEN)
+        # No imprimimos mensaje de finalización para mantener la terminal concisa
         continue
     #1- Quando, grafico de variacoes MAT
     if w[0]=='1':
@@ -2961,8 +3040,6 @@ for w in W:
         #Limpa área de plotagem
         plt.clf()
         #mensaje de conclusion por cada slide
-        brand_label_terminal = colorize_brand_for_terminal(w[2:].strip())
-        print_colored(c_w[(lang,w[0])]+' realizado para '+ brand_label_terminal, COLOR_GREEN)
     #Outros
     else: 
         #Carrega a base
@@ -3512,14 +3589,7 @@ for w in W:
                             para.font.color.rgb = RGBColor(90, 90, 90)
                 current_left += target_width + horizontal_gap
                 plt.clf()
-        if w[0] in ['3','5']:
-            brand_label_terminal = colorize_brand_for_terminal(w[2:-2].strip())
-            print_colored(c_w[(lang,w[0]+'-'+w[-1])]+' realizado para ' + brand_label_terminal, COLOR_GREEN) 
-        elif w[0]=='6':
-            print_colored(c_w[(lang,w[0])] + ' realizado para ' + labels[(lang,'comp')] + cat, COLOR_GREEN)
-        else:
-            brand_label_terminal = colorize_brand_for_terminal(w[2:].strip())
-            print_colored(c_w[(lang,w[0])]+' realizado para '+ brand_label_terminal, COLOR_GREEN)
+        # Mensaje final omitido para evitar ruido en consola
 #Referencia da base
 ref_source = last_reference_source if last_reference_source is not None else parse_sheet_with_compras_header(file, W[0])
 last_dt = None
