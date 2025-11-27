@@ -2239,6 +2239,16 @@ def hex_to_rgb_color(color_value: str) -> Optional[RGBColor]:
     rgb_int = tuple(int(round(val * 255)) for val in rgb_float)
     return RGBColor(*rgb_int)
 
+def hex_to_ansi_color(color_value: str) -> Optional[str]:
+    """
+    Converte un color HEX a un código ANSI de 24 bits para la terminal.
+    """
+    try:
+        r, g, b = (int(round(val * 255)) for val in mcolors.to_rgb(color_value))
+    except (ValueError, TypeError):
+        return None
+    return f"\033[38;2;{r};{g};{b}m"
+
 def assign_brand_palette_color(label: str, lookup_dict: dict[str, str], palette_sequence: Optional[list[str]] = None) -> Optional[str]:
     if not label:
         return None
@@ -2290,6 +2300,24 @@ def set_title_with_brand_color(
     _add_run(suffix_text)
 
 BRAND_TITLE_COLOR_LOOKUP: dict[str, str] = {}
+
+def colorize_brand_for_terminal(
+    label: str,
+    brand_lookup: Optional[dict[str, str]] = None,
+    palette_sequence: Optional[list[str]] = None
+) -> str:
+    """
+    Devuelve el nombre de la marca coloreado con su color asignado en la paleta.
+    """
+    if not label:
+        return ''
+    lookup = brand_lookup if brand_lookup is not None else BRAND_TITLE_COLOR_LOOKUP
+    brand_color = assign_brand_palette_color(label, lookup, palette_sequence)
+    ansi_color = hex_to_ansi_color(brand_color) if brand_color else None
+    if ansi_color:
+        return colorize(label, ansi_color)
+    return label
+
 def _extract_pipeline(col_name: str) -> int:
     if not isinstance(col_name, str):
         return 0
@@ -2894,7 +2922,8 @@ for w in W:
         comment_para = comment_tf.paragraphs[0]
         comment_para.text = "Comentario"
         comment_para.font.size = Inches(0.25)
-        print_colored(f"{titulo_arbol} realizado para {display_target}", COLOR_GREEN)
+        display_target_colored = colorize_brand_for_terminal(display_target)
+        print_colored(f"{titulo_arbol} realizado para {display_target_colored}", COLOR_GREEN)
         continue
     #1- Quando, grafico de variacoes MAT
     if w[0]=='1':
@@ -2932,7 +2961,8 @@ for w in W:
         #Limpa área de plotagem
         plt.clf()
         #mensaje de conclusion por cada slide
-        print_colored(c_w[(lang,w[0])]+' realizado para '+ w[2:], COLOR_GREEN)
+        brand_label_terminal = colorize_brand_for_terminal(w[2:].strip())
+        print_colored(c_w[(lang,w[0])]+' realizado para '+ brand_label_terminal, COLOR_GREEN)
     #Outros
     else: 
         #Carrega a base
@@ -3483,11 +3513,13 @@ for w in W:
                 current_left += target_width + horizontal_gap
                 plt.clf()
         if w[0] in ['3','5']:
-            print_colored(c_w[(lang,w[0]+'-'+w[-1])]+' realizado para ' + w[2:-2], COLOR_GREEN) 
+            brand_label_terminal = colorize_brand_for_terminal(w[2:-2].strip())
+            print_colored(c_w[(lang,w[0]+'-'+w[-1])]+' realizado para ' + brand_label_terminal, COLOR_GREEN) 
         elif w[0]=='6':
             print_colored(c_w[(lang,w[0])] + ' realizado para ' + labels[(lang,'comp')] + cat, COLOR_GREEN)
         else:
-            print_colored(c_w[(lang,w[0])]+' realizado para '+ w[2:], COLOR_GREEN)
+            brand_label_terminal = colorize_brand_for_terminal(w[2:].strip())
+            print_colored(c_w[(lang,w[0])]+' realizado para '+ brand_label_terminal, COLOR_GREEN)
 #Referencia da base
 ref_source = last_reference_source if last_reference_source is not None else parse_sheet_with_compras_header(file, W[0])
 last_dt = None
