@@ -2815,6 +2815,7 @@ for w in W:
     #2- Por que? Arbol de medidas
     if w.startswith('2_'):
         raw_tree_df = file.parse(w, header=None)
+        sheet_name_clean = w.strip()
         tree_table, tree_periods = _limpiar_tabla_excel(raw_tree_df)
         if tree_table is None or not tree_periods:
             print_colored(f"No se encontro la tabla de variables en la hoja {w}.", COLOR_YELLOW)
@@ -2836,7 +2837,7 @@ for w in W:
         tree_stream, fig_size = graficar_arbol(
             metrics_calculated,
             volumen_unidad=unidad_detectada,
-            hoja=w.replace(" ", "_"),
+            hoja=sheet_name_clean.replace(" ", "_"),
             output_dir=None
         )
         if fig_size:
@@ -2845,8 +2846,8 @@ for w in W:
             fig_width_in, fig_height_in = (21, 9)
         slide = ppt.slides.add_slide(ppt.slide_layouts[1])
         titulo_arbol = c_w.get((lang, '2'), '2W - Arbol de Medidas')
-        match_nombre = re.match(r'^\d+_(.+?)(?:_[A-Za-z])?$', w)
-        display_target = match_nombre.group(1) if match_nombre else w[2:]
+        match_nombre = re.match(r'^\d+_(.+?)(?:_[A-Za-z])?$', sheet_name_clean)
+        display_target = match_nombre.group(1) if match_nombre else sheet_name_clean[2:]
         title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
         title_tf = title_box.text_frame
         set_title_with_brand_color(
