@@ -126,6 +126,8 @@ TREND_COLOR_PALETTE = {
     'trend_70': '#3F51B5'
 }
 TREND_COLOR_SEQUENCE = list(TREND_COLOR_PALETTE.values())
+# Paleta reservada para títulos de Competencia: usa los últimos colores para no interferir con los de marcas.
+COMPETITION_TITLE_PALETTE = list(reversed(TREND_COLOR_SEQUENCE[-8:]))
 TABLE_WRAP_WIDTH = 14
 DISPLAY_TREND_REFERENCE_TEXT = False
 TREND_SCALE_RULES = [
@@ -2261,7 +2263,8 @@ def set_title_with_brand_color(
     brand_text: Optional[str],
     suffix_text: str,
     font_size_inches: float,
-    brand_lookup: dict[str, str]
+    brand_lookup: dict[str, str],
+    palette_sequence: Optional[list[str]] = None
 ) -> None:
     text_frame.clear()
     paragraph = text_frame.paragraphs[0]
@@ -2282,7 +2285,7 @@ def set_title_with_brand_color(
     _add_run(prefix_text)
     brand_segment = (brand_text or '').strip()
     if brand_segment:
-        brand_color = assign_brand_palette_color(brand_segment, brand_lookup)
+        brand_color = assign_brand_palette_color(brand_segment, brand_lookup, palette_sequence)
         _add_run(brand_segment, brand_color)
     _add_run(suffix_text)
 
@@ -2594,13 +2597,19 @@ def build_price_index_slide(
     slide = ppt.slides.add_slide(ppt.slide_layouts[1])
     titulo_base = c_w.get((lang, '6-1'), 'Precio indexado')
     titulo_completo = f"{titulo_base} | {labels[(lang,'comp')]}{cat}"
+    title_prefix = f"{titulo_base} | {labels[(lang,'comp')]}"
     title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
     title_tf = title_box.text_frame
-    title_tf.clear()
-    title_paragraph = title_tf.paragraphs[0]
-    title_paragraph.text = titulo_completo
-    title_paragraph.font.bold = True
-    title_paragraph.font.size = Inches(0.33)
+    competition_title_lookup: dict[str, str] = {}
+    set_title_with_brand_color(
+        title_tf,
+        title_prefix,
+        cat,
+        '',
+        0.33,
+        competition_title_lookup,
+        COMPETITION_TITLE_PALETTE
+    )
     comment_box = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
     comment_tf = comment_box.text_frame
     comment_tf.clear()
@@ -2840,11 +2849,14 @@ for w in W:
         display_target = match_nombre.group(1) if match_nombre else w[2:]
         title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
         title_tf = title_box.text_frame
-        title_tf.clear()
-        title_paragraph = title_tf.paragraphs[0]
-        title_paragraph.text = f"{titulo_arbol} | {display_target}"
-        title_paragraph.font.bold = True
-        title_paragraph.font.size = Inches(0.35)
+        set_title_with_brand_color(
+            title_tf,
+            f"{titulo_arbol} | ",
+            display_target,
+            '',
+            0.35,
+            BRAND_TITLE_COLOR_LOOKUP
+        )
         left_margin = Inches(0.33)
         right_margin = Inches(0.33)
         chart_top = Inches(0.8)
@@ -2936,18 +2948,23 @@ for w in W:
         title_prefix = ''
         title_brand_label = None
         title_font_inches = 0.35
+        title_color_lookup = BRAND_TITLE_COLOR_LOOKUP
+        title_palette_sequence = None
         if w[0] in ['3','5']:
             title_prefix = c_w[(lang,w[0]+'-'+w[-1])]+' | '
             title_brand_label = w[2:-2].strip()
             titulo = f"{title_prefix}{title_brand_label}"
         elif w[0]=='6':
-            title_prefix =  c_w[(lang,w[0])] + ' | ' + labels[(lang,'comp')] + cat
-            titulo =  title_prefix
+            title_prefix =  c_w[(lang,w[0])] + ' | ' + labels[(lang,'comp')]
+            title_brand_label = cat
+            titulo = f"{title_prefix}{title_brand_label}"
             title_font_inches = 0.33
+            title_color_lookup = {}
+            title_palette_sequence = COMPETITION_TITLE_PALETTE
         else:
             title_prefix = c_w[(lang,w[0])]+' | '+ w[2:] 
             titulo = title_prefix
-        set_title_with_brand_color(tf, title_prefix, title_brand_label, '', title_font_inches, BRAND_TITLE_COLOR_LOOKUP)
+        set_title_with_brand_color(tf, title_prefix, title_brand_label, '', title_font_inches, title_color_lookup, title_palette_sequence)
         #Insere caixa de texto para comentário do slide
         txTitle = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
         tf = txTitle.text_frame
@@ -3346,7 +3363,8 @@ for w in W:
                 title_brand_label,
                 share_suffix,
                 0.33,
-                BRAND_TITLE_COLOR_LOOKUP
+                title_color_lookup,
+                title_palette_sequence
             )
             comment_box = share_slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
             comment_tf = comment_box.text_frame
