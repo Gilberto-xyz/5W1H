@@ -309,7 +309,6 @@ def figure_to_stream(
 pd.set_option('future.no_silent_downcasting', True)
 pd.set_option('mode.chained_assignment', None)
 warnings.filterwarnings('ignore')
-agora = dt.now()
 #Funcao que prepara os dados para criação do gráfico MAT
 def df_mat(df,p):
     v1 = pd.DataFrame([(df.iloc[i-12-p:i-p,1].sum()/df.iloc[i-24-p:i-12-p,1].sum()) - 1 if i >= 24 else np.nan for i in range(12, len(df)+1)],columns=['Var Sell-in'])
@@ -2808,6 +2807,7 @@ last_reference_origin = None
 last_tree_period_dt = None
 players_share_context = {}
 #---------------------------------------------------------------------------------------------------------------------
+chart_generation_start = dt.now()
 for w in W:
     progress_message = build_terminal_progress_message(w, lang, cat)
     if progress_message:
@@ -3559,6 +3559,7 @@ for w in W:
                 current_left += target_width + horizontal_gap
                 plt.clf()
         # Mensaje final omitido para evitar ruido en consola
+chart_generation_end = dt.now()
 #Referencia da base
 ref_source = last_reference_source if last_reference_source is not None else parse_sheet_with_compras_header(file, W[0])
 last_dt = None
@@ -3614,6 +3615,10 @@ output_filename = "-".join([
     simplify_name_segment(ref, 5)
 ]) + '.pptx'
 ppt.save(output_filename)
-fim = dt.now()
-t = int((fim - agora).total_seconds())
-print_colored(f'Tiempo de ejecucion : {t//60} min {t%60} s' if t >= 60 else f'Tiempo de ejecucion : {t} s', COLOR_BLUE)
+chart_elapsed = int((chart_generation_end - chart_generation_start).total_seconds())
+print_colored(
+    f'Tiempo de generacion de graficos : {chart_elapsed//60} min {chart_elapsed%60} s'
+    if chart_elapsed >= 60
+    else f'Tiempo de generacion de graficos : {chart_elapsed} s',
+    COLOR_BLUE
+)
