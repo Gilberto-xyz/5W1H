@@ -262,6 +262,7 @@ LINE_CHART_MULTI_X_MARGIN = 0.16
 DEFAULT_EXPORT_DPI = 110
 TABLE_EXPORT_DPI = 220
 EXPORT_PAD_INCHES = 0.08
+CHART_TOP_INCH = 0.72
 def emu_to_inches(value: int) -> float:
     return float(value) / EMU_PER_INCH
 def wrap_table_text(value, max_width: int = TABLE_WRAP_WIDTH):
@@ -2698,7 +2699,7 @@ def build_price_index_slide(
                 show_title=False,
             ),
             left_margin_chart,
-            Inches(0.95),
+            Inches(CHART_TOP_INCH),
             width=available_line_width,
             height=chart_height
         )
@@ -2748,7 +2749,7 @@ def build_price_index_slide(
                     scale_ratio = available_width_in / fig_width_in
                     target_height_in = fig_height_in * scale_ratio
                     target_height_in = max(1.0, min(target_height_in, 2.2))
-                    chart_top_in = 1.15
+                    chart_top_in = CHART_TOP_INCH
                     chart_height_in = emu_to_inches(chart_height)
                     table_gap_in = 0.2
                     table_top_in = chart_top_in + chart_height_in + table_gap_in
@@ -2916,7 +2917,7 @@ for w in W:
         )
         left_margin = Inches(0.33)
         right_margin = Inches(0.33)
-        chart_top = Inches(0.8)
+        chart_top = Inches(CHART_TOP_INCH)
         available_width_emu = available_width(ppt, left_margin, right_margin)
         slide_width_in = emu_to_inches(ppt.slide_width)
         slide_height_in = emu_to_inches(ppt.slide_height)
@@ -2977,7 +2978,7 @@ for w in W:
         left_margin = Inches(0.33)
         right_margin = Inches(0.33)
         available = available_width(ppt, left_margin, right_margin)
-        pic=slide.shapes.add_picture(graf_mat(mat,c_fig,p), left_margin, Inches(1.15),width=available)
+        pic=slide.shapes.add_picture(graf_mat(mat,c_fig,p), left_margin, Inches(CHART_TOP_INCH),width=available)
         #Insere caixa de texto para comentário do slide
         txTitle = slide.shapes.add_textbox(Inches(0.33), Inches(5.8), Inches(10), Inches(0.5))
         tf = txTitle.text_frame
@@ -3044,6 +3045,9 @@ for w in W:
         should_collect_share = False
         apo_entries = []
         chart_color_mappings = {}
+        chart_top_emu = int(Inches(CHART_TOP_INCH))
+        chart_height_emu = int(Cm(10))
+        min_table_top = chart_top_emu + chart_height_emu + int(vertical_spacing)
         if w:
             first_char = w[0]
             last_char = w[-1]
@@ -3154,7 +3158,7 @@ for w in W:
             )
             if isinstance(chart_colors, dict):
                 chart_color_mappings.update(chart_colors)
-            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(1.15),width=available_line_width,height=Cm(10))
+            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_line_width,height=Cm(10))
         elif plot=="2" and len(series_configs)>1:
             ven_param = max(len(series_configs)-1, 1)
             left_margin = Inches(0.33)
@@ -3191,7 +3195,7 @@ for w in W:
                 )
                 if isinstance(chart_colors, dict):
                     chart_color_mappings.update(chart_colors)
-                pic=slide.shapes.add_picture(chart_stream, left_position, Inches(1.15),width=chart_width,height=Cm(10))
+                pic=slide.shapes.add_picture(chart_stream, left_position, Inches(CHART_TOP_INCH),width=chart_width,height=Cm(10))
                 plt.clf()
         elif series_configs:
             c_fig+=1
@@ -3214,7 +3218,7 @@ for w in W:
             )
             if isinstance(chart_colors, dict):
                 chart_color_mappings.update(chart_colors)
-            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(1.15),width=available_single_width,height=Cm(10))
+            pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_single_width,height=Cm(10))
             plt.clf()
         color_lookup_keys = build_color_lookup_dict(chart_color_mappings)
         if apo_entries:
@@ -3228,6 +3232,8 @@ for w in W:
                         mapping[column] = color_value
                 return mapping
             table_top = slide_height - target_table_height_emu - bottom_margin_emu
+            if table_top > min_table_top:
+                table_top = min_table_top
             if len(apo_entries) == 2:
                 gap = Cm(TABLE_PAIR_GAP_CM)
                 half_slide_width = slide_width // 2
@@ -3257,6 +3263,8 @@ for w in W:
                     c_fig += 1
                     table_colors = build_table_color_mapping(apo_df)
                     top_position = slide_height - target_table_height_emu - bottom_margin_emu
+                    if top_position > min_table_top:
+                        top_position = min_table_top
                     left_position = left_margin
                     max_width = slide_width - left_position - right_margin
                     pic = slide.shapes.add_picture(
