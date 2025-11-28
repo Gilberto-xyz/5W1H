@@ -3238,6 +3238,7 @@ for w in W:
                 gap = Cm(TABLE_PAIR_GAP_CM)
                 half_slide_width = slide_width // 2
                 gap_half = int(gap) // 2
+                paired_shapes = []
                 for entry in apo_entries:
                     apo_df = entry["apo"]
                     display_tipo = str(entry.get("display_tipo", "")).strip().lower()
@@ -3256,7 +3257,30 @@ for w in W:
                         height=target_table_height
                     )
                     constrain_picture_width(pic, max_width)
+                    paired_shapes.append((pic, max_width))
                     plt.clf()
+                if paired_shapes:
+                    min_height = min(shape.height for shape, _ in paired_shapes if shape is not None)
+                    for shape, max_width in paired_shapes:
+                        if shape is None or min_height <= 0:
+                            continue
+                        # Escalamos de forma proporcional para igualar alturas sin deformar
+                        current_h = float(shape.height)
+                        current_w = float(shape.width)
+                        if current_h <= 0 or current_w <= 0:
+                            continue
+                        scale_h = min_height / current_h
+                        # Evitar cualquier upscale involuntario
+                        scale_h = min(scale_h, 1.0)
+                        if max_width:
+                            scale_w_limit = float(max_width) / current_w
+                            if scale_w_limit <= 0:
+                                scale_w_limit = scale_h
+                            scale_h = min(scale_h, scale_w_limit)
+                        new_h = int(current_h * scale_h)
+                        new_w = int(current_w * scale_h)
+                        shape.height = new_h
+                        shape.width = new_w
             else:
                 for entry in apo_entries:
                     apo_df = entry["apo"]
