@@ -2673,7 +2673,6 @@ def build_price_index_slide(
     comment_paragraph.text = "Comentário" if lang == 'P' else "Comentario"
     comment_paragraph.font.size = Inches(0.25)
     chart_share_lookup = chart_share_lookup or {}
-    slide_height_in = emu_to_inches(ppt.slide_height)
     if not price_df.empty and price_df.shape[1] > 1:
         left_margin_chart = Inches(0.33)
         right_margin_chart = Inches(0.33)
@@ -2740,31 +2739,21 @@ def build_price_index_slide(
                         metric_label,
                         c_fig
                     )
-                    fig_width_in, fig_height_in = fig_size
-                    if fig_width_in <= 0 or fig_height_in <= 0:
-                        fig_width_in, fig_height_in = 6.0, 1.5
-                    available_width_in = emu_to_inches(available_line_width)
-                    if available_width_in <= 0:
-                        available_width_in = fig_width_in
-                    scale_ratio = available_width_in / fig_width_in
-                    target_height_in = fig_height_in * scale_ratio
-                    target_height_in = max(1.0, min(target_height_in, 2.2))
-                    chart_top_in = CHART_TOP_INCH
-                    chart_height_in = emu_to_inches(chart_height)
-                    table_gap_in = 0.2
-                    table_top_in = chart_top_in + chart_height_in + table_gap_in
-                    if table_top_in + target_height_in > slide_height_in - 0.3:
-                        table_top_in = max(chart_top_in + chart_height_in + 0.05, slide_height_in - target_height_in - 0.3)
-                    table_top = Inches(table_top_in)
-                    table_width = available_line_width
-                    table_height = Inches(target_height_in)
-                    slide.shapes.add_picture(
+                    target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
+                    bottom_margin = Cm(1.5)
+                    slide_height_emu = int(ppt.slide_height)
+                    chart_bottom_emu = int(Inches(CHART_TOP_INCH) + chart_height)
+                    min_table_top = chart_bottom_emu + int(Cm(0.2))
+                    table_top_emu = slide_height_emu - int(target_table_height) - int(bottom_margin)
+                    if table_top_emu < min_table_top:
+                        table_top_emu = min_table_top
+                    pic_table = slide.shapes.add_picture(
                         table_stream,
                         left_margin_chart,
-                        table_top,
-                        width=table_width,
-                        height=table_height
+                        table_top_emu,
+                        height=target_table_height
                     )
+                    constrain_picture_width(pic_table, available_line_width)
                     plt.clf()
     return c_fig
 #Variavel de controle do numero de graficos
