@@ -12,12 +12,13 @@ import math
 import textwrap
 import re
 import unicodedata
+import matplotlib
+matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 from matplotlib.ticker import FuncFormatter
 from matplotlib import colors as mcolors
 import matplotlib.patches as mpatches
 from matplotlib.patches import Rectangle
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.font_manager import FontProperties
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
 from pptx import Presentation 
@@ -258,6 +259,9 @@ LINE_CHART_MULTI_RIGHT_MARGIN = 0.98
 LINE_CHART_MULTI_BOTTOM_MARGIN = 0.12
 LINE_CHART_MULTI_TOP_MARGIN = 0.85
 LINE_CHART_MULTI_X_MARGIN = 0.16
+DEFAULT_EXPORT_DPI = 110
+TABLE_EXPORT_DPI = 220
+EXPORT_PAD_INCHES = 0.08
 def emu_to_inches(value: int) -> float:
     return float(value) / EMU_PER_INCH
 def wrap_table_text(value, max_width: int = TABLE_WRAP_WIDTH):
@@ -273,6 +277,34 @@ def wrap_table_text(value, max_width: int = TABLE_WRAP_WIDTH):
     if len(normalized) <= max_width or " " not in normalized:
         return normalized
     return textwrap.fill(normalized, width=max_width, break_long_words=False)
+def figure_to_stream(
+    fig: plt.Figure,
+    dpi: int = DEFAULT_EXPORT_DPI,
+    bbox_inches="tight",
+    pad_inches: float = EXPORT_PAD_INCHES,
+    transparent: bool = True,
+    close: bool = True,
+) -> io.BytesIO:
+    """
+    Renderiza una figura en memoria y la cierra para liberar recursos.
+    Replica el flujo rapido usado en coverage_studio (guardar en BytesIO y cerrar).
+    """
+    buf = io.BytesIO()
+    fig.savefig(
+        buf,
+        format="png",
+        dpi=dpi,
+        bbox_inches=bbox_inches,
+        pad_inches=pad_inches,
+        transparent=transparent,
+    )
+    buf.seek(0)
+    if close:
+        try:
+            plt.close(fig)
+        except Exception:
+            pass
+    return buf
 pd.set_option('future.no_silent_downcasting', True)
 pd.set_option('mode.chained_assignment', None)
 warnings.filterwarnings('ignore')
@@ -289,64 +321,76 @@ def df_mat(df,p):
     mat= mat[mat.notna().all(axis=1).idxmax():]
     return mat
 #Grafico de MAT 
-def graf_mat (mat,c_fig,p):
-    #Cria figura e área plotável   
-        altura = 7  # Aumentamos aún más la altura
-        # Cerrar cualquier figura existente con el mismo número para que figsize sea aplicado
-        try:
-            plt.close(c_fig)
-        except Exception:
-            pass
-        fig = plt.figure(num=c_fig, figsize=(15, altura))
-        ax = fig.add_subplot(1, 1, 1)
-        # Ajustamos los márgenes para dar más espacio arriba y abajo
-        plt.subplots_adjust(bottom=0.2, top=0.9)
-        #Cria o eixo do tempo e os acumulados juntamente com as variações
-        ran=mat.iloc[:,0].copy()
-        ran=[x.strftime('%m-%y') for x in ran]
-        ac1 = mat.iloc[:,1].copy()
-        ac2 = mat.iloc[:,2].copy()
-        v1= mat.iloc[:,3].copy()
-        v2= mat.iloc[:,4].copy()
-        #Plota os acumulados em linhas    
-        l1=ax.plot(ran,ac1, color=LINE_COLOR_CLIENT, linewidth=4.2, label='Acumulado Cliente')
-        l2=ax.plot(ran,ac2, color=LINE_COLOR_NUMERATOR, linewidth=4.2, label='Acumulado Numerator') 
-        #Plota as variações em barras
-        ax2= ax.twinx()
-        b1 = ax2.bar(np.arange(len(ran)) - 0.3, v1.values, 0.3, color=BAR_COLOR_VARIATION_CLIENT, edgecolor=BAR_EDGE_COLOR, label='Var % Cliente Pipeline: '+ str(p) +' '+labels[(lang,'Var MAT')])
-        b2 = ax2.bar(np.arange(len(ran)) + 0.3, v2.values, 0.3, color=BAR_COLOR_VARIATION_NUMERATOR, edgecolor=BAR_EDGE_COLOR, label='Var % Numerator '+labels[(lang,'Var MAT')])
-        ax.set_xticks(np.arange(len(ran)))
-        ax.set_xticklabels(ran, rotation=30)
-        ax2.tick_params(left=False, labelleft=False, top=False, labeltop=False,
-            right=False, labelright=False, bottom=False, labelbottom=False)
-        for v in [v1,v2]:
-            for x,y in zip(np.arange(len(v1))+0.2,v):
-                label = "{:.1f}%".format(y)
-                bbox_props_white=dict(facecolor=ANNOTATION_BOX_FACE,edgecolor=ANNOTATION_BOX_EDGE)
-                plt.annotate(f"{y*100:.1f}%", (x, y), textcoords="offset points", xytext=(0, 10), ha='center', color='red' if y < 0 else 'green', size=9, bbox=bbox_props_white)
-        #Cria a legenda 
-        lns = l1 + l2 + [b1, b2]
-        labs = [l.get_label() for l in l1 + l2] + [b1.get_label(), b2.get_label()]
-        ax.legend(lns, labs, loc='upper center', bbox_to_anchor=(0.5, -0.15), borderaxespad=0.05, frameon=True, prop={'size': 12}, ncol=2)
-        # Ajustamos el layout para evitar que se corten elementos
-        plt.tight_layout()
-        img_stream = io.BytesIO()
-        #Cria o titulo
-        ax.set_title(labels[(lang,'MAT')]+' | ' + w[2:], size=18, pad=20)
-        # Ajustamos el layout antes de guardar la imagen
-        plt.tight_layout(rect=[0, 0.05, 1, 0.95])  # Ajusta el espacio dejando margen para título y leyenda
-        #Salva o grafico
-        # Guardar respetando el tamaño definido (no usar bbox_inches='tight')
-        fig.savefig(img_stream, format='png', transparent=True)
-        #Insere o grafico
-        img_stream.seek(0) 
-        # Cerrar figura para liberar recursos y evitar reutilización
-        try:
-            plt.close(fig)
-        except Exception:
-            pass
-        return img_stream
+def graf_mat(mat, c_fig, p):
+    altura = 7  # Aumentamos aun mas la altura
+    fig, ax = plt.subplots(num=c_fig, figsize=(15, altura), dpi=DEFAULT_EXPORT_DPI)
+    fig.subplots_adjust(bottom=0.2, top=0.9)
+    ran = [x.strftime('%m-%y') for x in mat.iloc[:, 0].copy()]
+    ac1 = mat.iloc[:, 1].copy()
+    ac2 = mat.iloc[:, 2].copy()
+    v1 = mat.iloc[:, 3].copy()
+    v2 = mat.iloc[:, 4].copy()
+    l1 = ax.plot(ran, ac1, color=LINE_COLOR_CLIENT, linewidth=4.2, label='Acumulado Cliente')
+    l2 = ax.plot(ran, ac2, color=LINE_COLOR_NUMERATOR, linewidth=4.2, label='Acumulado Numerator')
+    ax2 = ax.twinx()
+    b1 = ax2.bar(
+        np.arange(len(ran)) - 0.3,
+        v1.values,
+        0.3,
+        color=BAR_COLOR_VARIATION_CLIENT,
+        edgecolor=BAR_EDGE_COLOR,
+        label='Var % Cliente Pipeline: ' + str(p) + ' ' + labels[(lang, 'Var MAT')],
+    )
+    b2 = ax2.bar(
+        np.arange(len(ran)) + 0.3,
+        v2.values,
+        0.3,
+        color=BAR_COLOR_VARIATION_NUMERATOR,
+        edgecolor=BAR_EDGE_COLOR,
+        label='Var % Numerator ' + labels[(lang, 'Var MAT')],
+    )
+    ax.set_xticks(np.arange(len(ran)))
+    ax.set_xticklabels(ran, rotation=30)
+    ax2.tick_params(
+        left=False,
+        labelleft=False,
+        top=False,
+        labeltop=False,
+        right=False,
+        labelright=False,
+        bottom=False,
+        labelbottom=False,
+    )
+    for serie in [v1, v2]:
+        for x, y in zip(np.arange(len(v1)) + 0.2, serie):
+            bbox_props_white = dict(facecolor=ANNOTATION_BOX_FACE, edgecolor=ANNOTATION_BOX_EDGE)
+            ax.annotate(
+                f"{y*100:.1f}%",
+                (x, y),
+                textcoords="offset points",
+                xytext=(0, 10),
+                ha='center',
+                color='red' if y < 0 else 'green',
+                size=9,
+                bbox=bbox_props_white,
+            )
+    lns = l1 + l2 + [b1, b2]
+    labs = [l.get_label() for l in l1 + l2] + [b1.get_label(), b2.get_label()]
+    ax.legend(
+        lns,
+        labs,
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.15),
+        borderaxespad=0.05,
+        frameon=True,
+        prop={'size': 12},
+        ncol=2,
+    )
+    ax.set_title(labels[(lang, 'MAT')] + ' | ' + w[2:], size=18, pad=20)
+    fig.tight_layout(rect=[0, 0.05, 1, 0.95])
+    return figure_to_stream(fig, bbox_inches=None)
 #Grafico de Lineas
+
 def line_graf(
     df,
     p,
@@ -408,8 +452,7 @@ def line_graf(
         elif height_inches is None:
             height_inches = width_inches / DEFAULT_LINE_CHART_RATIO
         figsize = (width_inches, height_inches)
-    fig = plt.figure(num=c_fig, figsize=figsize)
-    ax = fig.add_subplot(1, 1, 1)
+    fig, ax = plt.subplots(num=c_fig, figsize=figsize, dpi=DEFAULT_EXPORT_DPI)
     # Escalar elementos (fuentes, linewidth) según la altura para que el contenido se adapte
     # Se toma como referencia la altura original de 5 pulgadas usada previamente
     ref_height = 5.0
@@ -435,25 +478,11 @@ def line_graf(
         else:
             aux = aux.loc[:, kept_columns]
     if aux.empty or aux.shape[1] <= 1:
-        img_stream = io.BytesIO()
-        fig.savefig(img_stream, format="png", transparent=True)
-        img_stream.seek(0)
-        try:
-            plt.close(fig)
-        except Exception:
-            pass
-        return img_stream
+        return figure_to_stream(fig, bbox_inches=None)
     ran = [x.strftime('%m-%y') for x in aux.iloc[:, 0]]
     data_len = len(ran)
     if data_len == 0:
-        img_stream = io.BytesIO()
-        fig.savefig(img_stream, format="png", transparent=True)
-        img_stream.seek(0)
-        try:
-            plt.close(fig)
-        except Exception:
-            pass
-        return img_stream
+        return figure_to_stream(fig, bbox_inches=None)
     start_idx = max(0, min(p, data_len - 1))
     x_positions = np.arange(data_len)
     colunas = list(aux.columns[1:])
@@ -629,11 +658,9 @@ def line_graf(
         right=chart_right_margin,
     )
     if lns:
-        axes_height = ax.get_position().height
-        axes_height = axes_height if axes_height > 0 else 1e-3
-        legend_gap_fraction = legend_gap_base
-        legend_offset_axes = legend_gap_fraction / axes_height
-        legend_offset_axes = max(0.0, min(0.35, legend_offset_axes))
+        axes_height = ax.get_position().height or 1e-3
+        legend_gap_fraction = legend_gap_base + legend_height_fraction + margin_buffer
+        legend_offset_axes = max(0.0, min(0.35, legend_gap_fraction / axes_height))
         legend = ax.legend(
             lns,
             legend_labels,
@@ -649,70 +676,6 @@ def line_graf(
         frame.set_facecolor('white')
         frame.set_edgecolor('#D3D3D3')
         frame.set_alpha(0.85)
-        try:
-            if fig.canvas is None:
-                FigureCanvas(fig)
-        except Exception:
-            pass
-        adjustment_iterations = 0
-        while adjustment_iterations < 4:
-            adjustment_iterations += 1
-            try:
-                fig.canvas.draw()
-                renderer = fig.canvas.get_renderer()
-            except Exception:
-                break
-            figure_height_px = fig.get_size_inches()[1] * fig.dpi
-            if not figure_height_px:
-                break
-            legend_bbox = legend.get_window_extent(renderer)
-            tick_bboxes = [
-                label.get_window_extent(renderer)
-                for label in ax.get_xticklabels()
-                if label.get_text()
-            ]
-            tick_height_fraction = 0.0
-            min_tick_bottom = None
-            if tick_bboxes:
-                tick_height_fraction = max(bbox.height for bbox in tick_bboxes) / figure_height_px
-                min_tick_bottom = min(bbox.y0 for bbox in tick_bboxes)
-            clearance_px = max(4.0, 4.0 * scale)
-            clearance_fraction = clearance_px / figure_height_px
-            desired_gap_fraction = legend_gap_base + tick_height_fraction + clearance_fraction
-            if min_tick_bottom is not None:
-                overlap_px = legend_bbox.y1 - (min_tick_bottom - clearance_px)
-                if overlap_px > 0:
-                    desired_gap_fraction += overlap_px / figure_height_px
-            required_bottom_margin = max(chart_bottom_margin, legend_height_fraction + desired_gap_fraction) + margin_buffer
-            if legend_bbox.y0 < 0:
-                required_bottom_margin = max(
-                    required_bottom_margin,
-                    bottom_margin + (-legend_bbox.y0 + clearance_px) / figure_height_px
-                )
-            required_bottom_margin = min(0.9, required_bottom_margin)
-            if required_bottom_margin >= chart_top_margin:
-                required_bottom_margin = max(0.05, chart_top_margin - 0.05)
-            axes_height = ax.get_position().height
-            axes_height = axes_height if axes_height > 0 else 1e-3
-            new_offset_axes = desired_gap_fraction / axes_height
-            new_offset_axes = max(0.0, min(0.45, new_offset_axes))
-            no_layout_change = (
-                abs(required_bottom_margin - bottom_margin) < 1e-4 and
-                abs(new_offset_axes - legend_offset_axes) < 1e-4
-            )
-            bottom_margin = required_bottom_margin
-            fig.subplots_adjust(
-                top=chart_top_margin,
-                bottom=bottom_margin,
-                left=chart_left_margin,
-                right=chart_right_margin,
-            )
-            axes_height = ax.get_position().height
-            axes_height = axes_height if axes_height > 0 else 1e-3
-            legend_offset_axes = max(0.0, min(0.45, desired_gap_fraction / axes_height))
-            legend.set_bbox_to_anchor((0.0, -legend_offset_axes, 1.0, 0.0))
-            if no_layout_change:
-                break
     if plotted_columns and share_lookup:
         legend_label_map = {col: label for col, label in zip(plotted_columns, legend_labels)}
         annotation_candidates = []
@@ -854,14 +817,7 @@ def line_graf(
         color_collector.clear()
         for col, line in zip(plotted_columns, lns):
             color_collector[col] = line.get_color()
-    img_stream = io.BytesIO()
-    fig.savefig(img_stream, format='png', transparent=True)
-    img_stream.seek(0)
-    try:
-        plt.close(fig)
-    except Exception:
-        pass
-    return img_stream
+    return figure_to_stream(fig)
 #Normaliza etiquetas de periodo eliminando prefijos genéricos
 def normalize_period_label(label) -> str:
     if label is None:
@@ -906,7 +862,7 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
     figure_height = max(base_height, 4.5 + segments * incremental_height)
     figure_height = min(7.0, figure_height)
     figure_width = 4.6
-    fig, ax = plt.subplots(num=c_fig, figsize=(figure_width, figure_height))
+    fig, ax = plt.subplots(num=c_fig, figsize=(figure_width, figure_height), dpi=DEFAULT_EXPORT_DPI)
     bottom = 0.0
     bar_width = 0.65
     label_infos = []
@@ -983,14 +939,8 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
     for spine in ax.spines.values():
         spine.set_visible(False)
     fig.subplots_adjust(left=0.05, right=0.92, top=0.995, bottom=0.02)
-    img_stream = io.BytesIO()
-    fig.savefig(img_stream, format='png', transparent=True, bbox_inches=None)
-    img_stream.seek(0)
-    try:
-        plt.close(fig)
-    except Exception:
-        pass
-    return img_stream, fig.get_size_inches()
+    fig_size = fig.get_size_inches()
+    return figure_to_stream(fig), fig_size
 # --- Arbol de medidas helpers ---
 def _limpiar_tabla_excel(df):
     """Detecta la fila de encabezados (MAT ...) tolerando filas adicionales al inicio."""
@@ -1293,7 +1243,7 @@ def graficar_arbol(metrics_calculated, volumen_unidad='Units', output_dir=None, 
         ax.text(0.06, 0.92, "Atribucion del cambio en el gasto", ha="left", va="center",
                 fontsize=14, weight="bold", color="#333333")
         draw_key(ax)
-    fig = plt.figure(figsize=(21, 9))
+    fig = plt.figure(figsize=(21, 9), dpi=DEFAULT_EXPORT_DPI)
     ax = plt.gca()
     ax.set_axis_off()
     ax.set_xlim(0, 1)
@@ -1304,9 +1254,8 @@ def graficar_arbol(metrics_calculated, volumen_unidad='Units', output_dir=None, 
         draw_card(ax, node["pos"], node)
     draw_attribution_bar(ax, metrics_calculated)
     plt.title(f"Arbol de Variables ({volumen_unidad})", fontsize=10, loc="right", color="#666")
-    buf = io.BytesIO()
-    plt.savefig(buf, dpi=180, bbox_inches='tight', pad_inches=0.02, format='png')
-    buf.seek(0)
+    fig_size = tuple(fig.get_size_inches()) if fig is not None else None
+    buf = figure_to_stream(fig, dpi=DEFAULT_EXPORT_DPI, bbox_inches='tight', pad_inches=0.02, close=False)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         suffix = f"_{hoja}" if hoja else ""
@@ -1317,7 +1266,6 @@ def graficar_arbol(metrics_calculated, volumen_unidad='Units', output_dir=None, 
     if mostrar:
         plt.show()
     plt.close(fig)
-    fig_size = tuple(fig.get_size_inches()) if fig is not None else None
     return buf, fig_size
 def _unidad_desde_nombre_hoja(nombre_hoja):
     """
@@ -1447,7 +1395,7 @@ def aporte(df,p,lang,tipo):
         return apo
 #Função que cria o gráfico tabela de aporte
 def graf_apo(apo, c_fig, column_color_mapping=None):
-    fig, ax = plt.subplots(num=c_fig)
+    fig, ax = plt.subplots(num=c_fig, dpi=DEFAULT_EXPORT_DPI)
     row_height = 0.45
     col_width = 1.0
     n_rows, n_cols = apo.shape
@@ -1689,10 +1637,7 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
             fig.canvas.draw()
             renderer = fig.canvas.get_renderer()
             table_bbox = table.get_tightbbox(renderer).transformed(fig.dpi_scale_trans.inverted())
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=400, bbox_inches=table_bbox, pad_inches=0)
-    buf.seek(0)
-    return buf
+    return figure_to_stream(fig, dpi=TABLE_EXPORT_DPI, bbox_inches=table_bbox, pad_inches=0)
 def simplify_name_segment(value: str, max_len: int) -> str:
     """
     Reduce a string to a compact, filesystem-friendly segment.
@@ -2651,7 +2596,7 @@ def graf_price_index_table(
     column_count = max(len(columns), 1)
     fig_width = max(6.0, 1.25 * column_count)
     fig_height = 1.5
-    fig, ax = plt.subplots(num=c_fig, figsize=(fig_width, fig_height))
+    fig, ax = plt.subplots(num=c_fig, figsize=(fig_width, fig_height), dpi=DEFAULT_EXPORT_DPI)
     ax.axis('off')
     ax.set_facecolor('white')
     header_labels = ['Indicador'] + [wrap_table_text(str(col)) for col in columns]
@@ -2690,11 +2635,8 @@ def graf_price_index_table(
         data_cell.set_facecolor('#FFFFFF')
         data_cell.set_edgecolor('#DDDDDD')
     fig.tight_layout(pad=0.2)
-    img_stream = io.BytesIO()
-    fig.savefig(img_stream, format='png', transparent=True, dpi=220)
-    img_stream.seek(0)
-    plt.close(fig)
-    return img_stream, fig.get_size_inches()
+    fig_size = fig.get_size_inches()
+    return figure_to_stream(fig, dpi=TABLE_EXPORT_DPI), fig_size
 def build_price_index_slide(
     ppt: Presentation,
     lang: str,
