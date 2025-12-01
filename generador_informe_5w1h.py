@@ -1657,9 +1657,11 @@ def select_excel_file(base_dir: Path) -> str:
     excel_files = sorted([p for p in base_dir.glob('*.xlsx') if not p.name.startswith('~$')])
     def metadata_for(file_path: Path) -> str:
         try:
+            if file_path.stem.lower() == 'plantilla_entrada_5w1h':
+                return 'Plantilla de entrada - usar como referencia'
             parts = file_path.stem.split('_')
             country_code = int(parts[0]) if parts else None
-            category_code = parts[1] if len(parts) > 1 else None
+            category_code = parts[1].strip().upper() if len(parts) > 1 else None
             pais_name = pais.loc[pais['cod'] == country_code, 'pais'].iloc[0] if country_code is not None else 'Pais N/D'
             cesta = categ.loc[categ['cod'] == category_code, 'cest'].iloc[0] if category_code else 'Cesta N/D'
             categoria = categ.loc[categ['cod'] == category_code, 'cat'].iloc[0] if category_code else 'Categoria N/D'
@@ -1670,12 +1672,14 @@ def select_excel_file(base_dir: Path) -> str:
         raise FileNotFoundError(colorize(f'No se encontraron archivos .xlsx en {base_dir}', COLOR_RED))
     if len(excel_files) == 1:
         meta = metadata_for(excel_files[0])
-        print_colored(f"Archivo encontrado: {excel_files[0].name} {colorize('[' + meta + ']', COLOR_YELLOW)}", COLOR_BLUE)
+        meta_color = COLOR_RED if meta == 'Metadata no disponible' else COLOR_YELLOW
+        print_colored(f"Archivo encontrado: {excel_files[0].name} {colorize('[' + meta + ']', meta_color)}", COLOR_BLUE)
         return excel_files[0].name
     print_colored('Archivos Excel disponibles:', COLOR_QUESTION)
     for idx, archivo in enumerate(excel_files, 1):
         meta = metadata_for(archivo)
-        print(f"{colorize(f'  {idx}. {archivo.name}', COLOR_BLUE)} {colorize('[' + meta + ']', COLOR_YELLOW)}")
+        meta_color = COLOR_RED if meta == 'Metadata no disponible' else COLOR_YELLOW
+        print(f"{colorize(f'  {idx}. {archivo.name}', COLOR_BLUE)} {colorize('[' + meta + ']', meta_color)}")
     prompt = colorize(f"Seleccione el numero del archivo (1-{len(excel_files)}). Enter para {excel_files[0].name}: ", COLOR_QUESTION)
     while True:
         choice = input(prompt).strip()
@@ -2042,6 +2046,7 @@ MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Líquida Bl
 FLWT,Alimentos,Agua Saborizada
 """
 categ = pd.read_csv(io.StringIO(CATEG_CSV_DATA), dtype={'cod': str, 'cest': str, 'cat': str})
+categ['cod'] = categ['cod'].str.strip().str.upper()
 CLIENT_NAME_SUFFIX_PATTERN = re.compile(r'[\s_-]*5w1h$', re.IGNORECASE)
 #obtém o país,categoria,cesta e fabricante para template e ppt
 base_dir = Path(__file__).resolve().parent
@@ -2052,8 +2057,9 @@ W = file.sheet_names
 #Obtém o pais cesta categoria fabricante marca e idioma para o qual se fará o estudo
 excel_parts = excel.split('_')
 land = pais.loc[pais.cod==int(excel_parts[0]),'pais'].iloc[0]
-cesta = categ.loc[categ.cod==excel_parts[1],'cest'].iloc[0]
-cat = categ.loc[categ.cod==excel_parts[1],'cat'].iloc[0]
+category_code = excel_parts[1].strip().upper()
+cesta = categ.loc[categ.cod==category_code,'cest'].iloc[0]
+cat = categ.loc[categ.cod==category_code,'cat'].iloc[0]
 raw_client = excel_parts[2].rsplit('.', 1)[0]
 sanitized_client = CLIENT_NAME_SUFFIX_PATTERN.sub('', raw_client).strip()
 client = sanitized_client if sanitized_client else raw_client.strip()
