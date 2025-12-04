@@ -68,6 +68,10 @@ LINE_COLOR_NUMERATOR = "#D4AC0D"
 BAR_COLOR_VARIATION_CLIENT = '#7F8C8D'
 BAR_COLOR_VARIATION_NUMERATOR = '#F1C40F'
 BAR_EDGE_COLOR = 'black'
+BAR_LABEL_COLOR_POS = '#1E8449'
+BAR_LABEL_COLOR_NEG = '#8B0000'
+BAR_LABEL_COLOR_POS_ALT = '#27AE60'
+BAR_LABEL_COLOR_NEG_ALT = '#C0392B'
 ANNOTATION_BOX_FACE = '#F2F2F2'
 ANNOTATION_BOX_EDGE = 'black'
 TREND_COLOR_PALETTE = {
@@ -361,19 +365,30 @@ def graf_mat(mat, c_fig, p):
         bottom=False,
         labelbottom=False,
     )
-    for serie in [v1, v2]:
-        for x, y in zip(np.arange(len(v1)) + 0.2, serie):
-            bbox_props_white = dict(facecolor=ANNOTATION_BOX_FACE, edgecolor=ANNOTATION_BOX_EDGE)
-            ax.annotate(
+    bar_positions = np.arange(len(ran))
+    label_specs = [
+        (v1, -0.3, BAR_LABEL_COLOR_POS, BAR_LABEL_COLOR_NEG),
+        (v2, 0.3, BAR_LABEL_COLOR_POS_ALT, BAR_LABEL_COLOR_NEG_ALT),
+    ]
+    for serie, x_offset, color_pos, color_neg in label_specs:
+        for idx, y in enumerate(serie):
+            if not np.isfinite(y):
+                continue
+            y_pos = y + 0.01 if y >= 0 else y - 0.01  # leve desplazamiento para dejar espacio
+            va_align = 'bottom' if y >= 0 else 'top'
+            ax2.text(
+                bar_positions[idx] + x_offset,
+                y_pos,
                 f"{y*100:.1f}%",
-                (x, y),
-                textcoords="offset points",
-                xytext=(0, 10),
                 ha='center',
-                color='red' if y < 0 else 'green',
-                size=9,
-                bbox=bbox_props_white,
+                va=va_align,
+                fontsize=8,
+                fontweight='bold',
+                color=color_pos if y >= 0 else color_neg,
             )
+    y2_min, y2_max = ax2.get_ylim()
+    padding = max(abs(y2_min), abs(y2_max)) * 0.15 if np.isfinite(y2_min) and np.isfinite(y2_max) else 0
+    ax2.set_ylim(y2_min - padding, y2_max + padding * 2)
     lns = l1 + l2 + [b1, b2]
     labs = [l.get_label() for l in l1 + l2] + [b1.get_label(), b2.get_label()]
     ax.legend(
