@@ -623,59 +623,91 @@ def line_graf(
         def _format_axis_value(value):
             return format_value_with_suffix(value, divisor, suffix)
     ax.set_ylim(bottom=0)
+    # Margen de los datos dentro del eje
     ax.margins(x=chart_x_margin, y=0.08)
-    legend_gap_base = 0.025 if detected_multi else 0.02
+
+    # --- Parámetros de separación en coordenadas de figura ---
+    # para gráficos "sencillos" vs "multi" (muchas series)
+    base_gap = 0.075 if not detected_multi else 0.070         # espacio visual típico
+    min_axes_legend_gap = 0.070 if not detected_multi else 0.080  # mínimo absoluto entre eje y leyenda
+    margin_buffer = 0.020                                      # margen al borde inferior de la figura
+
     legend_bottom_margin = chart_bottom_margin
     legend_columns = 1
     legend_rows = 1
     legend_height_fraction = 0.0
-    margin_buffer = 0.01
+
     if lns:
+        # Cálculo de columnas/filas en la leyenda
         max_columns = 3 if detected_multi else 4
         legend_columns = max(1, min(len(legend_labels), max_columns))
         legend_rows = max(1, math.ceil(len(legend_labels) / legend_columns))
+
+        # Altura de la leyenda en pulgadas -> fracción de la figura
         legend_font_points = legend_base_size
         legend_line_height_points = legend_font_points * 1.35
         legend_height_inches = (legend_line_height_points / 72.0) * legend_rows
         figure_height_inches = fig.get_size_inches()[1]
-        legend_height_fraction = legend_height_inches / figure_height_inches if figure_height_inches else 0.0
+        legend_height_fraction = (
+            legend_height_inches / figure_height_inches if figure_height_inches else 0.0
+        )
+
+        # Espacio mínimo entre eje y leyenda
+        legend_clearance = max(base_gap, min_axes_legend_gap)
+
+        # Aseguramos espacio suficiente abajo para leyenda + gap + buffer
         legend_bottom_margin = max(
             chart_bottom_margin,
-            legend_height_fraction + legend_gap_base
-        ) + margin_buffer
+            legend_height_fraction + legend_clearance + margin_buffer,
+        )
+    else:
+        legend_clearance = 0.0  # no hay leyenda, no hace falta espacio extra
+
+    # --- Márgenes superior/inferior del eje ---
     effective_top_margin = chart_top_margin
     if not (show_title and title):
-        effective_top_margin = min(0.995, chart_top_margin + 0.08)
+        # Si no hay título, no “regalemos” tanto espacio arriba
+        effective_top_margin = min(0.97, chart_top_margin + 0.05)
     elif title:
         plt.title(title, size=title_base_size, pad=10)
+
     bottom_margin = min(0.9, max(0.05, legend_bottom_margin))
     if bottom_margin >= effective_top_margin:
         bottom_margin = max(0.05, effective_top_margin - 0.05)
+
     fig.subplots_adjust(
         top=effective_top_margin,
         bottom=bottom_margin,
         left=chart_left_margin,
         right=chart_right_margin,
     )
+
+    # --- Posición final de la leyenda ---
     if lns:
-        axes_height = ax.get_position().height or 1e-3
-        legend_gap_fraction = legend_gap_base + legend_height_fraction + margin_buffer
-        legend_offset_axes = max(0.0, min(0.35, legend_gap_fraction / axes_height))
+        axes_box = ax.get_position()  # caja del eje en coordenadas de figura
+
+        # Queremos que la parte superior de la leyenda quede legend_clearance
+        # por debajo del borde inferior del eje.
+        legend_top = axes_box.y0 - legend_clearance
+
         legend = ax.legend(
             lns,
             legend_labels,
-            loc='upper left',
-            bbox_to_anchor=(0.0, -legend_offset_axes, 1.0, 0.0),
+            loc="upper left",
+            bbox_to_anchor=(axes_box.x0, legend_top, axes_box.width, 0.0),
+            bbox_transform=fig.transFigure,
             borderaxespad=0.0,
             frameon=True,
-            prop={'size': legend_base_size},
+            prop={"size": legend_base_size},
             ncol=legend_columns,
-            mode='expand',
+            mode="expand",
         )
+
         frame = legend.get_frame()
-        frame.set_facecolor('white')
-        frame.set_edgecolor('#D3D3D3')
+        frame.set_facecolor("white")
+        frame.set_edgecolor("#D3D3D3")
         frame.set_alpha(0.85)
+
     if plotted_columns and share_lookup:
         legend_label_map = {col: label for col, label in zip(plotted_columns, legend_labels)}
         annotation_candidates = []
