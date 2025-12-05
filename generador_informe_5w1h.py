@@ -2521,16 +2521,20 @@ def plot_distribution_chart(
     c_fig: int,
     color_lookup: Optional[dict[str, str]] = None,
     title: Optional[str] = None,  # se conserva la firma para no romper llamadas previas
-    adaptive_label_size: bool = True
-) -> io.BytesIO:
+    adaptive_label_size: bool = True,
+    target_width_in: Optional[float] = None,
+    max_height_in: Optional[float] = None
+) -> tuple[io.BytesIO, tuple[float, float]]:
     """
     Crea un grafico de barras agrupadas con etiquetas numericas para distribuciones R/NSE.
     Permite escalar el tamano de las etiquetas de barra cuando hay muchas categorias/series.
+    Devuelve el stream PNG y el tamano de la figura en pulgadas para insertarlo sin reescalar.
     """
     if df.empty or df.shape[1] <= 1:
         fig, ax = plt.subplots(num=c_fig)
         ax.axis('off')
-        return figure_to_stream(fig)
+        fig_size = fig.get_size_inches()
+        return figure_to_stream(fig), (float(fig_size[0]), float(fig_size[1]))
     categories = df['Categoria'].tolist()
     series_names = [col for col in df.columns if col != 'Categoria']
     filtered_series: list[tuple[str, pd.Series]] = []
@@ -2545,12 +2549,21 @@ def plot_distribution_chart(
     if not categories or not filtered_series:
         fig, ax = plt.subplots(num=c_fig, figsize=(8, 4), dpi=DEFAULT_EXPORT_DPI)
         ax.axis('off')
-        return figure_to_stream(fig)
+        fig_size = fig.get_size_inches()
+        return figure_to_stream(fig), (float(fig_size[0]), float(fig_size[1]))
     n_series = len(filtered_series)
     x = np.arange(len(categories))
     width = 0.8 / max(n_series, 1)
-    fig_width = max(10.0, min(16.0, 1.3 * len(categories)))
-    fig_height = max(6.5, min(12.0, 2.5 + 0.9 * len(categories)))
+    base_fig_width = max(10.0, min(16.0, 1.3 * len(categories)))
+    base_fig_height = max(6.5, min(12.0, 2.5 + 0.9 * len(categories)))
+    fig_width = target_width_in if target_width_in else base_fig_width
+    if fig_width <= 0:
+        fig_width = base_fig_width
+    fig_height = base_fig_height
+    if max_height_in is not None and max_height_in > 0:
+        fig_height = min(fig_height, max_height_in)
+    height_scale = fig_height / base_fig_height if base_fig_height else 1.0
+    size_scale = max(0.85, min(1.1, height_scale))
     default_label_font_size = 9
     label_font_size = default_label_font_size
     if adaptive_label_size:
@@ -2564,6 +2577,7 @@ def plot_distribution_chart(
             label_font_size = 8
         elif density < 1.5:
             label_font_size = min(11, default_label_font_size + 1)
+    label_font_size = max(6, min(12, int(round(label_font_size * size_scale))))
     fig, ax = plt.subplots(num=c_fig, figsize=(fig_width, fig_height), dpi=DEFAULT_EXPORT_DPI)
     fig.patch.set_facecolor('#FFFFFF')
     ax.set_facecolor('#F9FAFB')
@@ -2613,10 +2627,11 @@ def plot_distribution_chart(
         if np.isfinite(serie_max):
             max_val = max(max_val, float(serie_max))
     ax.set_xticks(x)
-    ax.set_xticklabels(categories, rotation=30, ha='right', va='top', rotation_mode='anchor', fontweight='normal', fontsize=10)
+    tick_font_size = max(8, min(12, int(round(10 * size_scale))))
+    ax.set_xticklabels(categories, rotation=30, ha='right', va='top', rotation_mode='anchor', fontweight='normal', fontsize=tick_font_size)
     ax.tick_params(axis='x', pad=2)
-    ax.tick_params(axis='y', labelsize=10, pad=2)
-    ax.set_ylabel('%', fontweight='bold', fontsize=11, labelpad=10)
+    ax.tick_params(axis='y', labelsize=tick_font_size, pad=2)
+    ax.set_ylabel('%', fontweight='bold', fontsize=max(10, int(round(11 * size_scale))), labelpad=10)
     ax.grid(axis='y', linestyle='--', alpha=0.45, color='#D9D9D9')
     ax.margins(x=0.02)
     for spine in ax.spines.values():
@@ -2723,7 +2738,7 @@ def plot_distribution_chart(
         fig.tight_layout(rect=[0.05, bottom_margin + 0.01, 0.97, top_margin - 0.01])
     except Exception:
         pass
-    return figure_to_stream(fig)
+    return figure_to_stream(fig), (fig_width, fig_height)
 
 def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
     warning_context = f" en la hoja {sheet_name}" if sheet_name else ""
@@ -3175,25 +3190,35 @@ for w in W:
         left_margin = Inches(0.33)
         right_margin = Inches(0.33)
         available_width_emu = available_width(ppt, left_margin, right_margin)
-        c_fig += 1
-        chart_height = max(Cm(12), Cm(11) + Cm(0.45) * len(dist_df))
-        chart_height_in = emu_to_inches(int(chart_height))
+        available_width_in = emu_to_inches(int(available_width_emu))
         slide_height_in = emu_to_inches(int(ppt.slide_height))
         comment_top_in = emu_to_inches(int(Inches(6.33)))
         max_height_in = min(
             slide_height_in - CHART_TOP_INCH - 0.3,
             comment_top_in - CHART_TOP_INCH - 0.2
         )
-        if max_height_in > 0:
-            chart_height_in = min(chart_height_in, max_height_in)
-        chart_height = Inches(chart_height_in)
-        chart_stream = plot_distribution_chart(dist_df, c_fig, BRAND_TITLE_COLOR_LOOKUP)
+        if max_height_in <= 0:
+            max_height_in = None
+        c_fig += 1
+        chart_stream, fig_size = plot_distribution_chart(
+            dist_df,
+            c_fig,
+            BRAND_TITLE_COLOR_LOOKUP,
+            target_width_in=available_width_in,
+            max_height_in=max_height_in
+        )
+        fig_width_in, fig_height_in = fig_size
+        target_height_in = fig_height_in
+        if fig_width_in and fig_width_in > 0 and available_width_in:
+            target_height_in = fig_height_in * (available_width_in / fig_width_in)
+        if max_height_in is not None and target_height_in > max_height_in:
+            target_height_in = max_height_in
         slide.shapes.add_picture(
             chart_stream,
             left_margin,
             Inches(CHART_TOP_INCH),
             width=available_width_emu,
-            height=chart_height
+            height=Inches(target_height_in)
         )
         comment_box = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
         comment_tf = comment_box.text_frame
