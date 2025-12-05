@@ -2532,6 +2532,8 @@ def plot_distribution_chart(df: pd.DataFrame, c_fig: int, color_lookup: Optional
     fig_height = max(4.5, 0.7 * len(categories))
     fig_height = max(6.0, 0.9 * len(categories))
     fig, ax = plt.subplots(num=c_fig, figsize=(10, fig_height), dpi=DEFAULT_EXPORT_DPI)
+    fig.patch.set_facecolor('#FFFFFF')
+    ax.set_facecolor('#F9FAFB')
     palette_lookup = dict(color_lookup) if color_lookup is not None else dict(BRAND_TITLE_COLOR_LOOKUP)
     def _is_total_label(label: str) -> bool:
         return isinstance(label, str) and 'total' in label.lower()
@@ -2562,27 +2564,88 @@ def plot_distribution_chart(df: pd.DataFrame, c_fig: int, color_lookup: Optional
         if np.isfinite(serie_max):
             max_val = max(max_val, float(serie_max))
     ax.set_xticks(x)
-    ax.set_xticklabels(categories, rotation=0)
-    ax.set_ylabel('%')
-    ax.grid(axis='y', linestyle='--', alpha=0.35)
+    ax.set_xticklabels(categories, rotation=30, fontweight='normal')
+    ax.set_ylabel('%', fontweight='bold')
+    ax.grid(axis='y', linestyle='--', alpha=0.45, color='#D9D9D9')
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     limit = max_val * 1.15 if max_val > 0 else None
     if limit:
         ax.set_ylim(0, limit)
-    for bars, values in bars_by_series:
-        for bar, value in zip(bars, values):
+    # Destaca solo el valor mÇüs alto y mÇüs bajo vs Total en cada categorÇða
+    total_idx = next((idx for idx, name in enumerate(series_names) if _is_total_label(name)), None)
+    highlight_map: dict[tuple[int, int], str] = {}
+    if total_idx is not None:
+        for cat_idx in range(len(categories)):
+            try:
+                total_val = float(bars_by_series[total_idx][1].iloc[cat_idx])
+            except Exception:
+                total_val = None
+            if total_val is None or not np.isfinite(total_val):
+                continue
+            diffs = []
+            for s_idx, (_, vals) in enumerate(bars_by_series):
+                if s_idx == total_idx:
+                    continue
+                try:
+                    val = float(vals.iloc[cat_idx])
+                except Exception:
+                    continue
+                if not np.isfinite(val):
+                    continue
+                diffs.append((s_idx, val - total_val))
+            if not diffs:
+                continue
+            max_entry = max(diffs, key=lambda t: t[1])
+            min_entry = min(diffs, key=lambda t: t[1])
+            if max_entry[1] > 0:
+                highlight_map[(max_entry[0], cat_idx)] = BAR_LABEL_COLOR_POS_ALT
+            if min_entry[1] < 0:
+                highlight_map[(min_entry[0], cat_idx)] = BAR_LABEL_COLOR_NEG_ALT
+    base_gap = max(max_val * 0.01, 0.15)
+    step_gap = max(max_val * 0.0025, 0.02)
+    min_gap = max(max_val * 0.015, 0.25)
+    last_label_y_by_cat = [0.0 for _ in range(len(categories))]
+    max_label_y = 0.0
+    for serie_idx, (bars, values) in enumerate(bars_by_series):
+        for cat_idx, (bar, value) in enumerate(zip(bars, values)):
             label_val = f"{value:.1f}" if abs(value) >= 10 else f"{value:.2f}"
+            color_val = highlight_map.get((serie_idx, cat_idx), TABLE_TEXT_PRIMARY)
+            y_offset = base_gap + serie_idx * step_gap
+            proposed_y = bar.get_height() + y_offset
+            if proposed_y <= last_label_y_by_cat[cat_idx] + min_gap:
+                proposed_y = last_label_y_by_cat[cat_idx] + min_gap
+            last_label_y_by_cat[cat_idx] = proposed_y
+            if proposed_y > max_label_y:
+                max_label_y = proposed_y
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
-                bar.get_height(),
+                proposed_y,
                 label_val,
                 ha='center',
                 va='bottom',
+                rotation=0,
                 fontsize=9,
-                fontweight='bold',
-                color=TABLE_TEXT_PRIMARY
+                fontweight='normal',
+                color=color_val,
+                bbox=dict(boxstyle='round,pad=0.18', facecolor='#FFFFFF', edgecolor='none', alpha=0.8)
             )
-    ax.legend()
-    fig.tight_layout()
+    if max_label_y > 0:
+        ylim_bottom, ylim_top = ax.get_ylim()
+        target_top = max(ylim_top, max_label_y * 1.05)
+        ax.set_ylim(ylim_bottom, target_top)
+    legend = ax.legend(
+        frameon=True,
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.12),
+        ncol=max(1, min(3, len(series_names))),
+        borderaxespad=0.4
+    )
+    if legend:
+        legend.get_frame().set_facecolor('#FFFFFF')
+        legend.get_frame().set_edgecolor('#CCCCCC')
+        legend.get_frame().set_alpha(0.95)
+    fig.tight_layout(rect=[0, 0.02, 1, 0.95])
     return figure_to_stream(fig, bbox_inches=None)
 def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
     warning_context = f" en la hoja {sheet_name}" if sheet_name else ""
@@ -3022,7 +3085,7 @@ for w in W:
         slide = ppt.slides.add_slide(ppt.slide_layouts[1])
         title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
         title_tf = title_box.text_frame
-        suffix_text = f" - {dist_series}" if dist_series else ''
+        suffix_text = ''
         set_title_with_brand_color(
             title_tf,
             f"Distribucion {dist_label} | ",
@@ -3035,7 +3098,7 @@ for w in W:
         right_margin = Inches(0.33)
         available_width_emu = available_width(ppt, left_margin, right_margin)
         c_fig += 1
-        chart_height = max(Cm(12), Cm(9) + Cm(0.45) * len(dist_df))
+        chart_height = max(Cm(12), Cm(11) + Cm(0.45) * len(dist_df))
         chart_stream = plot_distribution_chart(dist_df, c_fig, BRAND_TITLE_COLOR_LOOKUP)
         slide.shapes.add_picture(
             chart_stream,
