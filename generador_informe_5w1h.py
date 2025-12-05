@@ -2696,8 +2696,33 @@ def plot_distribution_chart(
         legend.get_frame().set_facecolor('#FFFFFF')
         legend.get_frame().set_edgecolor('#CCCCCC')
         legend.get_frame().set_alpha(0.95)
-    # Ajuste manual de margenes para minimizar aire sin recortar textos
-    fig.subplots_adjust(top=0.85, bottom=0.1, left=0.06, right=0.98)
+    # Ajuste dinamico de margenes: conserva la ubicacion de la leyenda arriba
+    # y expande el area util del eje para evitar que el contenido quede comprimido.
+    fig.canvas.draw()
+    fig_height_in = fig.get_size_inches()[1] or 1.0
+    legend_height_frac = 0.0
+    if legend:
+        renderer = fig.canvas.get_renderer()
+        if renderer:
+            bbox = legend.get_window_extent(renderer=renderer)
+            legend_height_frac = bbox.height / (fig_height_in * fig.dpi)
+    # Margen inferior estimado segun el alto de las etiquetas del eje X (rotadas)
+    xtick_labels = ax.get_xticklabels()
+    bottom_margin = 0.1
+    if xtick_labels:
+        max_label_pts = max(label.get_size() for label in xtick_labels if label.get_text())
+        estimated_bottom = (max_label_pts * 1.6) / (fig_height_in * 72.0)
+        bottom_margin = max(0.06, min(0.16, estimated_bottom))
+    # Margen superior reducido dinamicamente para dejar espacio a la leyenda
+    top_margin = 0.93 - legend_height_frac * 1.2
+    top_margin = max(0.84, min(0.95, top_margin))
+    # Aseguramos consistencia con los bar charts de otras secciones (3-6)
+    fig.subplots_adjust(left=0.06, right=0.98, top=top_margin, bottom=bottom_margin)
+    try:
+        # Afina el layout sin mover la leyenda
+        fig.tight_layout(rect=[0.05, bottom_margin + 0.01, 0.97, top_margin - 0.01])
+    except Exception:
+        pass
     return figure_to_stream(fig)
 
 def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
