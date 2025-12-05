@@ -2117,18 +2117,20 @@ if not modelo_path.exists():
 ppt= Presentation(str(modelo_path))
 configure_cover_slide(ppt, lang)
 brand = W[0][2:]
-#Dicionario com as correspondencias dos numeros e o respectivo W
+# Diccionario con las correspondencias de los números y su W respectivo
 c_w={
 ('P','1'):'1W - Quando?',
-('P','2'):'2W - Por ê?',
-('P','3-1'):'3W - O ê? Tamanhos',
-('P','3-2'):'3W - O ê? Marcas',
-('P','3-3'):'3W - O ê? Sabores',
+('P','2'):'2W - Por quê?',
+('P','3-1'):'3W - O quê? Tamanhos',
+('P','3-2'):'3W - O quê? Marcas',
+('P','3-3'):'3W - O quê? Sabores',
 ('P','4'):'4W - Quem? NSE',
 ('P','5-1'):'5W - Onde? Regiões',
 ('P','5-2'):'5W - Onde? Canais',
 ('P','6'):'Players',
 ('P','6-1'):'Players - Preço indexado',
+('P','7-R'):'7W - Distribuição por Regiões',
+('P','7-NSE'):'7W - Distribuição por NSE',
 ('E','1'):'1W - ¿Cuándo?',
 ('E','2'):'2W - ¿Por qué?',
 ('E','3-1'):'3W - ¿Qué tamaños?',
@@ -2138,7 +2140,9 @@ c_w={
 ('E','5-1'):'5W - ¿Dónde? Regiones',
 ('E','5-2'):'5W - ¿Dónde? Canales',
 ('E','6'):'Players',
-('E','6-1'):'Players - Precio indexado'
+('E','6-1'):'Players - Precio indexado',
+('E','7-R'):'7W - Distribución por Regiones',
+('E','7-NSE'):'7W - Distribución por NSE'
 }
 #Etiquetas dos slides
 labels  ={
@@ -2146,10 +2150,12 @@ labels  ={
 ('P','MAT'):'Avaliação em Ano Móvel Acumulado',
 ('P','Var MAT'):'em ano móvel',
 ('P','comp'):'Concorrência do mercado de: ',
+('P','dist'):'Distribuição',
 ('E','Data'):'Fecha',
 ('E','MAT'):'Evaluación en Año Móvil Acumulado',
 ('E','Var MAT'):'en año móvil',
-('E','comp'):'Competencia para el mercado de: '}
+('E','comp'):'Competencia para el mercado de: ',
+('E','dist'):'Distribución'}
 class SeriesConfig(NamedTuple):
     data: pd.DataFrame
     raw_tipo: str
