@@ -2118,44 +2118,49 @@ ppt= Presentation(str(modelo_path))
 configure_cover_slide(ppt, lang)
 brand = W[0][2:]
 # Diccionario con las correspondencias de los números y su W respectivo
-c_w={
-('P','1'):'1W - Quando?',
-('P','2'):'2W - Por quê?',
-('P','3-1'):'3W - O quê? Tamanhos',
-('P','3-2'):'3W - O quê? Marcas',
-('P','3-3'):'3W - O quê? Sabores',
-('P','4'):'4W - Quem? NSE',
-('P','5-1'):'5W - Onde? Regiões',
-('P','5-2'):'5W - Onde? Canais',
-('P','6'):'Players',
-('P','6-1'):'Players - Preço indexado',
-('P','7-R'):'7W - Distribuição por Regiões',
-('P','7-NSE'):'7W - Distribuição por NSE',
-('E','1'):'1W - ¿Cuándo?',
-('E','2'):'2W - ¿Por qué?',
-('E','3-1'):'3W - ¿Qué tamaños?',
-('E','3-2'):'3W - ¿Qué marcas?',
-('E','3-3'):'3W - ¿Qué sabores?',
-('E','4'):'4W - ¿Quiénes? NSE (Nivel Socioeconómico)',
-('E','5-1'):'5W - ¿Dónde? Regiones',
-('E','5-2'):'5W - ¿Dónde? Canales',
-('E','6'):'Players',
-('E','6-1'):'Players - Precio indexado',
-('E','7-R'):'7W - Distribución por Regiones',
-('E','7-NSE'):'7W - Distribución por NSE'
+c_w = { 
+    ('P','1')   : '1W - Quando?',
+    ('P','2')   : '2W - Por quê?',
+    ('P','3-1') : '3W - O quê? Tamanhos',
+    ('P','3-2') : '3W - O quê? Marcas',
+    ('P','3-3') : '3W - O quê? Sabores',
+    ('P','4')   : '4W - Quem? NSE (Nível Socioeconômico)',
+    ('P','5-1') : '5W - Onde? Regiões',
+    ('P','5-2') : '5W - Onde? Canais',
+    ('P','6')   : 'Players',
+    ('P','6-1') : 'Players - Preço indexado',
+    ('P','7-R') : '7W - Distribuição por regiões',
+    ('P','7-NSE'): '7W - Distribuição por NSE',
+
+    ('E','1')   : '1W - ¿Cuándo?',
+    ('E','2')   : '2W - ¿Por qué?',
+    ('E','3-1') : '3W - ¿Qué? Tamaños',
+    ('E','3-2') : '3W - ¿Qué? Marcas',
+    ('E','3-3') : '3W - ¿Qué? Sabores',
+    ('E','4')   : '4W - ¿Quiénes? NSE (Nivel socioeconómico)',
+    ('E','5-1') : '5W - ¿Dónde? Regiones',
+    ('E','5-2') : '5W - ¿Dónde? Canales',
+    ('E','6')   : 'Players',
+    ('E','6-1') : 'Players - Precio indexado',
+    ('E','7-R') : '7W - Distribución por regiones',
+    ('E','7-NSE'): '7W - Distribución por NSE'
 }
-#Etiquetas dos slides
-labels  ={
-('P','Data'):'Data',
-('P','MAT'):'Avaliação em Ano Móvel Acumulado',
-('P','Var MAT'):'em ano móvel',
-('P','comp'):'Concorrência do mercado de: ',
-('P','dist'):'Distribuição',
-('E','Data'):'Fecha',
-('E','MAT'):'Evaluación en Año Móvil Acumulado',
-('E','Var MAT'):'en año móvil',
-('E','comp'):'Competencia para el mercado de: ',
-('E','dist'):'Distribución'}
+
+# Etiquetas de los slides
+labels = {
+    ('P','Data')   : 'Data',
+    ('P','MAT')    : 'Avaliação em ano móvel acumulado',
+    ('P','Var MAT'): 'Variação em ano móvel',
+    ('P','comp')   : 'Concorrência no mercado de: ',
+    ('P','dist')   : 'Distribuição',
+
+    ('E','Data')   : 'Fecha',
+    ('E','MAT')    : 'Evaluación en año móvil acumulado',
+    ('E','Var MAT'): 'Variación en año móvil',
+    ('E','comp')   : 'Competencia en el mercado de: ',
+    ('E','dist')   : 'Distribución'
+}
+
 class SeriesConfig(NamedTuple):
     data: pd.DataFrame
     raw_tipo: str
