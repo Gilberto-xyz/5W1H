@@ -2362,10 +2362,21 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
     brand_label = ''
     cw_key = None
-    # Distribución (segmento 7) via patrón 7_*_(R|NSE)
+    # Distribución (segmento 7) via patrón 7_*_* (ej.: R, NSE, WIFEAGE, FAMILY_SIZE)
     if distribution_match:
-        dist_kind = distribution_match.group(2).upper()
-        cw_key = '7-R' if dist_kind == 'R' else '7-NSE'
+        dist_kind_raw = distribution_match.group(2)
+        dist_kind = str(dist_kind_raw).upper().strip()
+        pretty_dist = dist_kind.replace('_', ' ').replace('-', ' ')
+        pretty_dist = ' '.join(word.capitalize() for word in pretty_dist.split())
+        if dist_kind == 'R':
+            cw_key = '7-R'
+            step_label = '7W Distribución Regiones'
+        elif dist_kind == 'NSE':
+            cw_key = '7-NSE'
+            step_label = '7W Distribución NSE'
+        else:
+            step_label = f'7W Distribución {pretty_dist or dist_kind}'
+        brand_label = distribution_match.group(1).replace('.', ' ').strip()
         brand_label = distribution_match.group(1).replace('.', ' ').strip()
     elif sheet_clean.startswith('6-1') or sheet_clean.startswith('6_1'):
         cw_key = '6-1'
@@ -2385,7 +2396,7 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     elif first_char in {'2', '1'}:
         cw_key = first_char
         brand_label = sheet_clean[2:].strip()
-    step_label = c_w.get((lang, cw_key), cw_key if cw_key else None)
+    step_label = c_w.get((lang, cw_key), step_label if cw_key is None else cw_key if cw_key else step_label)
     if not step_label:
         return None
     # Para mantener el estilo corto en terminal, eliminamos el " - " del texto base
@@ -2478,7 +2489,7 @@ def ensure_date_column(df: pd.DataFrame, sheet_name: Optional[str] = None, date_
     df_copy = df.copy()
     df_copy.iloc[:, 0] = parsed
     return df_copy
-DISTRIBUTION_SHEET_PATTERN = re.compile(r'^7_([^_]+)_(R|NSE)$', re.IGNORECASE)
+DISTRIBUTION_SHEET_PATTERN = re.compile(r'^7_([^_]+)_([^_]+)$', re.IGNORECASE)
 def _normalize_simple(text: str) -> str:
     normalized = unicodedata.normalize('NFKD', str(text))
     normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
@@ -2612,7 +2623,8 @@ def plot_distribution_chart(
     legend_labels = []
     max_val = 0.0
     for idx, (serie_name, values) in enumerate(filtered_series):
-        if _is_total_label(serie_name):
+        # Primer serie siempre negra; las siguientes usan la paleta respetando Total
+        if idx == 0 or _is_total_label(serie_name):
             color_val = '#000000'
         else:
             color_val = palette_values[palette_index % len(palette_values)]
@@ -3176,9 +3188,16 @@ for w in W:
         print_colored(progress_message, COLOR_QUESTION)
     distribution_match = DISTRIBUTION_SHEET_PATTERN.match(w.strip())
     if distribution_match:
-        dist_kind = distribution_match.group(2).upper()
-        dist_label = 'Regiones' if dist_kind == 'R' else 'NSE'
+        dist_kind_raw = distribution_match.group(2)
+        dist_kind = str(dist_kind_raw).upper().strip()
         category_segment = distribution_match.group(1).replace('.', ' ').strip()
+        if dist_kind == 'R':
+            dist_label = 'Regiones'
+        elif dist_kind == 'NSE':
+            dist_label = 'NSE'
+        else:
+            pretty_dist = dist_kind.replace('_', ' ').replace('-', ' ')
+            dist_label = ' '.join(word.capitalize() for word in pretty_dist.split()) or dist_kind
         dist_df, dist_series = parse_distribution_sheet(file, w, client)
         if dist_df.empty:
             print_colored(f"No se encontraron datos para graficar en la hoja {w}.", COLOR_RED)
