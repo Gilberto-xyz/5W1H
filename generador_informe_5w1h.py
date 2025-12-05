@@ -2572,6 +2572,31 @@ def plot_distribution_chart(
         ax.axis('off')
         fig_size = fig.get_size_inches()
         return figure_to_stream(fig), (float(fig_size[0]), float(fig_size[1]))
+    # Descarta categorias cuyo valor sea 100 para todas las series (evita barras "planas" de referencia)
+    keep_mask = []
+    for cat_idx in range(len(categories)):
+        vals_at_cat = []
+        for _, serie_vals in filtered_series:
+            try:
+                val = float(serie_vals.iloc[cat_idx])
+            except Exception:
+                continue
+            if np.isfinite(val):
+                vals_at_cat.append(val)
+        if vals_at_cat and all(abs(v - 100.0) < 1e-6 for v in vals_at_cat):
+            keep_mask.append(False)
+        else:
+            keep_mask.append(True)
+    if not any(keep_mask):
+        fig, ax = plt.subplots(num=c_fig, figsize=(8, 4), dpi=DEFAULT_EXPORT_DPI)
+        ax.axis('off')
+        fig_size = fig.get_size_inches()
+        return figure_to_stream(fig), (float(fig_size[0]), float(fig_size[1]))
+    keep_indices = [idx for idx, keep in enumerate(keep_mask) if keep]
+    categories = [categories[idx] for idx in keep_indices]
+    filtered_series = [
+        (name, pd.Series([vals.iloc[idx] for idx in keep_indices])) for name, vals in filtered_series
+    ]
     n_series = len(filtered_series)
     x = np.arange(len(categories))
     width = 0.8 / max(n_series, 1)
