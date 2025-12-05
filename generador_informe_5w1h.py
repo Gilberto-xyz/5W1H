@@ -2615,7 +2615,7 @@ def plot_distribution_chart(
             width,
             label=serie_name,
             color=color_val,
-            edgecolor=BAR_EDGE_COLOR,
+            edgecolor='none',
             alpha=0.9
         )
         bars_by_series.append((bars, values))
