@@ -2520,10 +2520,12 @@ def plot_distribution_chart(
     df: pd.DataFrame,
     c_fig: int,
     color_lookup: Optional[dict[str, str]] = None,
-    title: Optional[str] = None  # se conserva la firma para no romper llamadas previas
+    title: Optional[str] = None,  # se conserva la firma para no romper llamadas previas
+    adaptive_label_size: bool = True
 ) -> io.BytesIO:
     """
     Crea un grafico de barras agrupadas con etiquetas numericas para distribuciones R/NSE.
+    Permite escalar el tamano de las etiquetas de barra cuando hay muchas categorias/series.
     """
     if df.empty or df.shape[1] <= 1:
         fig, ax = plt.subplots(num=c_fig)
@@ -2549,6 +2551,19 @@ def plot_distribution_chart(
     width = 0.8 / max(n_series, 1)
     fig_width = max(10.0, min(16.0, 1.3 * len(categories)))
     fig_height = max(6.5, min(12.0, 2.5 + 0.9 * len(categories)))
+    default_label_font_size = 9
+    label_font_size = default_label_font_size
+    if adaptive_label_size:
+        total_bars = max(len(categories) * n_series, 1)
+        density = total_bars / max(fig_width, 1.0)  # barras por pulgada aproximada
+        if density > 5.5:
+            label_font_size = 6
+        elif density > 4.0:
+            label_font_size = 7
+        elif density > 3.0:
+            label_font_size = 8
+        elif density < 1.5:
+            label_font_size = min(11, default_label_font_size + 1)
     fig, ax = plt.subplots(num=c_fig, figsize=(fig_width, fig_height), dpi=DEFAULT_EXPORT_DPI)
     fig.patch.set_facecolor('#FFFFFF')
     ax.set_facecolor('#F9FAFB')
@@ -2639,7 +2654,7 @@ def plot_distribution_chart(
                 highlight_map[(max_entry[0], cat_idx)] = BAR_LABEL_COLOR_POS_ALT
             if min_entry[1] < 0:
                 highlight_map[(min_entry[0], cat_idx)] = BAR_LABEL_COLOR_NEG_ALT
-    label_padding = max(max_val * 0.01, 0.05)
+    label_padding = max(max_val * 0.01, 0.05 * (label_font_size / default_label_font_size))
     max_label_y = 0.0
     for serie_idx, (bars, values) in enumerate(bars_by_series):
         for cat_idx, (bar, value) in enumerate(zip(bars, values)):
@@ -2655,7 +2670,7 @@ def plot_distribution_chart(
                 ha='center',
                 va='bottom',
                 rotation=0,
-                fontsize=9,
+                fontsize=label_font_size,
                 fontweight='normal',
                 color=color_val,
                 clip_on=False
