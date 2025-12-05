@@ -2502,8 +2502,30 @@ def parse_distribution_sheet(excel_file: pd.ExcelFile, sheet_name: str, client_n
     raw_df = excel_file.parse(sheet_name, header=None)
     if raw_df.shape[0] < 3 or raw_df.shape[1] < 2:
         return pd.DataFrame(columns=['Categoria']), ''
-    header_row = raw_df.iloc[1, 1:]
-    data_block = raw_df.iloc[2:, :]
+    # Buscar la fila "table" (en la primera columna) para alinear la lectura, similar al segmento 2
+    table_anchor_idx = None
+    def _cell_has_anchor(value) -> bool:
+        if value is None:
+            return False
+        text = str(value)
+        if not text:
+            return False
+        normalized = unicodedata.normalize('NFKD', text)
+        normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+        normalized = normalized.lower()
+        return 'table' in normalized or 'compras' in normalized
+    for idx in range(raw_df.shape[0]):
+        first_cell = raw_df.iat[idx, 0] if raw_df.shape[1] > 0 else None
+        if _cell_has_anchor(first_cell):
+            table_anchor_idx = idx
+            break
+    if table_anchor_idx is not None and table_anchor_idx + 1 < raw_df.shape[0]:
+        # Usamos la fila del ancla para leer los encabezados reales (col 0 tiene meta "table/Compras")
+        header_row = raw_df.iloc[table_anchor_idx, 1:]
+        data_block = raw_df.iloc[table_anchor_idx + 1 :, :]
+    else:
+        header_row = raw_df.iloc[1, 1:]
+        data_block = raw_df.iloc[2:, :]
     categories = data_block.iloc[:, 0].astype(str).str.strip()
     df = pd.DataFrame({'Categoria': categories})
     series_headers: list[str] = []
