@@ -2468,6 +2468,122 @@ def ensure_date_column(df: pd.DataFrame, sheet_name: Optional[str] = None, date_
     df_copy = df.copy()
     df_copy.iloc[:, 0] = parsed
     return df_copy
+DISTRIBUTION_SHEET_PATTERN = re.compile(r'^7_([^_]+)_(R|NSE)$', re.IGNORECASE)
+def _normalize_simple(text: str) -> str:
+    normalized = unicodedata.normalize('NFKD', str(text))
+    normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+    return normalized.lower().strip()
+def parse_distribution_sheet(excel_file: pd.ExcelFile, sheet_name: str, client_name: str) -> tuple[pd.DataFrame, str]:
+    """
+    Extrae la distribucion (R/NSE) desde las hojas 7_*_*.
+    Mantiene todas las series con datos y usa los encabezados de la fila 2 como nombres de marca.
+    """
+    raw_df = excel_file.parse(sheet_name, header=None)
+    if raw_df.shape[0] < 3 or raw_df.shape[1] < 2:
+        return pd.DataFrame(columns=['Categoria']), ''
+    header_row = raw_df.iloc[1, 1:]
+    data_block = raw_df.iloc[2:, :]
+    categories = data_block.iloc[:, 0].astype(str).str.strip()
+    df = pd.DataFrame({'Categoria': categories})
+    series_headers: list[str] = []
+    for idx in range(1, data_block.shape[1]):
+        serie = pd.to_numeric(data_block.iloc[:, idx], errors='coerce')
+        if serie.dropna().empty:
+            continue
+        header_value = header_row.iloc[idx - 1] if (idx - 1) < len(header_row) else ''
+        header_text = str(header_value).strip() if pd.notna(header_value) else ''
+        if not header_text:
+            fallback_name = None
+            for candidate in data_block.iloc[:, idx]:
+                if isinstance(candidate, str) and candidate.strip():
+                    fallback_name = candidate.strip()
+                    break
+            header_text = fallback_name if fallback_name else f"Serie {idx}"
+        df[header_text] = serie
+        series_headers.append(header_text)
+    df = df[df['Categoria'].str.len() > 0]
+    df = df[~df['Categoria'].str.lower().eq('nan')]
+    value_columns = [col for col in df.columns if col != 'Categoria']
+    if not value_columns:
+        return pd.DataFrame(columns=['Categoria']), ''
+    df = df.dropna(subset=value_columns, how='all')
+    df = df[~df['Categoria'].str.contains('total', case=False, na=False)]
+    def _is_total_label(label: str) -> bool:
+        return isinstance(label, str) and 'total' in label.lower()
+    total_columns = [col for col in value_columns if _is_total_label(col)]
+    non_total_columns = [col for col in value_columns if col not in total_columns]
+    ordered_columns = total_columns + non_total_columns
+    df = df[['Categoria'] + ordered_columns]
+    ordered_headers = [col for col in ordered_columns if col]
+    return df, ', '.join(ordered_headers)
+def plot_distribution_chart(df: pd.DataFrame, c_fig: int, color_lookup: Optional[dict[str, str]] = None) -> io.BytesIO:
+    """
+    Crea un grafico de barras agrupadas con etiquetas numericas para distribuciones R/NSE.
+    """
+    if df.empty or df.shape[1] <= 1:
+        fig, ax = plt.subplots(num=c_fig)
+        ax.axis('off')
+        return figure_to_stream(fig, bbox_inches=None)
+    categories = df['Categoria'].tolist()
+    series_names = [col for col in df.columns if col != 'Categoria']
+    n_series = len(series_names)
+    x = np.arange(len(categories))
+    width = 0.8 / max(n_series, 1)
+    fig_height = max(4.5, 0.7 * len(categories))
+    fig_height = max(6.0, 0.9 * len(categories))
+    fig, ax = plt.subplots(num=c_fig, figsize=(10, fig_height), dpi=DEFAULT_EXPORT_DPI)
+    palette_lookup = dict(color_lookup) if color_lookup is not None else dict(BRAND_TITLE_COLOR_LOOKUP)
+    def _is_total_label(label: str) -> bool:
+        return isinstance(label, str) and 'total' in label.lower()
+    register_color_lookup('Total', '#000000', palette_lookup, overwrite=True)
+    palette_values = TREND_COLOR_SEQUENCE if TREND_COLOR_SEQUENCE else [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
+    palette_index = 0
+    def _next_palette_color():
+        nonlocal palette_index
+        if not palette_values:
+            return HEADER_COLOR_SECONDARY
+        color_val = palette_values[palette_index % len(palette_values)]
+        palette_index += 1
+        return color_val
+    bars_by_series = []
+    max_val = 0.0
+    for idx, serie_name in enumerate(series_names):
+        values = pd.to_numeric(df[serie_name], errors='coerce').fillna(0)
+        if _is_total_label(serie_name):
+            color_val = '#000000'
+            register_color_lookup(serie_name, color_val, palette_lookup, overwrite=True)
+        else:
+            color_val = _next_palette_color()
+            register_color_lookup(serie_name, color_val, palette_lookup, overwrite=True)
+        offset = (idx - (n_series - 1) / 2) * width
+        bars = ax.bar(x + offset, values, width, label=serie_name, color=color_val, edgecolor=BAR_EDGE_COLOR, alpha=0.9)
+        bars_by_series.append((bars, values))
+        serie_max = values.max() if not values.empty else 0
+        if np.isfinite(serie_max):
+            max_val = max(max_val, float(serie_max))
+    ax.set_xticks(x)
+    ax.set_xticklabels(categories, rotation=0)
+    ax.set_ylabel('%')
+    ax.grid(axis='y', linestyle='--', alpha=0.35)
+    limit = max_val * 1.15 if max_val > 0 else None
+    if limit:
+        ax.set_ylim(0, limit)
+    for bars, values in bars_by_series:
+        for bar, value in zip(bars, values):
+            label_val = f"{value:.1f}" if abs(value) >= 10 else f"{value:.2f}"
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height(),
+                label_val,
+                ha='center',
+                va='bottom',
+                fontsize=9,
+                fontweight='bold',
+                color=TABLE_TEXT_PRIMARY
+            )
+    ax.legend()
+    fig.tight_layout()
+    return figure_to_stream(fig, bbox_inches=None)
 def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
     warning_context = f" en la hoja {sheet_name}" if sheet_name else ""
     normalized_columns = [
@@ -2557,7 +2673,15 @@ def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> 
 def prepare_series_configs(df_list, lang, p_ventas, sheet_name: Optional[str] = None):
     configs = []
     for original_df in df_list:
+        if original_df is None or original_df.empty or original_df.shape[1] == 0:
+            context = f" en la hoja {sheet_name}" if sheet_name else ""
+            print_colored(f"No se encontraron datos graficables{context}. Se omite esta seccion.", COLOR_RED)
+            continue
         df_local = ensure_date_column(original_df.copy(), sheet_name=sheet_name)
+        if df_local.shape[1] == 0:
+            context = f" en la hoja {sheet_name}" if sheet_name else ""
+            print_colored(f"No hay columnas disponibles{context}. Se omite esta seccion.", COLOR_RED)
+            continue
         raw_tipo = str(df_local.columns[0])
         df_local.rename(columns={df_local.columns[0]: labels[(lang,'Data')]}, inplace=True)
         is_compras = 'compras' in raw_tipo.lower()
@@ -2886,6 +3010,48 @@ for w in W:
     progress_message = build_terminal_progress_message(w, lang, cat)
     if progress_message:
         print_colored(progress_message, COLOR_QUESTION)
+    distribution_match = DISTRIBUTION_SHEET_PATTERN.match(w.strip())
+    if distribution_match:
+        dist_kind = distribution_match.group(2).upper()
+        dist_label = 'Regiones' if dist_kind == 'R' else 'NSE'
+        category_segment = distribution_match.group(1).replace('.', ' ').strip()
+        dist_df, dist_series = parse_distribution_sheet(file, w, client)
+        if dist_df.empty:
+            print_colored(f"No se encontraron datos para graficar en la hoja {w}.", COLOR_RED)
+            continue
+        slide = ppt.slides.add_slide(ppt.slide_layouts[1])
+        title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
+        title_tf = title_box.text_frame
+        suffix_text = f" - {dist_series}" if dist_series else ''
+        set_title_with_brand_color(
+            title_tf,
+            f"Distribucion {dist_label} | ",
+            category_segment,
+            suffix_text,
+            0.35,
+            BRAND_TITLE_COLOR_LOOKUP
+        )
+        left_margin = Inches(0.33)
+        right_margin = Inches(0.33)
+        available_width_emu = available_width(ppt, left_margin, right_margin)
+        c_fig += 1
+        chart_height = max(Cm(12), Cm(9) + Cm(0.45) * len(dist_df))
+        chart_stream = plot_distribution_chart(dist_df, c_fig, BRAND_TITLE_COLOR_LOOKUP)
+        slide.shapes.add_picture(
+            chart_stream,
+            left_margin,
+            Inches(CHART_TOP_INCH),
+            width=available_width_emu,
+            height=chart_height
+        )
+        comment_box = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
+        comment_tf = comment_box.text_frame
+        comment_tf.clear()
+        comment_para = comment_tf.paragraphs[0]
+        comment_para.text = "Comentario"
+        comment_para.font.size = Inches(0.25)
+        plt.clf()
+        continue
     if is_price_index_sheet(w):
         players_base_key = extract_players_base_key(w)
         context = players_share_context.get(players_base_key)
