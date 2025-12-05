@@ -1800,36 +1800,36 @@ pais = pd.DataFrame(
 #Codigos categorias
 CATEG_CSV_DATA = """
 cod,cest,cat
-ALCB,Bebidas,Bebidas AlcohÃ³licas
+ALCB,Bebidas,Bebidas Alcoholicas
 BEER,Bebidas,Cervezas
 CARB,Bebidas,Bebidas Gaseosas
 CWAT,Bebidas,Agua Gasificada
-COCW,Bebidas,Ãgua de Coco
-COFF,Bebidas,CafÃ©-Consolidado de CafÃ©
+COCW,Bebidas,Agua de Coco
+COFF,Bebidas,Cafe-Consolidado de Cafe
 CRBE,Bebidas,Cross Category (Bebidas)
-ENDR,Bebidas,Bebidas EnergÃ©ticas
+ENDR,Bebidas,Bebidas Energeticas
 FLBE,Bebidas,Bebidas Saborizadas Sin Gas
-GCOF,Bebidas,CafÃ© Tostado y Molido
+GCOF,Bebidas,Cafe Tostado y Molido
 HJUI,Bebidas,Jugos Caseros
-ITEA,Bebidas,TÃ© Helado
-ICOF,Bebidas,CafÃ© InstantÃ¡neo-CafÃ© SucedÃ¡neo
+ITEA,Bebidas,Te Helado
+ICOF,Bebidas,Cafe Instantaneo-Cafe Sucedaneo
 JUNE,Bebidas,Jugos y Nectares
 VEJU,Bebidas,Zumos de Vegetales
 WATE,Bebidas,Agua Natural
 CSDW,Bebidas,Gaseosas + Aguas
-MXCM,Bebidas,Mixta CafÃ©+Malta
-MXDG,Bebidas,Mixta Dolce Gusto-Mixta TÃ© Helado + CafÃ© + Modificadores
+MXCM,Bebidas,Mixta Cafe+Malta
+MXDG,Bebidas,Mixta Dolce Gusto-Mixta Te Helado + Cafe + Modificadores
 MXJM,Bebidas,Mixta Jugos y Leches
-MXJS,Bebidas,Mixta Jugos LÃ­quidos + Bebidas de Soja
-MXTC,Bebidas,Mixta TÃ©+CafÃ©
+MXJS,Bebidas,Mixta Jugos Liquidos + Bebidas de Soja
+MXTC,Bebidas,Mixta Te+Cafe
 JUIC,Bebidas,Jugos Liquidos-Jugos Polvo
-PWDJ,Bebidas,Refrescos en Polvo-Jugos - Bebidas InstantÃ¡neas En Polvo - Jugos Polvo
+PWDJ,Bebidas,Refrescos en Polvo-Jugos - Bebidas Instantaneas En Polvo - Jugos Polvo
 RFDR,Bebidas,Bebidas Refrescantes
-RTDJ,Bebidas,Refrescos LÃ­quidos-Jugos LÃ­quidos
-RTEA,Bebidas,TÃ© LÃ­quido - Listo para Tomar
+RTDJ,Bebidas,Refrescos Liquidos-Jugos Liquidos
+RTEA,Bebidas,Te Liquido - Listo para Tomar
 SOYB,Bebidas,Bebidas de Soja
-SPDR,Bebidas,Bebidas IsotÃ³nicas
-TEAA,Bebidas,TÃ© e Infusiones-Te-InfusiÃ³n Hierbas
+SPDR,Bebidas,Bebidas Isotonicas
+TEAA,Bebidas,Te e Infusiones-Te-Infusion Hierbas
 YERB,Bebidas,Yerba Mate
 BUTT,Lacteos,Manteca
 CHEE,Lacteos,Queso Fresco y para Untar
@@ -1838,27 +1838,27 @@ CRCH,Lacteos,Queso Untable
 DYOG,Lacteos,Yoghurt p-beber
 EMLK,Lacteos,Leche Culinaria-Leche Evaporada
 FRMM,Lacteos,Leche Fermentada
-FMLK,Lacteos,Leche LÃ­quida Saborizada-Leche LÃ­quida Con Sabor
-FRMK,Lacteos,FÃ³rmulas Infantiles
-LQDM,Lacteos,Leche LÃ­quida
+FMLK,Lacteos,Leche Liquida Saborizada-Leche Liquida Con Sabor
+FRMK,Lacteos,Formulas Infantiles
+LQDM,Lacteos,Leche Liquida
 LLFM,Lacteos,Leche Larga Vida
 MARG,Lacteos,Margarina
 MCHE,Lacteos,Queso Fundido
 MKCR,Lacteos,Crema de Leche
-MXDI,Lacteos,Mixta LÃ¡cteos-Postre+Leches+Yogurt
+MXDI,Lacteos,Mixta Lacteos-Postre+Leches+Yogurt
 MXMI,Lacteos,Mixta Leches
 MXYD,Lacteos,Mixta Yoghurt+Postres
 PTSS,Lacteos,Petit Suisse
 PWDM,Lacteos,Leche en Polvo
 SYOG,Lacteos,Yoghurt p-comer
-MILK,Lacteos,Leche-Leche LÃ­quida Blanca - Leche Liq. Natural
+MILK,Lacteos,Leche-Leche Liquida Blanca - Leche Liq. Natural
 YOGH,Lacteos,Yoghurt
 CLOT,Ropas y Calzados,Ropas
 FOOT,Ropas y Calzados,Calzados
 SOCK,Ropas y Calzados,Medias-Calcetines
 AREP,Alimentos,Arepas
 BCER,Alimentos,Cereales Infantiles
-BABF,Alimentos,NutriciÃ³n Infantil-Colados y Picados
+BABF,Alimentos,Nutricion Infantil-Colados y Picados
 BEAN,Alimentos,Frijoles
 BISC,Alimentos,Galletas
 BOUI,Alimentos,Caldos-Caldos y Sazonadores
@@ -1877,21 +1877,21 @@ CBAR,Alimentos,Barras de Cereal
 CHCK,Alimentos,Pollo
 CHOC,Alimentos,Chocolate
 COCO,Alimentos,Chocolate de Taza-Achocolatados - Cocoas
-COLS,Alimentos,Salsas FrÃ­as
+COLS,Alimentos,Salsas Frias
 COMP,Alimentos,Compotas
 SPIC,Alimentos,Condimentos y Especias
 CKCH,Alimentos,Chocolate de Mesa
 COIL,Alimentos,Aceite-Aceites Comestibles
 CSAU,Alimentos,Salsas Listas-Salsas Caseras Envasadas
-CNML,Alimentos,"Grano, Harina y Masa de MaÃ­z"
-CNST,Alimentos,FÃ©cula de MaÃ­z
-CNFL,Alimentos,Harina De MaÃ­z
+CNML,Alimentos,"Grano, Harina y Masa de Maiz"
+CNST,Alimentos,Fecula de Maiz
+CNFL,Alimentos,Harina De Maiz
 CAID,Alimentos,Ayudantes Culinarios
 DESS,Alimentos,Postres Preparados
-DHAM,Alimentos,JamÃ³n Endiablado
+DHAM,Alimentos,Jamon Endiablado
 DFNS,Alimentos,Semillas y Frutos Secos
 EBRE,Alimentos,Pan de Pascua
-EEGG,Alimentos,Huevos de PÃ¡scua
+EEGG,Alimentos,Huevos de Pascua
 EGGS,Alimentos,Huevos
 FLSS,Alimentos,Flash Cecinas
 FLOU,Alimentos,Harinas
@@ -1903,15 +1903,15 @@ HCER,Alimentos,Cereales Calientes-Cereales Precocidos
 HOTS,Alimentos,Salsas Picantes
 ICEC,Alimentos,Helados
 IBRE,Alimentos,Pan Industrializado
-IMPO,Alimentos,PurÃ© InstantÃ¡neo
-INOO,Alimentos,Fideos InstantÃ¡neos
+IMPO,Alimentos,Pure Instantaneo
+INOO,Alimentos,Fideos Instantaneos
 JAMS,Alimentos,Mermeladas
 KETC,Alimentos,Ketchup
 LJDR,Alimentos,Jugo de Limon Adereso
 MALT,Alimentos,Maltas
 SEAS,Alimentos,Adobos - Sazonadores
 MAYO,Alimentos,Mayonesa
-MEAT,Alimentos,CÃ¡rnicos
+MEAT,Alimentos,Carnicos
 MLKM,Alimentos,Modificadores de Leche-Saborizadores p-leche
 MXCO,Alimentos,Mixta Cereales Infantiles+Avenas
 MXBS,Alimentos,Mixta Caldos + Saborizantes
@@ -1922,7 +1922,7 @@ MXSN,Alimentos,"Galletas, snacks y mini tostadas"
 COBT,Alimentos,Aceites + Mantecas
 COCF,Alimentos,Aceites + Conservas De Pescado
 CABB,Alimentos,Ayudantes Culinarios + Bolsa de Hornear
-MXEC,Alimentos,Mixta Huevos de PÃ¡scua + Chocolates
+MXEC,Alimentos,Mixta Huevos de Pascua + Chocolates
 MXDP,Alimentos,Mixta Platos Listos Congelados + Pasta
 MXFR,Alimentos,Mixta Platos Congelados y Listos para Comer
 MXFM,Alimentos,Mixta Alimentos Congelados + Margarina
@@ -1930,7 +1930,7 @@ MXMC,Alimentos,Mixta Modificadores + Cocoa
 MXPS,Alimentos,Mixta Pastas
 MXSO,Alimentos,Mixta Sopas+Cremas+Ramen
 MXSP,Alimentos,Mixta Margarina + Mayonesa + Queso Crema
-MXSW,Alimentos,Mixta AzÃºcar+Endulzantes
+MXSW,Alimentos,Mixta Azucar+Endulzantes
 MUST,Alimentos,Mostaza
 NDCR,Alimentos,Sustitutos de Crema
 NOOD,Alimentos,Fideos
@@ -1938,10 +1938,10 @@ NUGG,Alimentos,Nuggets
 OAFL,Alimentos,Avena en hojuelas-liquidas
 OLIV,Alimentos,Aceitunas
 PANC,Alimentos,Tortilla
-PANE,Alimentos,PanetÃ³n
+PANE,Alimentos,Paneton
 PAST,Alimentos,Pastas
 PSAU,Alimentos,Salsas para Pasta
-PNOU,Alimentos,TurrÃ³n de manÃ­
+PNOU,Alimentos,Turron de mani
 PORK,Alimentos,Carne Porcina
 PPMX,Alimentos,Postres en Polvo-Postres para Preparar - Horneables-Gelificables
 PWSM,Alimentos,Leche de Soya en Polvo
@@ -1971,23 +1971,23 @@ SWSP,Alimentos,Untables Dulces
 SWEE,Alimentos,Endulzantes
 TOAS,Alimentos,Torradas - Tostadas
 TOMA,Alimentos,Salsas de Tomate
-TUNA,Alimentos,AtÃºn Envasado
+TUNA,Alimentos,Atun Envasado
 VMLK,Alimentos,Leche Vegetal
 WFLO,Alimentos,Harinas de trigo
 AIRC,Cuidado del Hogar,Ambientadores-Desodorante Ambiental
-BARS,Cuidado del Hogar,JabÃ³n en Barra-JabÃ³n de lavar
-BLEA,Cuidado del Hogar,Cloro-Lavandinas-LejÃ­as-Blanqueadores
+BARS,Cuidado del Hogar,Jabon en Barra-Jabon de lavar
+BLEA,Cuidado del Hogar,Cloro-Lavandinas-Lejias-Blanqueadores
 CBLK,Cuidado del Hogar,Pastillas para Inodoro
-CGLO,Cuidado del Hogar,Guantes de lÃ¡tex
-CLSP,Cuidado del Hogar,Esponjas de Limpieza-Esponjas y paÃ±os
+CGLO,Cuidado del Hogar,Guantes de latex
+CLSP,Cuidado del Hogar,Esponjas de Limpieza-Esponjas y panos
 CLTO,Cuidado del Hogar,Utensilios de Limpieza
-FILT,Cuidado del Hogar,Filtros de CafÃ©
+FILT,Cuidado del Hogar,Filtros de Cafe
 CRHC,Cuidado del Hogar,Cross Category (Limpiadores Domesticos)
-CRLA,Cuidado del Hogar,Cross Category (LavanderÃ­a)
+CRLA,Cuidado del Hogar,Cross Category (Lavanderia)
 CRPA,Cuidado del Hogar,Cross Category (Productos de Papel)
 DISH,Cuidado del Hogar,Lavavajillas-Lavaplatos - Lavalozas mano
-DPAC,Cuidado del Hogar,Empaques domÃ©sticos-Bolsas plÃ¡sticas-PlÃ¡stico Adherente-Papel encerado-Papel aluminio
-DRUB,Cuidado del Hogar,DestapacaÃ±erias
+DPAC,Cuidado del Hogar,Empaques domesticos-Bolsas plasticas-Plastico Adherente-Papel encerado-Papel aluminio
+DRUB,Cuidado del Hogar,Destapacanerias
 FBRF,Cuidado del Hogar,Perfumantes para Ropa-Perfumes para Ropa
 FWAX,Cuidado del Hogar,Cera p-pisos
 FDEO,Cuidado del Hogar,Desodorante para Pies
@@ -2004,20 +2004,20 @@ MXHC,Cuidado del Hogar,Mixta Home Care-Cloro-Limpiadores-Ceras-Ambientadores
 MXCB,Cuidado del Hogar,Mixta Limpiadores + Cloro
 MXLB,Cuidado del Hogar,Mixta Detergentes + Cloro
 MXLD,Cuidado del Hogar,Mixta Detergentes + Lavavajillas
-CRTO,Cuidado del Hogar,PaÃ±itos + Papel Higienico
+CRTO,Cuidado del Hogar,Panitos + Papel Higienico
 NAPK,Cuidado del Hogar,Servilletas
 PLWF,Cuidado del Hogar,Film plastico e papel aluminio
 SCOU,Cuidado del Hogar,Esponjas de Acero
 SOFT,Cuidado del Hogar,Suavizantes de Ropa
 STRM,Cuidado del Hogar,Quitamanchas-Desmanchadores
-TOIP,Cuidado del Hogar,Papel HigiÃ©nico
-WIPE,Cuidado del Hogar,PaÃ±os de Limpieza
-ANLG,OTC,AnalgÃ©sicos-Painkillers
+TOIP,Cuidado del Hogar,Papel Higienico
+WIPE,Cuidado del Hogar,Panos de Limpieza
+ANLG,OTC,Analgesicos-Painkillers
 FSUP,OTC,Suplementos alimentares
 GMED,OTC,Gastrointestinales-Efervescentes
 VITA,OTC,Vitaminas y Calcio
-nan,Otros,CategorÃ­a Desconocida
-BATT,Otros,Pilas-BaterÃ­as
+nan,Otros,Categoria Desconocida
+BATT,Otros,Pilas-Baterias
 CGAS,Otros,Combustible Gas
 PFHH,Otros,Panel Financiero de Hogares
 PFIN,Otros,Panel Financiero de Hogares
@@ -2030,39 +2030,39 @@ ADIP,Cuidado Personal,Incontinencia de Adultos
 BSHM,Cuidado Personal,Shampoo Infantil
 RAZO,Cuidado Personal,Maquinas de Afeitar
 BDCR,Cuidado Personal,Cremas Corporales
-CWIP,Cuidado Personal,PaÃ±os HÃºmedos
+CWIP,Cuidado Personal,Panos Humedos
 COMB,Cuidado Personal,Cremas para Peinar
-COND,Cuidado Personal,Acondicionador-BÃ¡lsamo
+COND,Cuidado Personal,Acondicionador-Balsamo
 CRHY,Cuidado Personal,Cross Category (Higiene)
 CRPC,Cuidado Personal,Cross Category (Personal Care)
 DEOD,Cuidado Personal,Desodorantes
-DIAP,Cuidado Personal,PaÃ±ales-PaÃ±ales Desechables
+DIAP,Cuidado Personal,Panales-Panales Desechables
 FCCR,Cuidado Personal,Cremas Faciales
-FTIS,Cuidado Personal,PaÃ±uelos Faciales
-FEMI,Cuidado Personal,ProtecciÃ³n Femenina-Toallas Femeninas
+FTIS,Cuidado Personal,Panuelos Faciales
+FEMI,Cuidado Personal,Proteccion Femenina-Toallas Femeninas
 FRAG,Cuidado Personal,Fragancias
 HAIR,Cuidado Personal,Cuidado del Cabello-Hair Care
-HRCO,Cuidado Personal,Tintes para el Cabello-Tintes - Tintura - Tintes y ColoraciÃ³n para el cabello
-HREM,Cuidado Personal,DepilaciÃ³n
+HRCO,Cuidado Personal,Tintes para el Cabello-Tintes - Tintura - Tintes y Coloracion para el cabello
+HREM,Cuidado Personal,Depilacion
 HRST,Cuidado Personal,Alisadores para el Cabello
 HSTY,Cuidado Personal,Fijadores para el Cabello-Modeladores-Gel-Fijadores para el cabello
 HRTR,Cuidado Personal,Tratamientos para el Cabello
-LINI,Cuidado Personal,Ã“leo CalcÃ¡reo
-MAKE,Cuidado Personal,Maquillaje-CosmÃ©ticos
-MEDS,Cuidado Personal,JabÃ³n Medicinal
-CRDT,Cuidado Personal,PaÃ±itos + PaÃ±ales
+LINI,Cuidado Personal,leo Calcareo
+MAKE,Cuidado Personal,Maquillaje-Cosmeticos
+MEDS,Cuidado Personal,Jabon Medicinal
+CRDT,Cuidado Personal,Panitos + Panales
 MXMH,Cuidado Personal,Mixta Make Up+Tinturas
 MOWA,Cuidado Personal,Enjuague Bucal-Refrescante Bucal
 ORAL,Cuidado Personal,Cuidado Bucal
 SPAD,Cuidado Personal,Protectores Femeninos
 STOW,Cuidado Personal,Toallas Femininas
 SHAM,Cuidado Personal,Shampoo
-SHAV,Cuidado Personal,Afeitado-Crema afeitar-LociÃ³n de afeitar-Pord. Antes del afeitado
+SHAV,Cuidado Personal,Afeitado-Crema afeitar-Locion de afeitar-Pord. Antes del afeitado
 SKCR,Cuidado Personal,Cremas Faciales y Corporales-Cremas de Belleza - Cremas Cuerp y Faciales
-SUNP,Cuidado Personal,ProtecciÃ³n Solar
+SUNP,Cuidado Personal,Proteccion Solar
 TALC,Cuidado Personal,Talcos-Talco para pies
 TAMP,Cuidado Personal,Tampones Femeninos
-TOIL,Cuidado Personal,JabÃ³n de Tocador
+TOIL,Cuidado Personal,Jabon de Tocador
 TOOB,Cuidado Personal,Cepillos Dentales
 TOOT,Cuidado Personal,Pastas Dentales
 BAGS,Material Escolar,Morrales y MAletas Escoalres
@@ -2070,28 +2070,27 @@ CLPC,Material Escolar,Lapices de Colores
 GRPC,Material Escolar,Lapices De Grafito
 MRKR,Material Escolar,Marcadores
 NTBK,Material Escolar,Cuadernos
-SCHS,Material Escolar,Ãštiles Escolares
-CSTD,Diversos,Estudio de CategorÃ­as
+SCHS,Material Escolar,tiles Escolares
+CSTD,Diversos,Estudio de Categorias
 CORP,Diversos,Corporativa
 CROS,Diversos,Cross Category
-CRBA,Diversos,Cross Category (BebÃ©s)
+CRBA,Diversos,Cross Category (Bebes)
 CRBR,Diversos,"Cross Category (Desayuno)-Yogurt, Cereal, Pan y Queso"
 CRDT,Diversos,Cross Category (Diet y Light)
 CRDF,Diversos,Cross Category (Alimentos Secos)
 CRFO,Diversos,Cross Category (Alimentos)
-CRSA,Diversos,Cross Category (Salsas)-Mayonesas-Ketchup - Salsas FrÃ­as
+CRSA,Diversos,Cross Category (Salsas)-Mayonesas-Ketchup - Salsas Frias
 CRSN,Diversos,Cross Category (Snacks)
 DEMO,Diversos,Demo
 FLSH,Diversos,Flash
 HLVW,Diversos,Holistic View
-COCP,Diversos,Mezcla para cafÃ© instantaneo y crema no lÃ¡ctea
+COCP,Diversos,Mezcla para cafe instantaneo y crema no lactea
 CRSN,Diversos,Mezclas nutricionales y suplementos
 MULT,Diversos,Consolidado-Multicategory
 PCHK,Diversos,Pantry Check
 STCK,Diversos,Inventario
-MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche LÃ­quida Blanca
-FLWT,Alimentos,Agua Saborizada
-"""
+MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Liquida Blanca
+FLWT,Alimentos,Agua Saborizada"""
 categ = pd.read_csv(io.StringIO(CATEG_CSV_DATA), dtype={'cod': str, 'cest': str, 'cat': str})
 categ['cod'] = categ['cod'].str.strip().str.upper()
 CLIENT_NAME_SUFFIX_PATTERN = re.compile(r'[\s_-]*5w1h$', re.IGNORECASE)
