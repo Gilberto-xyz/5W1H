@@ -2444,6 +2444,30 @@ def parse_sheet_with_compras_header(excel_file: pd.ExcelFile, sheet_name: str) -
     if header_row is None:
         return excel_file.parse(sheet_name)
     return excel_file.parse(sheet_name, header=header_row)
+def ensure_date_column(df: pd.DataFrame, sheet_name: Optional[str] = None, date_format: str = '%b-%y  ') -> pd.DataFrame:
+    """
+    Valida y convierte la primera columna a fecha (formato MMM-YY).
+    Lanza un ValueError si no hay fechas legibles para evitar graficos con datos corruptos.
+    """
+    if df is None or df.empty or df.shape[1] == 0:
+        return df
+    first_col = df.iloc[:, 0]
+    if np.issubdtype(first_col.dtype, np.datetime64):
+        return df
+    context = f" en la hoja {sheet_name}" if sheet_name else ""
+    parsed = pd.to_datetime(first_col, format=date_format, errors='coerce')
+    non_empty = pd.Series(True, index=first_col.index)
+    if first_col.dtype == object:
+        non_empty = first_col.astype(str).str.strip().ne('')
+    invalid_count = int((parsed.isna() & non_empty).sum())
+    if invalid_count > 0 or parsed.notna().sum() == 0:
+        raise ValueError(
+            f"No se pudieron leer fechas validas en la primera columna{context}. "
+            "Use el formato MMM-YY (ej.: Ene-24)."
+        )
+    df_copy = df.copy()
+    df_copy.iloc[:, 0] = parsed
+    return df_copy
 def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
     warning_context = f" en la hoja {sheet_name}" if sheet_name else ""
     normalized_columns = [
@@ -2530,13 +2554,10 @@ def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> 
         df_list.append(compras)
     df_list.append(ventas)
     return df_list, pipeline
-def prepare_series_configs(df_list, lang, p_ventas):
+def prepare_series_configs(df_list, lang, p_ventas, sheet_name: Optional[str] = None):
     configs = []
     for original_df in df_list:
-        df_local = original_df.copy()
-        first_col = df_local.iloc[:,0]
-        if first_col.dtype == object:
-            df_local.iloc[:,0] = pd.to_datetime(first_col, format='%b-%y  ')
+        df_local = ensure_date_column(original_df.copy(), sheet_name=sheet_name)
         raw_tipo = str(df_local.columns[0])
         df_local.rename(columns={df_local.columns[0]: labels[(lang,'Data')]}, inplace=True)
         is_compras = 'compras' in raw_tipo.lower()
@@ -2873,7 +2894,11 @@ for w in W:
             continue
         df_start = parse_sheet_with_compras_header(file, w)
         df_list, p_ventas = split_compras_ventas(df_start, sheet_name=w)
-        series_configs = prepare_series_configs(df_list, lang, p_ventas)
+        try:
+            series_configs = prepare_series_configs(df_list, lang, p_ventas, sheet_name=w)
+        except ValueError as exc:
+            print_colored(str(exc), COLOR_RED)
+            continue
         price_series = None
         for cfg in series_configs:
             if cfg.display_tipo.lower() == 'compras':
@@ -2997,7 +3022,11 @@ for w in W:
         continue
     #1- Quando, grafico de variacoes MAT
     if w[0]=='1':
-        sheet_df = parse_sheet_with_compras_header(file, w)
+        try:
+            sheet_df = ensure_date_column(parse_sheet_with_compras_header(file, w), sheet_name=w)
+        except ValueError as exc:
+            print_colored(str(exc), COLOR_RED)
+            continue
         #Cria o slide
         slide = ppt.slides.add_slide(ppt.slide_layouts[1])
         #Define o titulo
@@ -3036,7 +3065,11 @@ for w in W:
         #Carrega a base
         df_start=parse_sheet_with_compras_header(file, w)
         df_list, p_ventas = split_compras_ventas(df_start, sheet_name=w)
-        series_configs = prepare_series_configs(df_list, lang, p_ventas)
+        try:
+            series_configs = prepare_series_configs(df_list, lang, p_ventas, sheet_name=w)
+        except ValueError as exc:
+            print_colored(str(exc), COLOR_RED)
+            continue
         last_reference_source = series_configs[0].data if series_configs else df_start
         last_reference_origin = series_configs[0].display_tipo if series_configs else None
         #Cria o slide
