@@ -2613,8 +2613,8 @@ def plot_distribution_chart(
         if np.isfinite(serie_max):
             max_val = max(max_val, float(serie_max))
     ax.set_xticks(x)
-    ax.set_xticklabels(categories, rotation=30, ha='right', fontweight='normal', fontsize=10)
-    ax.tick_params(axis='x', pad=8)
+    ax.set_xticklabels(categories, rotation=30, ha='right', va='top', rotation_mode='anchor', fontweight='normal', fontsize=10)
+    ax.tick_params(axis='x', pad=2)
     ax.tick_params(axis='y', labelsize=10, pad=2)
     ax.set_ylabel('%', fontweight='bold', fontsize=11, labelpad=10)
     ax.grid(axis='y', linestyle='--', alpha=0.45, color='#D9D9D9')
