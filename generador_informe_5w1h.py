@@ -2120,36 +2120,36 @@ brand = W[0][2:]
 #Dicionario com as correspondencias dos numeros e o respectivo W
 c_w={
 ('P','1'):'1W - Quando?',
-('P','2'):'2W - Por que?',
-('P','3-1'):'3W - O quÃª? Tamanhos',
-('P','3-2'):'3W - O quÃª? Marcas',
-('P','3-3'):'3W - O quÃª? Sabores',
+('P','2'):'2W - Por ê?',
+('P','3-1'):'3W - O ê? Tamanhos',
+('P','3-2'):'3W - O ê? Marcas',
+('P','3-3'):'3W - O ê? Sabores',
 ('P','4'):'4W - Quem? NSE',
-('P','5-1'):'5W - Onde? RegiÃµes',
+('P','5-1'):'5W - Onde? Regiões',
 ('P','5-2'):'5W - Onde? Canais',
 ('P','6'):'Players',
-('P','6-1'):'Players - PreÃ§o indexado',
-('E','1'):'1W - Â¿CuÃ¡ndo?',
-('E','2'):'2W - Por que?',
-('E','3-1'):'3W - Â¿QuÃ© tamaÃ±os?',
-('E','3-2'):'3W - Â¿QuÃ© marcas?',
-('E','3-3'):'3W - Â¿QuÃ© sabores?',
-('E','4'):'4W - Â¿QuiÃ©nes? NSE (Nivel SocioeconÃ³mico)',
-('E','5-1'):'5W - Â¿DÃ³nde? Regiones',
-('E','5-2'):'5W - Â¿DÃ³nde? Canales',
+('P','6-1'):'Players - Preço indexado',
+('E','1'):'1W - ¿Cuándo?',
+('E','2'):'2W - ¿Por qué?',
+('E','3-1'):'3W - ¿Qué tamaños?',
+('E','3-2'):'3W - ¿Qué marcas?',
+('E','3-3'):'3W - ¿Qué sabores?',
+('E','4'):'4W - ¿Quiénes? NSE (Nivel Socioeconómico)',
+('E','5-1'):'5W - ¿Dónde? Regiones',
+('E','5-2'):'5W - ¿Dónde? Canales',
 ('E','6'):'Players',
 ('E','6-1'):'Players - Precio indexado'
 }
 #Etiquetas dos slides
 labels  ={
 ('P','Data'):'Data',
-('P','MAT'):'AvaliaÃ§Ã£o em Ano MÃ³vel Acumulado',
-('P','Var MAT'):"em ano mÃ³vel",
-('P','comp'):"ConcorrÃªncia do mercado de: ",
+('P','MAT'):'Avaliação em Ano Móvel Acumulado',
+('P','Var MAT'):'em ano móvel',
+('P','comp'):'Concorrência do mercado de: ',
 ('E','Data'):'Fecha',
-('E','MAT'):'EvaluaciÃ³n en AÃ±o MÃ³vil Acumulado',
-('E','Var MAT'):"en aÃ±o mÃ³vil",
-('E','comp'):"Competencia para el mercado de: "}
+('E','MAT'):'Evaluación en Año Móvil Acumulado',
+('E','Var MAT'):'en año móvil',
+('E','comp'):'Competencia para el mercado de: '}
 class SeriesConfig(NamedTuple):
     data: pd.DataFrame
     raw_tipo: str
