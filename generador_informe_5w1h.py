@@ -2356,45 +2356,38 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     distribution_match = DISTRIBUTION_SHEET_PATTERN.match(sheet_clean)
     first_char = sheet_clean[0]
     suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
-    step_label = None
     brand_label = ''
-    # Distribución (segmento 7) detectada por patrón 7_*_(R|NSE)
+    cw_key = None
+    # Distribución (segmento 7) via patrón 7_*_(R|NSE)
     if distribution_match:
         dist_kind = distribution_match.group(2).upper()
-        category_segment = distribution_match.group(1).replace('.', ' ').strip()
-        step_label = '7W Distribución Regiones' if dist_kind == 'R' else '7W Distribución NSE'
-        brand_label = category_segment
-    # Precio indexado (6-1) siempre usa categoría
-    if sheet_clean.startswith('6-1') or sheet_clean.startswith('6_1'):
-        step_label = 'Precio indexado'
+        cw_key = '7-R' if dist_kind == 'R' else '7-NSE'
+        brand_label = distribution_match.group(1).replace('.', ' ').strip()
+    elif sheet_clean.startswith('6-1') or sheet_clean.startswith('6_1'):
+        cw_key = '6-1'
         brand_label = category_name
-    elif step_label is None and first_char == '6':
-        step_label = 'Players'
+    elif first_char == '6':
+        cw_key = '6'
         brand_label = category_name
-    elif step_label is None and first_char == '5':
-        step_label = '5W Regiones' if suffix_char == '1' else '5W Canales' if suffix_char == '2' else '5W'
+    elif first_char == '5':
+        cw_key = f"5-{suffix_char}" if suffix_char in {'1', '2'} else '5'
         brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else ''
-    elif step_label is None and first_char == '4':
-        step_label = '4W NSE'
+    elif first_char == '4':
+        cw_key = '4'
         brand_label = sheet_clean[2:].strip()
-    elif step_label is None and first_char == '3':
-        if suffix_char == '1':
-            step_label = '3W Tamaños'
-        elif suffix_char == '2':
-            step_label = '3W Marcas'
-        elif suffix_char == '3':
-            step_label = '3W Sabores'
-        else:
-            step_label = '3W'
+    elif first_char == '3':
+        cw_key = f"3-{suffix_char}" if suffix_char in {'1', '2', '3'} else '3'
         brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else sheet_clean[2:].strip()
-    elif step_label is None and first_char == '2':
-        step_label = '2W Por qué'
+    elif first_char in {'2', '1'}:
+        cw_key = first_char
         brand_label = sheet_clean[2:].strip()
-    elif step_label is None and first_char == '1':
-        step_label = '1W Cuándo'
-        brand_label = sheet_clean[2:].strip()
-    if step_label is None:
+    step_label = c_w.get((lang, cw_key), cw_key if cw_key else None)
+    if not step_label:
         return None
+    # Para mantener el estilo corto en terminal, eliminamos el " - " del texto base
+    if ' - ' in step_label:
+        code, desc = step_label.split(' - ', 1)
+        step_label = f"{code} {desc}"
     brand_terminal = colorize_brand_for_terminal(brand_label) if brand_label else ''
     detail = f" - {brand_terminal}" if brand_terminal else ''
     return f"{step_label}{detail}"
