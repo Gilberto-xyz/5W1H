@@ -2562,8 +2562,6 @@ def plot_distribution_chart(
     fig_height = base_fig_height
     if max_height_in is not None and max_height_in > 0:
         fig_height = min(fig_height, max_height_in)
-    height_scale = fig_height / base_fig_height if base_fig_height else 1.0
-    size_scale = max(0.85, min(1.1, height_scale))
     default_label_font_size = 9
     label_font_size = default_label_font_size
     if adaptive_label_size:
@@ -2577,7 +2575,7 @@ def plot_distribution_chart(
             label_font_size = 8
         elif density < 1.5:
             label_font_size = min(11, default_label_font_size + 1)
-    label_font_size = max(6, min(12, int(round(label_font_size * size_scale))))
+    label_font_size = max(6, min(11, int(round(label_font_size))))
     fig, ax = plt.subplots(num=c_fig, figsize=(fig_width, fig_height), dpi=DEFAULT_EXPORT_DPI)
     fig.patch.set_facecolor('#FFFFFF')
     ax.set_facecolor('#F9FAFB')
@@ -2627,11 +2625,11 @@ def plot_distribution_chart(
         if np.isfinite(serie_max):
             max_val = max(max_val, float(serie_max))
     ax.set_xticks(x)
-    tick_font_size = max(8, min(12, int(round(10 * size_scale))))
+    tick_font_size = 10
     ax.set_xticklabels(categories, rotation=30, ha='right', va='top', rotation_mode='anchor', fontweight='normal', fontsize=tick_font_size)
     ax.tick_params(axis='x', pad=2)
     ax.tick_params(axis='y', labelsize=tick_font_size, pad=2)
-    ax.set_ylabel('%', fontweight='bold', fontsize=max(10, int(round(11 * size_scale))), labelpad=10)
+    ax.set_ylabel('%', fontweight='bold', fontsize=11, labelpad=10)
     ax.grid(axis='y', linestyle='--', alpha=0.45, color='#D9D9D9')
     ax.margins(x=0.02)
     for spine in ax.spines.values():
