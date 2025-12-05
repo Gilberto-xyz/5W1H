@@ -2553,31 +2553,33 @@ def plot_distribution_chart(
     fig.patch.set_facecolor('#FFFFFF')
     ax.set_facecolor('#F9FAFB')
     ax.set_axisbelow(True)
-    palette_lookup = dict(color_lookup) if color_lookup is not None else dict(BRAND_TITLE_COLOR_LOOKUP)
+    palette_lookup = {}
     def _is_total_label(label: str) -> bool:
         return isinstance(label, str) and 'total' in label.lower()
     register_color_lookup('Total', '#000000', palette_lookup, overwrite=True)
-    palette_values = TREND_COLOR_SEQUENCE if TREND_COLOR_SEQUENCE else [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
+    if TREND_COLOR_PALETTE:
+        palette_values = [
+            TREND_COLOR_PALETTE[key]
+            for key in sorted(
+                TREND_COLOR_PALETTE.keys(),
+                key=lambda k: int(k.split('_')[1]) if '_' in k and k.split('_')[1].isdigit() else k
+            )
+        ]
+    else:
+        palette_values = TREND_COLOR_SEQUENCE
+    if not palette_values:
+        palette_values = [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
     palette_index = 0
-    def _next_palette_color():
-        nonlocal palette_index
-        if not palette_values:
-            return HEADER_COLOR_SECONDARY
-        color_val = palette_values[palette_index % len(palette_values)]
-        palette_index += 1
-        return color_val
     bars_by_series = []
     legend_handles = []
     legend_labels = []
     max_val = 0.0
     for idx, (serie_name, values) in enumerate(filtered_series):
-        base_color = lookup_color_for_label(serie_name, palette_lookup)
         if _is_total_label(serie_name):
             color_val = '#000000'
-        elif base_color:
-            color_val = base_color
         else:
-            color_val = _next_palette_color()
+            color_val = palette_values[palette_index % len(palette_values)]
+            palette_index += 1
         register_color_lookup(serie_name, color_val, palette_lookup, overwrite=True)
         offset = (idx - (n_series - 1) / 2) * width
         bars = ax.bar(
