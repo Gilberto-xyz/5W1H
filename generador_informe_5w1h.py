@@ -3436,6 +3436,10 @@ for w in W:
             title_prefix = c_w[(lang,w[0]+'-'+w[-1])]+' | '
             title_brand_label = w[2:-2].strip()
             titulo = f"{title_prefix}{title_brand_label}"
+        elif w[0] == '4':
+            title_prefix = c_w[(lang,w[0])] + ' | '
+            title_brand_label = w[2:].strip()
+            titulo = f"{title_prefix}{title_brand_label}"
         elif w[0]=='6':
             title_prefix =  c_w[(lang,w[0])] + ' | ' + labels[(lang,'comp')]
             title_brand_label = cat
