@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 #Bibliotecas necessarias
 #---------------------------------------------------------------------------------------------------------------------
 import pandas as pd
@@ -28,7 +28,7 @@ from typing import NamedTuple, Optional
 from pathlib import Path
 from collections import OrderedDict
 
-# Fuerza E/S en UTF-8 para soportar acentos y ñ en la terminal de Windows
+# Fuerza E/S en UTF-8 para soportar acentos y Ã± en la terminal de Windows
 def _configure_utf8_io():
     try:
         os.environ.setdefault('PYTHONUTF8', '1')
@@ -38,7 +38,7 @@ def _configure_utf8_io():
             if stream is not None and hasattr(stream, 'reconfigure'):
                 stream.reconfigure(encoding='utf-8')
     except Exception:
-        # Si la consola no soporta reconfigure, seguimos sin romper ejecución
+        # Si la consola no soporta reconfigure, seguimos sin romper ejecuciÃ³n
         pass
 
 _configure_utf8_io()
@@ -147,7 +147,7 @@ TREND_COLOR_PALETTE = {
     'trend_70': '#3F51B5'
 }
 TREND_COLOR_SEQUENCE = list(TREND_COLOR_PALETTE.values())
-# Paleta reservada para títulos de Competencia: usa los últimos colores para no interferir con los de marcas.
+# Paleta reservada para tÃ­tulos de Competencia: usa los Ãºltimos colores para no interferir con los de marcas.
 COMPETITION_TITLE_PALETTE = list(reversed(TREND_COLOR_SEQUENCE[-8:]))
 TABLE_WRAP_WIDTH = 14
 DISPLAY_TREND_REFERENCE_TEXT = False
@@ -158,7 +158,7 @@ TREND_SCALE_RULES = [
         "suffix": "T",
         "reference": {
             'E': 'Valores expresados en billones',
-            'P': 'Valores expressos em trilhões',
+            'P': 'Valores expressos em trilhÃµes',
             'default': 'Values expressed in trillions'
         }
     },
@@ -168,7 +168,7 @@ TREND_SCALE_RULES = [
         "suffix": "B",
         "reference": {
             'E': 'Valores expresados en miles de millones',
-            'P': 'Valores expressos em bilhões',
+            'P': 'Valores expressos em bilhÃµes',
             'default': 'Values expressed in billions'
         }
     },
@@ -178,7 +178,7 @@ TREND_SCALE_RULES = [
         "suffix": "M",
         "reference": {
             'E': 'Valores expresados en millones',
-            'P': 'Valores expressos em milhões',
+            'P': 'Valores expressos em milhÃµes',
             'default': 'Values expressed in millions'
         }
     },
@@ -204,7 +204,7 @@ TREND_SCALE_RULES = [
     },
 ]
 MONTH_NAMES = {
-    'P': ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
+    'P': ['Janeiro', 'Fevereiro', 'MarÃ§o', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
     'E': ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 }
 def colorize(text: str, color: str = COLOR_BLUE) -> str:
@@ -313,7 +313,7 @@ def figure_to_stream(
 pd.set_option('future.no_silent_downcasting', True)
 pd.set_option('mode.chained_assignment', None)
 warnings.filterwarnings('ignore')
-#Funcao que prepara os dados para criação do gráfico MAT
+#Funcao que prepara os dados para criaÃ§Ã£o do grÃ¡fico MAT
 def df_mat(df,p):
     v1 = pd.DataFrame([(df.iloc[i-12-p:i-p,1].sum()/df.iloc[i-24-p:i-12-p,1].sum()) - 1 if i >= 24 else np.nan for i in range(12, len(df)+1)],columns=['Var Sell-in'])
     v2 = pd.DataFrame([(df.iloc[i-12:i,2].sum()/df.iloc[i-24:i-12,2].sum()) - 1 if i >= 24 else np.nan for i in range(12, len(df)+1)],columns=['Var Sell-out'])
@@ -424,9 +424,9 @@ def line_graf(
     show_title=True,
 ):
     """
-    Renderiza la gráfica de tendencias y devuelve un buffer PNG listo para insertar en la slide.
-    Cuando se generan múltiples gráficos en la misma diapositiva (multi_chart=True), se aplican
-    márgenes más amplios para evitar recortes visuales.
+    Renderiza la grÃ¡fica de tendencias y devuelve un buffer PNG listo para insertar en la slide.
+    Cuando se generan mÃºltiples grÃ¡ficos en la misma diapositiva (multi_chart=True), se aplican
+    mÃ¡rgenes mÃ¡s amplios para evitar recortes visuales.
     """
     if width_emu is not None:
         try:
@@ -455,9 +455,9 @@ def line_graf(
     width_inches = emu_to_inches(width_emu) if width_emu is not None else None
     height_inches = emu_to_inches(height_emu) if height_emu is not None else None
     if width_inches is None and height_inches is None:
-        # Ancho dinámico según cantidad de datos (en pulgadas)
+        # Ancho dinÃ¡mico segÃºn cantidad de datos (en pulgadas)
         n_points = len(df)
-        ancho = max(15, n_points * 0.5)  # 0.5 puede ajustarse para más/menos espacio (pulgadas)
+        ancho = max(15, n_points * 0.5)  # 0.5 puede ajustarse para mÃ¡s/menos espacio (pulgadas)
         # Altura fija de 10 cm -> convertir a pulgadas
         altura = emu_to_inches(Cm(10))
         figsize = (ancho, altura)
@@ -468,7 +468,7 @@ def line_graf(
             height_inches = width_inches / DEFAULT_LINE_CHART_RATIO
         figsize = (width_inches, height_inches)
     fig, ax = plt.subplots(num=c_fig, figsize=figsize, dpi=DEFAULT_EXPORT_DPI)
-    # Escalar elementos (fuentes, linewidth) según la altura para que el contenido se adapte
+    # Escalar elementos (fuentes, linewidth) segÃºn la altura para que el contenido se adapte
     # Se toma como referencia la altura original de 5 pulgadas usada previamente
     ref_height = 5.0
     actual_height = figsize[1]
@@ -641,10 +641,10 @@ def line_graf(
     # Margen de los datos dentro del eje
     ax.margins(x=chart_x_margin, y=0.08)
 
-    # --- Parámetros de separación en coordenadas de figura ---
-    # para gráficos "sencillos" vs "multi" (muchas series)
-    base_gap = 0.075 if not detected_multi else 0.070         # espacio visual típico
-    min_axes_legend_gap = 0.070 if not detected_multi else 0.080  # mínimo absoluto entre eje y leyenda
+    # --- ParÃ¡metros de separaciÃ³n en coordenadas de figura ---
+    # para grÃ¡ficos "sencillos" vs "multi" (muchas series)
+    base_gap = 0.075 if not detected_multi else 0.070         # espacio visual tÃ­pico
+    min_axes_legend_gap = 0.070 if not detected_multi else 0.080  # mÃ­nimo absoluto entre eje y leyenda
     margin_buffer = 0.020                                      # margen al borde inferior de la figura
 
     legend_bottom_margin = chart_bottom_margin
@@ -653,12 +653,12 @@ def line_graf(
     legend_height_fraction = 0.0
 
     if lns:
-        # Cálculo de columnas/filas en la leyenda
+        # CÃ¡lculo de columnas/filas en la leyenda
         max_columns = 3 if detected_multi else 4
         legend_columns = max(1, min(len(legend_labels), max_columns))
         legend_rows = max(1, math.ceil(len(legend_labels) / legend_columns))
 
-        # Altura de la leyenda en pulgadas -> fracción de la figura
+        # Altura de la leyenda en pulgadas -> fracciÃ³n de la figura
         legend_font_points = legend_base_size
         legend_line_height_points = legend_font_points * 1.35
         legend_height_inches = (legend_line_height_points / 72.0) * legend_rows
@@ -667,7 +667,7 @@ def line_graf(
             legend_height_inches / figure_height_inches if figure_height_inches else 0.0
         )
 
-        # Espacio mínimo entre eje y leyenda
+        # Espacio mÃ­nimo entre eje y leyenda
         legend_clearance = max(base_gap, min_axes_legend_gap)
 
         # Aseguramos espacio suficiente abajo para leyenda + gap + buffer
@@ -678,10 +678,10 @@ def line_graf(
     else:
         legend_clearance = 0.0  # no hay leyenda, no hace falta espacio extra
 
-    # --- Márgenes superior/inferior del eje ---
+    # --- MÃ¡rgenes superior/inferior del eje ---
     effective_top_margin = chart_top_margin
     if not (show_title and title):
-        # Si no hay título, no “regalemos” tanto espacio arriba
+        # Si no hay tÃ­tulo, no â€œregalemosâ€ tanto espacio arriba
         effective_top_margin = min(0.97, chart_top_margin + 0.05)
     elif title:
         plt.title(title, size=title_base_size, pad=10)
@@ -697,7 +697,7 @@ def line_graf(
         right=chart_right_margin,
     )
 
-    # --- Posición final de la leyenda ---
+    # --- PosiciÃ³n final de la leyenda ---
     if lns:
         axes_box = ax.get_position()  # caja del eje en coordenadas de figura
 
@@ -865,7 +865,7 @@ def line_graf(
         for col, line in zip(plotted_columns, lns):
             color_collector[col] = line.get_color()
     return figure_to_stream(fig)
-#Normaliza etiquetas de periodo eliminando prefijos genéricos
+#Normaliza etiquetas de periodo eliminando prefijos genÃ©ricos
 def normalize_period_label(label) -> str:
     if label is None:
         return ""
@@ -879,7 +879,7 @@ def normalize_period_label(label) -> str:
 #Grafico de barras apiladas 100% para share por periodo
 def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=None):
     """
-    Genera un gráfico 100% apilado a partir de la participación de un periodo puntual.
+    Genera un grÃ¡fico 100% apilado a partir de la participaciÃ³n de un periodo puntual.
     """
     if not isinstance(share_values, (dict, OrderedDict)):
         share_values = {}
@@ -1097,7 +1097,7 @@ def _format_val(label_key, value):
         "Precio Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "Gasto Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "Compradores 000s": {"scale": 1 / 1000, "decimals": 0, "thousands": True},
-        # Mostrar con 1 decimal para que se vea 0.2 en lugar de 0 ó 170
+        # Mostrar con 1 decimal para que se vea 0.2 en lugar de 0 Ã³ 170
         "Volumen Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "% Penetracion": {"scale": 1, "decimals": 1, "thousands": False},
         "Total HHolds 000s": {"scale": 1 / 1000, "decimals": 0, "thousands": True},
@@ -1332,7 +1332,7 @@ def _unidad_desde_nombre_hoja(nombre_hoja):
         "M": "Metros",
     }
     return mapa.get(letra)
-#Função que cria a tabela de aporte
+#FunÃ§Ã£o que cria a tabela de aporte
 def aporte(df,p,lang,tipo):
         aux = df.copy()
         removed_non_numeric: list[str] = []
@@ -1435,12 +1435,12 @@ def aporte(df,p,lang,tipo):
                 if np.isfinite(value)
             }
         apo.attrs["share_mat_values"] = share_mat_values
-        #Formatação do volume
+        #FormataÃ§Ã£o do volume
         apo.iloc[:2, 1:] = apo.iloc[:2, 1:].applymap(lambda x: f"{round(x * 100, 1)}%")
-        #Formatação da variação e aporte
+        #FormataÃ§Ã£o da variaÃ§Ã£o e aporte
         apo.iloc[2:, 1:] = apo.iloc[2:, 1:].applymap(lambda x: f"{round(x * 100, 2)}%")
         return apo
-#Função que cria o gráfico tabela de aporte
+#FunÃ§Ã£o que cria o grÃ¡fico tabela de aporte
 def graf_apo(apo, c_fig, column_color_mapping=None):
     fig, ax = plt.subplots(num=c_fig, dpi=DEFAULT_EXPORT_DPI)
     row_height = 0.45
@@ -1800,36 +1800,36 @@ pais = pd.DataFrame(
 #Codigos categorias
 CATEG_CSV_DATA = """
 cod,cest,cat
-ALCB,Bebidas,Bebidas Alcohólicas
+ALCB,Bebidas,Bebidas AlcohÃ³licas
 BEER,Bebidas,Cervezas
 CARB,Bebidas,Bebidas Gaseosas
 CWAT,Bebidas,Agua Gasificada
-COCW,Bebidas,Água de Coco
-COFF,Bebidas,Café-Consolidado de Café
+COCW,Bebidas,Ãgua de Coco
+COFF,Bebidas,CafÃ©-Consolidado de CafÃ©
 CRBE,Bebidas,Cross Category (Bebidas)
-ENDR,Bebidas,Bebidas Energéticas
+ENDR,Bebidas,Bebidas EnergÃ©ticas
 FLBE,Bebidas,Bebidas Saborizadas Sin Gas
-GCOF,Bebidas,Café Tostado y Molido
+GCOF,Bebidas,CafÃ© Tostado y Molido
 HJUI,Bebidas,Jugos Caseros
-ITEA,Bebidas,Té Helado
-ICOF,Bebidas,Café Instantáneo-Café Sucedáneo
+ITEA,Bebidas,TÃ© Helado
+ICOF,Bebidas,CafÃ© InstantÃ¡neo-CafÃ© SucedÃ¡neo
 JUNE,Bebidas,Jugos y Nectares
 VEJU,Bebidas,Zumos de Vegetales
 WATE,Bebidas,Agua Natural
 CSDW,Bebidas,Gaseosas + Aguas
-MXCM,Bebidas,Mixta Café+Malta
-MXDG,Bebidas,Mixta Dolce Gusto-Mixta Té Helado + Café + Modificadores
+MXCM,Bebidas,Mixta CafÃ©+Malta
+MXDG,Bebidas,Mixta Dolce Gusto-Mixta TÃ© Helado + CafÃ© + Modificadores
 MXJM,Bebidas,Mixta Jugos y Leches
-MXJS,Bebidas,Mixta Jugos Líquidos + Bebidas de Soja
-MXTC,Bebidas,Mixta Té+Café
+MXJS,Bebidas,Mixta Jugos LÃ­quidos + Bebidas de Soja
+MXTC,Bebidas,Mixta TÃ©+CafÃ©
 JUIC,Bebidas,Jugos Liquidos-Jugos Polvo
-PWDJ,Bebidas,Refrescos en Polvo-Jugos - Bebidas Instantáneas En Polvo - Jugos Polvo
+PWDJ,Bebidas,Refrescos en Polvo-Jugos - Bebidas InstantÃ¡neas En Polvo - Jugos Polvo
 RFDR,Bebidas,Bebidas Refrescantes
-RTDJ,Bebidas,Refrescos Líquidos-Jugos Líquidos
-RTEA,Bebidas,Té Líquido - Listo para Tomar
+RTDJ,Bebidas,Refrescos LÃ­quidos-Jugos LÃ­quidos
+RTEA,Bebidas,TÃ© LÃ­quido - Listo para Tomar
 SOYB,Bebidas,Bebidas de Soja
-SPDR,Bebidas,Bebidas Isotónicas
-TEAA,Bebidas,Té e Infusiones-Te-Infusión Hierbas
+SPDR,Bebidas,Bebidas IsotÃ³nicas
+TEAA,Bebidas,TÃ© e Infusiones-Te-InfusiÃ³n Hierbas
 YERB,Bebidas,Yerba Mate
 BUTT,Lacteos,Manteca
 CHEE,Lacteos,Queso Fresco y para Untar
@@ -1838,27 +1838,27 @@ CRCH,Lacteos,Queso Untable
 DYOG,Lacteos,Yoghurt p-beber
 EMLK,Lacteos,Leche Culinaria-Leche Evaporada
 FRMM,Lacteos,Leche Fermentada
-FMLK,Lacteos,Leche Líquida Saborizada-Leche Líquida Con Sabor
-FRMK,Lacteos,Fórmulas Infantiles
-LQDM,Lacteos,Leche Líquida
+FMLK,Lacteos,Leche LÃ­quida Saborizada-Leche LÃ­quida Con Sabor
+FRMK,Lacteos,FÃ³rmulas Infantiles
+LQDM,Lacteos,Leche LÃ­quida
 LLFM,Lacteos,Leche Larga Vida
 MARG,Lacteos,Margarina
 MCHE,Lacteos,Queso Fundido
 MKCR,Lacteos,Crema de Leche
-MXDI,Lacteos,Mixta Lácteos-Postre+Leches+Yogurt
+MXDI,Lacteos,Mixta LÃ¡cteos-Postre+Leches+Yogurt
 MXMI,Lacteos,Mixta Leches
 MXYD,Lacteos,Mixta Yoghurt+Postres
 PTSS,Lacteos,Petit Suisse
 PWDM,Lacteos,Leche en Polvo
 SYOG,Lacteos,Yoghurt p-comer
-MILK,Lacteos,Leche-Leche Líquida Blanca - Leche Liq. Natural
+MILK,Lacteos,Leche-Leche LÃ­quida Blanca - Leche Liq. Natural
 YOGH,Lacteos,Yoghurt
 CLOT,Ropas y Calzados,Ropas
 FOOT,Ropas y Calzados,Calzados
 SOCK,Ropas y Calzados,Medias-Calcetines
 AREP,Alimentos,Arepas
 BCER,Alimentos,Cereales Infantiles
-BABF,Alimentos,Nutrición Infantil-Colados y Picados
+BABF,Alimentos,NutriciÃ³n Infantil-Colados y Picados
 BEAN,Alimentos,Frijoles
 BISC,Alimentos,Galletas
 BOUI,Alimentos,Caldos-Caldos y Sazonadores
@@ -1877,21 +1877,21 @@ CBAR,Alimentos,Barras de Cereal
 CHCK,Alimentos,Pollo
 CHOC,Alimentos,Chocolate
 COCO,Alimentos,Chocolate de Taza-Achocolatados - Cocoas
-COLS,Alimentos,Salsas Frías
+COLS,Alimentos,Salsas FrÃ­as
 COMP,Alimentos,Compotas
 SPIC,Alimentos,Condimentos y Especias
 CKCH,Alimentos,Chocolate de Mesa
 COIL,Alimentos,Aceite-Aceites Comestibles
 CSAU,Alimentos,Salsas Listas-Salsas Caseras Envasadas
-CNML,Alimentos,"Grano, Harina y Masa de Maíz"
-CNST,Alimentos,Fécula de Maíz
-CNFL,Alimentos,Harina De Maíz
+CNML,Alimentos,"Grano, Harina y Masa de MaÃ­z"
+CNST,Alimentos,FÃ©cula de MaÃ­z
+CNFL,Alimentos,Harina De MaÃ­z
 CAID,Alimentos,Ayudantes Culinarios
 DESS,Alimentos,Postres Preparados
-DHAM,Alimentos,Jamón Endiablado
+DHAM,Alimentos,JamÃ³n Endiablado
 DFNS,Alimentos,Semillas y Frutos Secos
 EBRE,Alimentos,Pan de Pascua
-EEGG,Alimentos,Huevos de Páscua
+EEGG,Alimentos,Huevos de PÃ¡scua
 EGGS,Alimentos,Huevos
 FLSS,Alimentos,Flash Cecinas
 FLOU,Alimentos,Harinas
@@ -1903,15 +1903,15 @@ HCER,Alimentos,Cereales Calientes-Cereales Precocidos
 HOTS,Alimentos,Salsas Picantes
 ICEC,Alimentos,Helados
 IBRE,Alimentos,Pan Industrializado
-IMPO,Alimentos,Puré Instantáneo
-INOO,Alimentos,Fideos Instantáneos
+IMPO,Alimentos,PurÃ© InstantÃ¡neo
+INOO,Alimentos,Fideos InstantÃ¡neos
 JAMS,Alimentos,Mermeladas
 KETC,Alimentos,Ketchup
 LJDR,Alimentos,Jugo de Limon Adereso
 MALT,Alimentos,Maltas
 SEAS,Alimentos,Adobos - Sazonadores
 MAYO,Alimentos,Mayonesa
-MEAT,Alimentos,Cárnicos
+MEAT,Alimentos,CÃ¡rnicos
 MLKM,Alimentos,Modificadores de Leche-Saborizadores p-leche
 MXCO,Alimentos,Mixta Cereales Infantiles+Avenas
 MXBS,Alimentos,Mixta Caldos + Saborizantes
@@ -1922,7 +1922,7 @@ MXSN,Alimentos,"Galletas, snacks y mini tostadas"
 COBT,Alimentos,Aceites + Mantecas
 COCF,Alimentos,Aceites + Conservas De Pescado
 CABB,Alimentos,Ayudantes Culinarios + Bolsa de Hornear
-MXEC,Alimentos,Mixta Huevos de Páscua + Chocolates
+MXEC,Alimentos,Mixta Huevos de PÃ¡scua + Chocolates
 MXDP,Alimentos,Mixta Platos Listos Congelados + Pasta
 MXFR,Alimentos,Mixta Platos Congelados y Listos para Comer
 MXFM,Alimentos,Mixta Alimentos Congelados + Margarina
@@ -1930,7 +1930,7 @@ MXMC,Alimentos,Mixta Modificadores + Cocoa
 MXPS,Alimentos,Mixta Pastas
 MXSO,Alimentos,Mixta Sopas+Cremas+Ramen
 MXSP,Alimentos,Mixta Margarina + Mayonesa + Queso Crema
-MXSW,Alimentos,Mixta Azúcar+Endulzantes
+MXSW,Alimentos,Mixta AzÃºcar+Endulzantes
 MUST,Alimentos,Mostaza
 NDCR,Alimentos,Sustitutos de Crema
 NOOD,Alimentos,Fideos
@@ -1938,10 +1938,10 @@ NUGG,Alimentos,Nuggets
 OAFL,Alimentos,Avena en hojuelas-liquidas
 OLIV,Alimentos,Aceitunas
 PANC,Alimentos,Tortilla
-PANE,Alimentos,Panetón
+PANE,Alimentos,PanetÃ³n
 PAST,Alimentos,Pastas
 PSAU,Alimentos,Salsas para Pasta
-PNOU,Alimentos,Turrón de maní
+PNOU,Alimentos,TurrÃ³n de manÃ­
 PORK,Alimentos,Carne Porcina
 PPMX,Alimentos,Postres en Polvo-Postres para Preparar - Horneables-Gelificables
 PWSM,Alimentos,Leche de Soya en Polvo
@@ -1971,23 +1971,23 @@ SWSP,Alimentos,Untables Dulces
 SWEE,Alimentos,Endulzantes
 TOAS,Alimentos,Torradas - Tostadas
 TOMA,Alimentos,Salsas de Tomate
-TUNA,Alimentos,Atún Envasado
+TUNA,Alimentos,AtÃºn Envasado
 VMLK,Alimentos,Leche Vegetal
 WFLO,Alimentos,Harinas de trigo
 AIRC,Cuidado del Hogar,Ambientadores-Desodorante Ambiental
-BARS,Cuidado del Hogar,Jabón en Barra-Jabón de lavar
-BLEA,Cuidado del Hogar,Cloro-Lavandinas-Lejías-Blanqueadores
+BARS,Cuidado del Hogar,JabÃ³n en Barra-JabÃ³n de lavar
+BLEA,Cuidado del Hogar,Cloro-Lavandinas-LejÃ­as-Blanqueadores
 CBLK,Cuidado del Hogar,Pastillas para Inodoro
-CGLO,Cuidado del Hogar,Guantes de látex
-CLSP,Cuidado del Hogar,Esponjas de Limpieza-Esponjas y paños
+CGLO,Cuidado del Hogar,Guantes de lÃ¡tex
+CLSP,Cuidado del Hogar,Esponjas de Limpieza-Esponjas y paÃ±os
 CLTO,Cuidado del Hogar,Utensilios de Limpieza
-FILT,Cuidado del Hogar,Filtros de Café
+FILT,Cuidado del Hogar,Filtros de CafÃ©
 CRHC,Cuidado del Hogar,Cross Category (Limpiadores Domesticos)
-CRLA,Cuidado del Hogar,Cross Category (Lavandería)
+CRLA,Cuidado del Hogar,Cross Category (LavanderÃ­a)
 CRPA,Cuidado del Hogar,Cross Category (Productos de Papel)
 DISH,Cuidado del Hogar,Lavavajillas-Lavaplatos - Lavalozas mano
-DPAC,Cuidado del Hogar,Empaques domésticos-Bolsas plásticas-Plástico Adherente-Papel encerado-Papel aluminio
-DRUB,Cuidado del Hogar,Destapacañerias
+DPAC,Cuidado del Hogar,Empaques domÃ©sticos-Bolsas plÃ¡sticas-PlÃ¡stico Adherente-Papel encerado-Papel aluminio
+DRUB,Cuidado del Hogar,DestapacaÃ±erias
 FBRF,Cuidado del Hogar,Perfumantes para Ropa-Perfumes para Ropa
 FWAX,Cuidado del Hogar,Cera p-pisos
 FDEO,Cuidado del Hogar,Desodorante para Pies
@@ -2004,20 +2004,20 @@ MXHC,Cuidado del Hogar,Mixta Home Care-Cloro-Limpiadores-Ceras-Ambientadores
 MXCB,Cuidado del Hogar,Mixta Limpiadores + Cloro
 MXLB,Cuidado del Hogar,Mixta Detergentes + Cloro
 MXLD,Cuidado del Hogar,Mixta Detergentes + Lavavajillas
-CRTO,Cuidado del Hogar,Pañitos + Papel Higienico
+CRTO,Cuidado del Hogar,PaÃ±itos + Papel Higienico
 NAPK,Cuidado del Hogar,Servilletas
 PLWF,Cuidado del Hogar,Film plastico e papel aluminio
 SCOU,Cuidado del Hogar,Esponjas de Acero
 SOFT,Cuidado del Hogar,Suavizantes de Ropa
 STRM,Cuidado del Hogar,Quitamanchas-Desmanchadores
-TOIP,Cuidado del Hogar,Papel Higiénico
-WIPE,Cuidado del Hogar,Paños de Limpieza
-ANLG,OTC,Analgésicos-Painkillers
+TOIP,Cuidado del Hogar,Papel HigiÃ©nico
+WIPE,Cuidado del Hogar,PaÃ±os de Limpieza
+ANLG,OTC,AnalgÃ©sicos-Painkillers
 FSUP,OTC,Suplementos alimentares
 GMED,OTC,Gastrointestinales-Efervescentes
 VITA,OTC,Vitaminas y Calcio
-nan,Otros,Categoría Desconocida
-BATT,Otros,Pilas-Baterías
+nan,Otros,CategorÃ­a Desconocida
+BATT,Otros,Pilas-BaterÃ­as
 CGAS,Otros,Combustible Gas
 PFHH,Otros,Panel Financiero de Hogares
 PFIN,Otros,Panel Financiero de Hogares
@@ -2030,39 +2030,39 @@ ADIP,Cuidado Personal,Incontinencia de Adultos
 BSHM,Cuidado Personal,Shampoo Infantil
 RAZO,Cuidado Personal,Maquinas de Afeitar
 BDCR,Cuidado Personal,Cremas Corporales
-CWIP,Cuidado Personal,Paños Húmedos
+CWIP,Cuidado Personal,PaÃ±os HÃºmedos
 COMB,Cuidado Personal,Cremas para Peinar
-COND,Cuidado Personal,Acondicionador-Bálsamo
+COND,Cuidado Personal,Acondicionador-BÃ¡lsamo
 CRHY,Cuidado Personal,Cross Category (Higiene)
 CRPC,Cuidado Personal,Cross Category (Personal Care)
 DEOD,Cuidado Personal,Desodorantes
-DIAP,Cuidado Personal,Pañales-Pañales Desechables
+DIAP,Cuidado Personal,PaÃ±ales-PaÃ±ales Desechables
 FCCR,Cuidado Personal,Cremas Faciales
-FTIS,Cuidado Personal,Pañuelos Faciales
-FEMI,Cuidado Personal,Protección Femenina-Toallas Femeninas
+FTIS,Cuidado Personal,PaÃ±uelos Faciales
+FEMI,Cuidado Personal,ProtecciÃ³n Femenina-Toallas Femeninas
 FRAG,Cuidado Personal,Fragancias
 HAIR,Cuidado Personal,Cuidado del Cabello-Hair Care
-HRCO,Cuidado Personal,Tintes para el Cabello-Tintes - Tintura - Tintes y Coloración para el cabello
-HREM,Cuidado Personal,Depilación
+HRCO,Cuidado Personal,Tintes para el Cabello-Tintes - Tintura - Tintes y ColoraciÃ³n para el cabello
+HREM,Cuidado Personal,DepilaciÃ³n
 HRST,Cuidado Personal,Alisadores para el Cabello
 HSTY,Cuidado Personal,Fijadores para el Cabello-Modeladores-Gel-Fijadores para el cabello
 HRTR,Cuidado Personal,Tratamientos para el Cabello
-LINI,Cuidado Personal,Óleo Calcáreo
-MAKE,Cuidado Personal,Maquillaje-Cosméticos
-MEDS,Cuidado Personal,Jabón Medicinal
-CRDT,Cuidado Personal,Pañitos + Pañales
+LINI,Cuidado Personal,Ã“leo CalcÃ¡reo
+MAKE,Cuidado Personal,Maquillaje-CosmÃ©ticos
+MEDS,Cuidado Personal,JabÃ³n Medicinal
+CRDT,Cuidado Personal,PaÃ±itos + PaÃ±ales
 MXMH,Cuidado Personal,Mixta Make Up+Tinturas
 MOWA,Cuidado Personal,Enjuague Bucal-Refrescante Bucal
 ORAL,Cuidado Personal,Cuidado Bucal
 SPAD,Cuidado Personal,Protectores Femeninos
 STOW,Cuidado Personal,Toallas Femininas
 SHAM,Cuidado Personal,Shampoo
-SHAV,Cuidado Personal,Afeitado-Crema afeitar-Loción de afeitar-Pord. Antes del afeitado
+SHAV,Cuidado Personal,Afeitado-Crema afeitar-LociÃ³n de afeitar-Pord. Antes del afeitado
 SKCR,Cuidado Personal,Cremas Faciales y Corporales-Cremas de Belleza - Cremas Cuerp y Faciales
-SUNP,Cuidado Personal,Protección Solar
+SUNP,Cuidado Personal,ProtecciÃ³n Solar
 TALC,Cuidado Personal,Talcos-Talco para pies
 TAMP,Cuidado Personal,Tampones Femeninos
-TOIL,Cuidado Personal,Jabón de Tocador
+TOIL,Cuidado Personal,JabÃ³n de Tocador
 TOOB,Cuidado Personal,Cepillos Dentales
 TOOT,Cuidado Personal,Pastas Dentales
 BAGS,Material Escolar,Morrales y MAletas Escoalres
@@ -2070,38 +2070,38 @@ CLPC,Material Escolar,Lapices de Colores
 GRPC,Material Escolar,Lapices De Grafito
 MRKR,Material Escolar,Marcadores
 NTBK,Material Escolar,Cuadernos
-SCHS,Material Escolar,Útiles Escolares
-CSTD,Diversos,Estudio de Categorías
+SCHS,Material Escolar,Ãštiles Escolares
+CSTD,Diversos,Estudio de CategorÃ­as
 CORP,Diversos,Corporativa
 CROS,Diversos,Cross Category
-CRBA,Diversos,Cross Category (Bebés)
+CRBA,Diversos,Cross Category (BebÃ©s)
 CRBR,Diversos,"Cross Category (Desayuno)-Yogurt, Cereal, Pan y Queso"
 CRDT,Diversos,Cross Category (Diet y Light)
 CRDF,Diversos,Cross Category (Alimentos Secos)
 CRFO,Diversos,Cross Category (Alimentos)
-CRSA,Diversos,Cross Category (Salsas)-Mayonesas-Ketchup - Salsas Frías
+CRSA,Diversos,Cross Category (Salsas)-Mayonesas-Ketchup - Salsas FrÃ­as
 CRSN,Diversos,Cross Category (Snacks)
 DEMO,Diversos,Demo
 FLSH,Diversos,Flash
 HLVW,Diversos,Holistic View
-COCP,Diversos,Mezcla para café instantaneo y crema no láctea
+COCP,Diversos,Mezcla para cafÃ© instantaneo y crema no lÃ¡ctea
 CRSN,Diversos,Mezclas nutricionales y suplementos
 MULT,Diversos,Consolidado-Multicategory
 PCHK,Diversos,Pantry Check
 STCK,Diversos,Inventario
-MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Líquida Blanca
+MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche LÃ­quida Blanca
 FLWT,Alimentos,Agua Saborizada
 """
 categ = pd.read_csv(io.StringIO(CATEG_CSV_DATA), dtype={'cod': str, 'cest': str, 'cat': str})
 categ['cod'] = categ['cod'].str.strip().str.upper()
 CLIENT_NAME_SUFFIX_PATTERN = re.compile(r'[\s_-]*5w1h$', re.IGNORECASE)
-#obtém o país,categoria,cesta e fabricante para template e ppt
+#obtÃ©m o paÃ­s,categoria,cesta e fabricante para template e ppt
 base_dir = Path(__file__).resolve().parent
 os.chdir(base_dir)
 excel = select_excel_file(base_dir)
 file = pd.ExcelFile(str(base_dir / excel))
 W = file.sheet_names
-#Obtém o pais cesta categoria fabricante marca e idioma para o qual se fará o estudo
+#ObtÃ©m o pais cesta categoria fabricante marca e idioma para o qual se farÃ¡ o estudo
 excel_parts = excel.split('_')
 land = pais.loc[pais.cod==int(excel_parts[0]),'pais'].iloc[0]
 category_code = excel_parts[1].strip().upper()
@@ -2121,34 +2121,34 @@ brand = W[0][2:]
 c_w={
 ('P','1'):'1W - Quando?',
 ('P','2'):'2W - Por que?',
-('P','3-1'):'3W - O quê? Tamanhos',
-('P','3-2'):'3W - O quê? Marcas',
-('P','3-3'):'3W - O quê? Sabores',
+('P','3-1'):'3W - O quÃª? Tamanhos',
+('P','3-2'):'3W - O quÃª? Marcas',
+('P','3-3'):'3W - O quÃª? Sabores',
 ('P','4'):'4W - Quem? NSE',
-('P','5-1'):'5W - Onde? Regiões',
+('P','5-1'):'5W - Onde? RegiÃµes',
 ('P','5-2'):'5W - Onde? Canais',
 ('P','6'):'Players',
-('P','6-1'):'Players - Preço indexado',
-('E','1'):'1W - ¿Cuándo?',
+('P','6-1'):'Players - PreÃ§o indexado',
+('E','1'):'1W - Â¿CuÃ¡ndo?',
 ('E','2'):'2W - Por que?',
-('E','3-1'):'3W - ¿Qué tamaños?',
-('E','3-2'):'3W - ¿Qué marcas?',
-('E','3-3'):'3W - ¿Qué sabores?',
-('E','4'):'4W - ¿Quiénes? NSE (Nivel Socioeconómico)',
-('E','5-1'):'5W - ¿Dónde? Regiones',
-('E','5-2'):'5W - ¿Dónde? Canales',
+('E','3-1'):'3W - Â¿QuÃ© tamaÃ±os?',
+('E','3-2'):'3W - Â¿QuÃ© marcas?',
+('E','3-3'):'3W - Â¿QuÃ© sabores?',
+('E','4'):'4W - Â¿QuiÃ©nes? NSE (Nivel SocioeconÃ³mico)',
+('E','5-1'):'5W - Â¿DÃ³nde? Regiones',
+('E','5-2'):'5W - Â¿DÃ³nde? Canales',
 ('E','6'):'Players',
 ('E','6-1'):'Players - Precio indexado'
 }
 #Etiquetas dos slides
 labels  ={
 ('P','Data'):'Data',
-('P','MAT'):'Avaliação em Ano Móvel Acumulado',
-('P','Var MAT'):"em ano móvel",
-('P','comp'):"Concorrência do mercado de: ",
+('P','MAT'):'AvaliaÃ§Ã£o em Ano MÃ³vel Acumulado',
+('P','Var MAT'):"em ano mÃ³vel",
+('P','comp'):"ConcorrÃªncia do mercado de: ",
 ('E','Data'):'Fecha',
-('E','MAT'):'Evaluación en Año Móvil Acumulado',
-('E','Var MAT'):"en año móvil",
+('E','MAT'):'EvaluaciÃ³n en AÃ±o MÃ³vil Acumulado',
+('E','Var MAT'):"en aÃ±o mÃ³vil",
 ('E','comp'):"Competencia para el mercado de: "}
 class SeriesConfig(NamedTuple):
     data: pd.DataFrame
@@ -2261,7 +2261,7 @@ def hex_to_rgb_color(color_value: str) -> Optional[RGBColor]:
 
 def hex_to_ansi_color(color_value: str) -> Optional[str]:
     """
-    Converte un color HEX a un código ANSI de 24 bits para la terminal.
+    Converte un color HEX a un cÃ³digo ANSI de 24 bits para la terminal.
     """
     try:
         r, g, b = (int(round(val * 255)) for val in mcolors.to_rgb(color_value))
@@ -2351,7 +2351,7 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
     step_label = None
     brand_label = ''
-    # Precio indexado (6-1) siempre usa categoría
+    # Precio indexado (6-1) siempre usa categorÃ­a
     if sheet_clean.startswith('6-1') or sheet_clean.startswith('6_1'):
         step_label = 'Precio indexado'
         brand_label = category_name
@@ -2366,7 +2366,7 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
         brand_label = sheet_clean[2:].strip()
     elif first_char == '3':
         if suffix_char == '1':
-            step_label = '3W Tamaños'
+            step_label = '3W TamaÃ±os'
         elif suffix_char == '2':
             step_label = '3W Marcas'
         elif suffix_char == '3':
@@ -2516,24 +2516,43 @@ def parse_distribution_sheet(excel_file: pd.ExcelFile, sheet_name: str, client_n
     df = df[['Categoria'] + ordered_columns]
     ordered_headers = [col for col in ordered_columns if col]
     return df, ', '.join(ordered_headers)
-def plot_distribution_chart(df: pd.DataFrame, c_fig: int, color_lookup: Optional[dict[str, str]] = None) -> io.BytesIO:
+def plot_distribution_chart(
+    df: pd.DataFrame,
+    c_fig: int,
+    color_lookup: Optional[dict[str, str]] = None,
+    title: Optional[str] = None  # se conserva la firma para no romper llamadas previas
+) -> io.BytesIO:
     """
     Crea un grafico de barras agrupadas con etiquetas numericas para distribuciones R/NSE.
     """
     if df.empty or df.shape[1] <= 1:
         fig, ax = plt.subplots(num=c_fig)
         ax.axis('off')
-        return figure_to_stream(fig, bbox_inches=None)
+        return figure_to_stream(fig)
     categories = df['Categoria'].tolist()
     series_names = [col for col in df.columns if col != 'Categoria']
-    n_series = len(series_names)
+    filtered_series: list[tuple[str, pd.Series]] = []
+    for serie_name in series_names:
+        values_raw = pd.to_numeric(df[serie_name], errors='coerce')
+        if values_raw.dropna().empty:
+            continue
+        values = values_raw.fillna(0)
+        if values.replace(0, np.nan).dropna().empty:
+            continue
+        filtered_series.append((serie_name, values))
+    if not categories or not filtered_series:
+        fig, ax = plt.subplots(num=c_fig, figsize=(8, 4), dpi=DEFAULT_EXPORT_DPI)
+        ax.axis('off')
+        return figure_to_stream(fig)
+    n_series = len(filtered_series)
     x = np.arange(len(categories))
     width = 0.8 / max(n_series, 1)
-    fig_height = max(4.5, 0.7 * len(categories))
-    fig_height = max(6.0, 0.9 * len(categories))
-    fig, ax = plt.subplots(num=c_fig, figsize=(10, fig_height), dpi=DEFAULT_EXPORT_DPI)
+    fig_width = max(10.0, min(16.0, 1.3 * len(categories)))
+    fig_height = max(6.5, min(12.0, 2.5 + 0.9 * len(categories)))
+    fig, ax = plt.subplots(num=c_fig, figsize=(fig_width, fig_height), dpi=DEFAULT_EXPORT_DPI)
     fig.patch.set_facecolor('#FFFFFF')
     ax.set_facecolor('#F9FAFB')
+    ax.set_axisbelow(True)
     palette_lookup = dict(color_lookup) if color_lookup is not None else dict(BRAND_TITLE_COLOR_LOOKUP)
     def _is_total_label(label: str) -> bool:
         return isinstance(label, str) and 'total' in label.lower()
@@ -2548,32 +2567,48 @@ def plot_distribution_chart(df: pd.DataFrame, c_fig: int, color_lookup: Optional
         palette_index += 1
         return color_val
     bars_by_series = []
+    legend_handles = []
+    legend_labels = []
     max_val = 0.0
-    for idx, serie_name in enumerate(series_names):
-        values = pd.to_numeric(df[serie_name], errors='coerce').fillna(0)
+    for idx, (serie_name, values) in enumerate(filtered_series):
+        base_color = lookup_color_for_label(serie_name, palette_lookup)
         if _is_total_label(serie_name):
             color_val = '#000000'
-            register_color_lookup(serie_name, color_val, palette_lookup, overwrite=True)
+        elif base_color:
+            color_val = base_color
         else:
             color_val = _next_palette_color()
-            register_color_lookup(serie_name, color_val, palette_lookup, overwrite=True)
+        register_color_lookup(serie_name, color_val, palette_lookup, overwrite=True)
         offset = (idx - (n_series - 1) / 2) * width
-        bars = ax.bar(x + offset, values, width, label=serie_name, color=color_val, edgecolor=BAR_EDGE_COLOR, alpha=0.9)
+        bars = ax.bar(
+            x + offset,
+            values,
+            width,
+            label=serie_name,
+            color=color_val,
+            edgecolor=BAR_EDGE_COLOR,
+            alpha=0.9
+        )
         bars_by_series.append((bars, values))
+        legend_handles.append(bars)
+        legend_labels.append(serie_name)
         serie_max = values.max() if not values.empty else 0
         if np.isfinite(serie_max):
             max_val = max(max_val, float(serie_max))
     ax.set_xticks(x)
-    ax.set_xticklabels(categories, rotation=30, fontweight='normal')
-    ax.set_ylabel('%', fontweight='bold')
+    ax.set_xticklabels(categories, rotation=30, ha='right', fontweight='normal', fontsize=10)
+    ax.tick_params(axis='x', pad=8)
+    ax.tick_params(axis='y', labelsize=10, pad=2)
+    ax.set_ylabel('%', fontweight='bold', fontsize=11, labelpad=10)
     ax.grid(axis='y', linestyle='--', alpha=0.45, color='#D9D9D9')
+    ax.margins(x=0.02)
     for spine in ax.spines.values():
         spine.set_visible(False)
     limit = max_val * 1.15 if max_val > 0 else None
     if limit:
         ax.set_ylim(0, limit)
-    # Destaca solo el valor mÇüs alto y mÇüs bajo vs Total en cada categorÇða
-    total_idx = next((idx for idx, name in enumerate(series_names) if _is_total_label(name)), None)
+    ax.set_xlim(-0.5, len(categories) - 0.5)
+    total_idx = next((idx for idx, (name, _) in enumerate(filtered_series) if _is_total_label(name)), None)
     highlight_map: dict[tuple[int, int], str] = {}
     if total_idx is not None:
         for cat_idx in range(len(categories)):
@@ -2602,20 +2637,13 @@ def plot_distribution_chart(df: pd.DataFrame, c_fig: int, color_lookup: Optional
                 highlight_map[(max_entry[0], cat_idx)] = BAR_LABEL_COLOR_POS_ALT
             if min_entry[1] < 0:
                 highlight_map[(min_entry[0], cat_idx)] = BAR_LABEL_COLOR_NEG_ALT
-    base_gap = max(max_val * 0.01, 0.15)
-    step_gap = max(max_val * 0.0025, 0.02)
-    min_gap = max(max_val * 0.015, 0.25)
-    last_label_y_by_cat = [0.0 for _ in range(len(categories))]
+    label_padding = max(max_val * 0.01, 0.05)
     max_label_y = 0.0
     for serie_idx, (bars, values) in enumerate(bars_by_series):
         for cat_idx, (bar, value) in enumerate(zip(bars, values)):
             label_val = f"{value:.1f}" if abs(value) >= 10 else f"{value:.2f}"
             color_val = highlight_map.get((serie_idx, cat_idx), TABLE_TEXT_PRIMARY)
-            y_offset = base_gap + serie_idx * step_gap
-            proposed_y = bar.get_height() + y_offset
-            if proposed_y <= last_label_y_by_cat[cat_idx] + min_gap:
-                proposed_y = last_label_y_by_cat[cat_idx] + min_gap
-            last_label_y_by_cat[cat_idx] = proposed_y
+            proposed_y = bar.get_height() + label_padding
             if proposed_y > max_label_y:
                 max_label_y = proposed_y
             ax.text(
@@ -2628,25 +2656,33 @@ def plot_distribution_chart(df: pd.DataFrame, c_fig: int, color_lookup: Optional
                 fontsize=9,
                 fontweight='normal',
                 color=color_val,
-                bbox=dict(boxstyle='round,pad=0.18', facecolor='#FFFFFF', edgecolor='none', alpha=0.8)
+                clip_on=False
             )
     if max_label_y > 0:
         ylim_bottom, ylim_top = ax.get_ylim()
-        target_top = max(ylim_top, max_label_y * 1.05)
+        extra_top = max(max_val * 0.03, label_padding)
+        target_top = max(ylim_top, max_label_y + extra_top)
         ax.set_ylim(ylim_bottom, target_top)
     legend = ax.legend(
+        legend_handles,
+        legend_labels,
         frameon=True,
         loc='upper center',
-        bbox_to_anchor=(0.5, -0.12),
-        ncol=max(1, min(3, len(series_names))),
-        borderaxespad=0.4
+        bbox_to_anchor=(0.5, 1.02),
+        ncol=max(1, len(legend_labels)),
+        borderaxespad=0.2,
+        columnspacing=1.0,
+        handlelength=1.4,
+        handletextpad=0.4
     )
     if legend:
         legend.get_frame().set_facecolor('#FFFFFF')
         legend.get_frame().set_edgecolor('#CCCCCC')
         legend.get_frame().set_alpha(0.95)
-    fig.tight_layout(rect=[0, 0.02, 1, 0.95])
-    return figure_to_stream(fig, bbox_inches=None)
+    # Ajuste manual de margenes para minimizar aire sin recortar textos
+    fig.subplots_adjust(top=0.85, bottom=0.1, left=0.06, right=0.98)
+    return figure_to_stream(fig)
+
 def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
     warning_context = f" en la hoja {sheet_name}" if sheet_name else ""
     normalized_columns = [
@@ -2930,7 +2966,7 @@ def build_price_index_slide(
     comment_tf = comment_box.text_frame
     comment_tf.clear()
     comment_paragraph = comment_tf.paragraphs[0]
-    comment_paragraph.text = "Comentário" if lang == 'P' else "Comentario"
+    comment_paragraph.text = "ComentÃ¡rio" if lang == 'P' else "Comentario"
     comment_paragraph.font.size = Inches(0.25)
     chart_share_lookup = chart_share_lookup or {}
     if not price_df.empty and price_df.shape[1] > 1:
@@ -3099,6 +3135,16 @@ for w in W:
         available_width_emu = available_width(ppt, left_margin, right_margin)
         c_fig += 1
         chart_height = max(Cm(12), Cm(11) + Cm(0.45) * len(dist_df))
+        chart_height_in = emu_to_inches(int(chart_height))
+        slide_height_in = emu_to_inches(int(ppt.slide_height))
+        comment_top_in = emu_to_inches(int(Inches(6.33)))
+        max_height_in = min(
+            slide_height_in - CHART_TOP_INCH - 0.3,
+            comment_top_in - CHART_TOP_INCH - 0.2
+        )
+        if max_height_in > 0:
+            chart_height_in = min(chart_height_in, max_height_in)
+        chart_height = Inches(chart_height_in)
         chart_stream = plot_distribution_chart(dist_df, c_fig, BRAND_TITLE_COLOR_LOOKUP)
         slide.shapes.add_picture(
             chart_stream,
@@ -3247,7 +3293,7 @@ for w in W:
         comment_para = comment_tf.paragraphs[0]
         comment_para.text = "Comentario"
         comment_para.font.size = Inches(0.25)
-        # No imprimimos mensaje de finalización para mantener la terminal concisa
+        # No imprimimos mensaje de finalizaciÃ³n para mantener la terminal concisa
         continue
     #1- Quando, grafico de variacoes MAT
     if w[0]=='1':
@@ -3264,29 +3310,29 @@ for w in W:
         title_prefix = c_w[(lang,w[0])]+' '+ labels[(lang,'MAT')]+' | '
         title_brand = w[2:].strip()
         set_title_with_brand_color(tf, title_prefix, title_brand, '', 0.35, BRAND_TITLE_COLOR_LOOKUP)
-        #Obtém pipeline das vendas
+        #ObtÃ©m pipeline das vendas
         p=int(sheet_df.columns[1].split("_")[1])
         #Cria a base
         mat=df_mat(sheet_df,p)
         last_reference_source = mat
         last_reference_origin = None
-        #Elimina linhas com divisão com zero devido ao pipeline
+        #Elimina linhas com divisÃ£o com zero devido ao pipeline
         mat=mat[~np.isinf(mat.iloc[:, 3])]
-        #Incrementa contador do gráfico
+        #Incrementa contador do grÃ¡fico
         c_fig+=1
-        #Insere o gráfico do MAT
+        #Insere o grÃ¡fico do MAT
         left_margin = Inches(0.33)
         right_margin = Inches(0.33)
         available = available_width(ppt, left_margin, right_margin)
         pic=slide.shapes.add_picture(graf_mat(mat,c_fig,p), left_margin, Inches(CHART_TOP_INCH),width=available)
-        #Insere caixa de texto para comentário do slide
+        #Insere caixa de texto para comentÃ¡rio do slide
         txTitle = slide.shapes.add_textbox(Inches(0.33), Inches(5.8), Inches(10), Inches(0.5))
         tf = txTitle.text_frame
         tf.clear()
         t = tf.paragraphs[0]
-        t.text = "Comentário"
+        t.text = "ComentÃ¡rio"
         t.font.size = Inches(0.28)
-        #Limpa área de plotagem
+        #Limpa Ã¡rea de plotagem
         plt.clf()
         #mensaje de conclusion por cada slide
     #Outros
@@ -3326,12 +3372,12 @@ for w in W:
             title_prefix = c_w[(lang,w[0])]+' | '+ w[2:] 
             titulo = title_prefix
         set_title_with_brand_color(tf, title_prefix, title_brand_label, '', title_font_inches, title_color_lookup, title_palette_sequence)
-        #Insere caixa de texto para comentário do slide
+        #Insere caixa de texto para comentÃ¡rio do slide
         txTitle = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
         tf = txTitle.text_frame
         tf.clear()
         t = tf.paragraphs[0]
-        t.text ="Comentário"
+        t.text ="ComentÃ¡rio"
         t.font.size= Inches(0.25)
         # Control para la tabla de aporte
         target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
@@ -3399,7 +3445,7 @@ for w in W:
             footer_tf = footer_box.text_frame
             footer_tf.clear()
             footer_tf.word_wrap = True
-            footer_tf.text = "Se eliminaron los encabezados sin información: " + ", ".join(unique_removed_headers)
+            footer_tf.text = "Se eliminaron los encabezados sin informaciÃ³n: " + ", ".join(unique_removed_headers)
             footer_run = footer_tf.paragraphs[0].runs[0]
             footer_font = footer_run.font
             footer_font.name = 'Arial'
@@ -3744,7 +3790,7 @@ for w in W:
                             }
                         )
         if render_share_items:
-            delta_header = 'Crescimento vs ano anterior' if lang == 'P' else 'Crecimiento vs año anterior'
+            delta_header = 'Crescimento vs ano anterior' if lang == 'P' else 'Crecimiento vs aÃ±o anterior'
             share_slide = ppt.slides.add_slide(ppt.slide_layouts[1])
             share_title_box = share_slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
             share_tf = share_title_box.text_frame
@@ -3762,7 +3808,7 @@ for w in W:
             comment_tf = comment_box.text_frame
             comment_tf.clear()
             comment_paragraph = comment_tf.paragraphs[0]
-            comment_paragraph.text = "Comentário"
+            comment_paragraph.text = "ComentÃ¡rio"
             comment_paragraph.font.size = Inches(0.25)
             chart_top = Inches(0.55)
             multiple_sections = len(render_share_items) > 1
@@ -3937,3 +3983,4 @@ print_colored(
     else f'Tiempo de generacion de graficos : {chart_elapsed} s',
     COLOR_BLUE
 )
+
