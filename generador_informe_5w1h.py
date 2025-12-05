@@ -2353,26 +2353,33 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     sheet_clean = sheet_name.strip()
     if not sheet_clean:
         return None
+    distribution_match = DISTRIBUTION_SHEET_PATTERN.match(sheet_clean)
     first_char = sheet_clean[0]
     suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
     step_label = None
     brand_label = ''
-    # Precio indexado (6-1) siempre usa categorÃ­a
+    # Distribución (segmento 7) detectada por patrón 7_*_(R|NSE)
+    if distribution_match:
+        dist_kind = distribution_match.group(2).upper()
+        category_segment = distribution_match.group(1).replace('.', ' ').strip()
+        step_label = '7W Distribución Regiones' if dist_kind == 'R' else '7W Distribución NSE'
+        brand_label = category_segment
+    # Precio indexado (6-1) siempre usa categoría
     if sheet_clean.startswith('6-1') or sheet_clean.startswith('6_1'):
         step_label = 'Precio indexado'
         brand_label = category_name
-    elif first_char == '6':
+    elif step_label is None and first_char == '6':
         step_label = 'Players'
         brand_label = category_name
-    elif first_char == '5':
+    elif step_label is None and first_char == '5':
         step_label = '5W Regiones' if suffix_char == '1' else '5W Canales' if suffix_char == '2' else '5W'
         brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else ''
-    elif first_char == '4':
+    elif step_label is None and first_char == '4':
         step_label = '4W NSE'
         brand_label = sheet_clean[2:].strip()
-    elif first_char == '3':
+    elif step_label is None and first_char == '3':
         if suffix_char == '1':
-            step_label = '3W TamaÃ±os'
+            step_label = '3W Tamaños'
         elif suffix_char == '2':
             step_label = '3W Marcas'
         elif suffix_char == '3':
@@ -2380,11 +2387,11 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
         else:
             step_label = '3W'
         brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else sheet_clean[2:].strip()
-    elif first_char == '2':
-        step_label = '2W Por que'
+    elif step_label is None and first_char == '2':
+        step_label = '2W Por qué'
         brand_label = sheet_clean[2:].strip()
-    elif first_char == '1':
-        step_label = '1W Cuando'
+    elif step_label is None and first_char == '1':
+        step_label = '1W Cuándo'
         brand_label = sheet_clean[2:].strip()
     if step_label is None:
         return None
@@ -4054,4 +4061,3 @@ print_colored(
     else f'Tiempo de generacion de graficos : {chart_elapsed} s',
     COLOR_BLUE
 )
-
