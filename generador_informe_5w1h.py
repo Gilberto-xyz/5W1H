@@ -2594,8 +2594,9 @@ def plot_distribution_chart(
         ax.axis('off')
         fig_size = fig.get_size_inches()
         return figure_to_stream(fig), (float(fig_size[0]), float(fig_size[1]))
-    # Descarta categorias cuyo valor sea 100 para todas las series (evita barras "planas" de referencia)
+    # Descarta categorias cuyo valor sea ~100 para todas las series (evita barras "planas" de referencia)
     keep_mask = []
+    tol_100 = 0.1  # tolerancia para considerar un valor como 100
     for cat_idx in range(len(categories)):
         vals_at_cat = []
         for _, serie_vals in filtered_series:
@@ -2605,10 +2606,16 @@ def plot_distribution_chart(
                 continue
             if np.isfinite(val):
                 vals_at_cat.append(val)
-        if vals_at_cat and all(abs(v - 100.0) < 1e-6 for v in vals_at_cat):
-            keep_mask.append(False)
+        if vals_at_cat:
+            max_v = max(vals_at_cat)
+            min_v = min(vals_at_cat)
+            if abs(max_v - 100.0) <= tol_100 and abs(min_v - 100.0) <= tol_100:
+                keep_mask.append(False)
+                continue
         else:
-            keep_mask.append(True)
+            keep_mask.append(False)
+            continue
+        keep_mask.append(True)
     if not any(keep_mask):
         fig, ax = plt.subplots(num=c_fig, figsize=(8, 4), dpi=DEFAULT_EXPORT_DPI)
         ax.axis('off')
@@ -2707,19 +2714,19 @@ def plot_distribution_chart(
     if limit:
         ax.set_ylim(0, limit)
     ax.set_xlim(-0.5, len(categories) - 0.5)
-    total_idx = next((idx for idx, (name, _) in enumerate(filtered_series) if _is_total_label(name)), None)
+    ref_idx = 0 if filtered_series else None
     highlight_map: dict[tuple[int, int], str] = {}
-    if total_idx is not None:
+    if ref_idx is not None and len(filtered_series) > 1:
         for cat_idx in range(len(categories)):
             try:
-                total_val = float(bars_by_series[total_idx][1].iloc[cat_idx])
+                ref_val = float(bars_by_series[ref_idx][1].iloc[cat_idx])
             except Exception:
-                total_val = None
-            if total_val is None or not np.isfinite(total_val):
+                ref_val = None
+            if ref_val is None or not np.isfinite(ref_val):
                 continue
             diffs = []
             for s_idx, (_, vals) in enumerate(bars_by_series):
-                if s_idx == total_idx:
+                if s_idx == ref_idx:
                     continue
                 try:
                     val = float(vals.iloc[cat_idx])
@@ -2727,7 +2734,7 @@ def plot_distribution_chart(
                     continue
                 if not np.isfinite(val):
                     continue
-                diffs.append((s_idx, val - total_val))
+                diffs.append((s_idx, val - ref_val))
             if not diffs:
                 continue
             max_entry = max(diffs, key=lambda t: t[1])
