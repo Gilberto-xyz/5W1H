@@ -72,6 +72,7 @@ BAR_LABEL_COLOR_POS = '#1E8449'
 BAR_LABEL_COLOR_NEG = '#8B0000'
 BAR_LABEL_COLOR_POS_ALT = '#27AE60'
 BAR_LABEL_COLOR_NEG_ALT = '#C0392B'
+REFERENCE_SERIES_COLOR = '#6E6E6E'
 ANNOTATION_BOX_FACE = '#F2F2F2'
 ANNOTATION_BOX_EDGE = 'black'
 TREND_COLOR_PALETTE = {
@@ -2489,11 +2490,52 @@ def ensure_date_column(df: pd.DataFrame, sheet_name: Optional[str] = None, date_
     df_copy = df.copy()
     df_copy.iloc[:, 0] = parsed
     return df_copy
-DISTRIBUTION_SHEET_PATTERN = re.compile(r'^7_([^_]+)_([^_]+)$', re.IGNORECASE)
+DISTRIBUTION_SHEET_PATTERN = re.compile(r'^7[-_](.+?)[-_](.+)$', re.IGNORECASE)
 def _normalize_simple(text: str) -> str:
     normalized = unicodedata.normalize('NFKD', str(text))
     normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
     return normalized.lower().strip()
+def _is_distribution_total_row(cat_value, row_values: pd.Series) -> bool:
+    """
+    Detecta filas de totales/resumen que no deben graficarse en distribuciones.
+    Conserva filas como "Total Guatemala" o similares siempre que los valores
+    no sean uniformes.
+    """
+    if not isinstance(cat_value, str):
+        return False
+    normalized = _normalize_simple(cat_value)
+    if not normalized or 'total' not in normalized:
+        return False
+    numeric_vals = pd.to_numeric(row_values, errors='coerce').dropna()
+    if numeric_vals.empty:
+        return True
+    unique_vals = pd.Series(np.round(numeric_vals, 3)).unique()
+    if len(unique_vals) == 1:
+        return True
+    if np.allclose(numeric_vals, 100, atol=0.5):
+        return True
+    return False
+def _find_distribution_header_indices(raw_df: pd.DataFrame) -> tuple[Optional[int], Optional[int]]:
+    """
+    Busca una fila de encabezados cuando no hay ancla "table/Compras".
+    Heuristica: una fila con al menos dos celdas no vacías (col 1+) y la fila
+    siguiente con al menos un número, asumiendo que es cabecera + datos.
+    """
+    if raw_df is None or raw_df.empty:
+        return None, None
+    max_scan = min(raw_df.shape[0] - 1, 12)
+    for idx in range(max_scan):
+        row_rest = raw_df.iloc[idx, 1:]
+        non_empty = row_rest.dropna().astype(str).str.strip()
+        if (non_empty != '').sum() < 2:
+            continue
+        next_row = raw_df.iloc[idx + 1, 1:] if idx + 1 < raw_df.shape[0] else None
+        if next_row is None:
+            continue
+        numeric_count = pd.to_numeric(next_row, errors='coerce').count()
+        if numeric_count >= 1:
+            return idx, idx + 1
+    return None, None
 def parse_distribution_sheet(excel_file: pd.ExcelFile, sheet_name: str, client_name: str) -> tuple[pd.DataFrame, str]:
     """
     Extrae la distribucion (R/NSE) desde las hojas 7_*_*.
@@ -2519,13 +2561,19 @@ def parse_distribution_sheet(excel_file: pd.ExcelFile, sheet_name: str, client_n
         if _cell_has_anchor(first_cell):
             table_anchor_idx = idx
             break
+    header_idx = None
+    data_start_idx = None
     if table_anchor_idx is not None and table_anchor_idx + 1 < raw_df.shape[0]:
-        # Usamos la fila del ancla para leer los encabezados reales (col 0 tiene meta "table/Compras")
-        header_row = raw_df.iloc[table_anchor_idx, 1:]
-        data_block = raw_df.iloc[table_anchor_idx + 1 :, :]
-    else:
-        header_row = raw_df.iloc[1, 1:]
-        data_block = raw_df.iloc[2:, :]
+        header_idx = table_anchor_idx
+        data_start_idx = table_anchor_idx + 1
+    if header_idx is None:
+        header_idx, data_start_idx = _find_distribution_header_indices(raw_df)
+    if header_idx is None:
+        header_idx, data_start_idx = 1, 2
+    if data_start_idx is None or data_start_idx >= raw_df.shape[0]:
+        return pd.DataFrame(columns=['Categoria']), ''
+    header_row = raw_df.iloc[header_idx, 1:]
+    data_block = raw_df.iloc[data_start_idx:, :]
     categories = data_block.iloc[:, 0].astype(str).str.strip()
     df = pd.DataFrame({'Categoria': categories})
     series_headers: list[str] = []
@@ -2550,7 +2598,7 @@ def parse_distribution_sheet(excel_file: pd.ExcelFile, sheet_name: str, client_n
     if not value_columns:
         return pd.DataFrame(columns=['Categoria']), ''
     df = df.dropna(subset=value_columns, how='all')
-    df = df[~df['Categoria'].str.contains('total', case=False, na=False)]
+    df = df[~df.apply(lambda row: _is_distribution_total_row(row['Categoria'], row[value_columns]), axis=1)]
     def _is_total_label(label: str) -> bool:
         return isinstance(label, str) and 'total' in label.lower()
     total_columns = [col for col in value_columns if _is_total_label(col)]
@@ -2658,7 +2706,18 @@ def plot_distribution_chart(
     palette_lookup = {}
     def _is_total_label(label: str) -> bool:
         return isinstance(label, str) and 'total' in label.lower()
-    register_color_lookup('Total', '#000000', palette_lookup, overwrite=True)
+    def _is_reference_total_series(label: str, serie_values: pd.Series, tol: float = 0.5) -> bool:
+        """
+        Considera serie de referencia solo si contiene 'total' y sus valores ~100.
+        Evita pintar de negro series con 'total' en el nombre que no son totales reales.
+        """
+        if not _is_total_label(label):
+            return False
+        numeric_vals = pd.to_numeric(serie_values, errors='coerce')
+        numeric_vals = numeric_vals[np.isfinite(numeric_vals)]
+        if numeric_vals.empty:
+            return False
+        return np.allclose(numeric_vals, 100.0, atol=tol)
     if TREND_COLOR_PALETTE:
         palette_values = [
             TREND_COLOR_PALETTE[key]
@@ -2677,9 +2736,9 @@ def plot_distribution_chart(
     legend_labels = []
     max_val = 0.0
     for idx, (serie_name, values) in enumerate(filtered_series):
-        # Primer serie siempre negra; las siguientes usan la paleta respetando Total
-        if idx == 0 or _is_total_label(serie_name):
-            color_val = '#000000'
+        is_total_series = _is_reference_total_series(serie_name, values)
+        if idx == 0 or is_total_series:
+            color_val = REFERENCE_SERIES_COLOR
         else:
             color_val = palette_values[palette_index % len(palette_values)]
             palette_index += 1
