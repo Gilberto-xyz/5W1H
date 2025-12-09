@@ -28,7 +28,7 @@ from typing import NamedTuple, Optional
 from pathlib import Path
 from collections import OrderedDict
 
-# Fuerza E/S en UTF-8 para soportar acentos y Ã± en la terminal de Windows
+# Fuerza E/S en UTF-8 para soportar acentos y ñ en la terminal de Windows
 def _configure_utf8_io():
     try:
         os.environ.setdefault('PYTHONUTF8', '1')
@@ -38,7 +38,7 @@ def _configure_utf8_io():
             if stream is not None and hasattr(stream, 'reconfigure'):
                 stream.reconfigure(encoding='utf-8')
     except Exception:
-        # Si la consola no soporta reconfigure, seguimos sin romper ejecuciÃ³n
+        # Si la consola no soporta reconfigure, seguimos sin romper ejecución
         pass
 
 _configure_utf8_io()
@@ -147,7 +147,7 @@ TREND_COLOR_PALETTE = {
     'trend_70': '#3F51B5'
 }
 TREND_COLOR_SEQUENCE = list(TREND_COLOR_PALETTE.values())
-# Paleta reservada para tÃ­tulos de Competencia: usa los Ãºltimos colores para no interferir con los de marcas.
+# Paleta reservada para títulos de Competencia: usa los últimos colores para no interferir con los de marcas.
 COMPETITION_TITLE_PALETTE = list(reversed(TREND_COLOR_SEQUENCE[-8:]))
 TABLE_WRAP_WIDTH = 14
 DISPLAY_TREND_REFERENCE_TEXT = False
@@ -158,7 +158,7 @@ TREND_SCALE_RULES = [
         "suffix": "T",
         "reference": {
             'E': 'Valores expresados en billones',
-            'P': 'Valores expressos em trilhÃµes',
+            'P': 'Valores expressos em trilhões',
             'default': 'Values expressed in trillions'
         }
     },
@@ -168,7 +168,7 @@ TREND_SCALE_RULES = [
         "suffix": "B",
         "reference": {
             'E': 'Valores expresados en miles de millones',
-            'P': 'Valores expressos em bilhÃµes',
+            'P': 'Valores expressos em bilhões',
             'default': 'Values expressed in billions'
         }
     },
@@ -178,7 +178,7 @@ TREND_SCALE_RULES = [
         "suffix": "M",
         "reference": {
             'E': 'Valores expresados en millones',
-            'P': 'Valores expressos em milhÃµes',
+            'P': 'Valores expressos em milhões',
             'default': 'Values expressed in millions'
         }
     },
@@ -204,7 +204,7 @@ TREND_SCALE_RULES = [
     },
 ]
 MONTH_NAMES = {
-    'P': ['Janeiro', 'Fevereiro', 'MarÃ§o', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
+    'P': ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
     'E': ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 }
 def colorize(text: str, color: str = COLOR_BLUE) -> str:
@@ -313,7 +313,7 @@ def figure_to_stream(
 pd.set_option('future.no_silent_downcasting', True)
 pd.set_option('mode.chained_assignment', None)
 warnings.filterwarnings('ignore')
-#Funcao que prepara os dados para criaÃ§Ã£o do grÃ¡fico MAT
+#Funcao que prepara os dados para criação do gráfico MAT
 def df_mat(df,p):
     v1 = pd.DataFrame([(df.iloc[i-12-p:i-p,1].sum()/df.iloc[i-24-p:i-12-p,1].sum()) - 1 if i >= 24 else np.nan for i in range(12, len(df)+1)],columns=['Var Sell-in'])
     v2 = pd.DataFrame([(df.iloc[i-12:i,2].sum()/df.iloc[i-24:i-12,2].sum()) - 1 if i >= 24 else np.nan for i in range(12, len(df)+1)],columns=['Var Sell-out'])
@@ -424,9 +424,9 @@ def line_graf(
     show_title=True,
 ):
     """
-    Renderiza la grÃ¡fica de tendencias y devuelve un buffer PNG listo para insertar en la slide.
-    Cuando se generan mÃºltiples grÃ¡ficos en la misma diapositiva (multi_chart=True), se aplican
-    mÃ¡rgenes mÃ¡s amplios para evitar recortes visuales.
+    Renderiza la gráfica de tendencias y devuelve un buffer PNG listo para insertar en la slide.
+    Cuando se generan múltiples gráficos en la misma diapositiva (multi_chart=True), se aplican
+    márgenes más amplios para evitar recortes visuales.
     """
     if width_emu is not None:
         try:
@@ -455,9 +455,9 @@ def line_graf(
     width_inches = emu_to_inches(width_emu) if width_emu is not None else None
     height_inches = emu_to_inches(height_emu) if height_emu is not None else None
     if width_inches is None and height_inches is None:
-        # Ancho dinÃ¡mico segÃºn cantidad de datos (en pulgadas)
+        # Ancho dinámico según cantidad de datos (en pulgadas)
         n_points = len(df)
-        ancho = max(15, n_points * 0.5)  # 0.5 puede ajustarse para mÃ¡s/menos espacio (pulgadas)
+        ancho = max(15, n_points * 0.5)  # 0.5 puede ajustarse para más/menos espacio (pulgadas)
         # Altura fija de 10 cm -> convertir a pulgadas
         altura = emu_to_inches(Cm(10))
         figsize = (ancho, altura)
@@ -468,7 +468,7 @@ def line_graf(
             height_inches = width_inches / DEFAULT_LINE_CHART_RATIO
         figsize = (width_inches, height_inches)
     fig, ax = plt.subplots(num=c_fig, figsize=figsize, dpi=DEFAULT_EXPORT_DPI)
-    # Escalar elementos (fuentes, linewidth) segÃºn la altura para que el contenido se adapte
+    # Escalar elementos (fuentes, linewidth) según la altura para que el contenido se adapte
     # Se toma como referencia la altura original de 5 pulgadas usada previamente
     ref_height = 5.0
     actual_height = figsize[1]
@@ -641,10 +641,10 @@ def line_graf(
     # Margen de los datos dentro del eje
     ax.margins(x=chart_x_margin, y=0.08)
 
-    # --- ParÃ¡metros de separaciÃ³n en coordenadas de figura ---
-    # para grÃ¡ficos "sencillos" vs "multi" (muchas series)
-    base_gap = 0.075 if not detected_multi else 0.070         # espacio visual tÃ­pico
-    min_axes_legend_gap = 0.070 if not detected_multi else 0.080  # mÃ­nimo absoluto entre eje y leyenda
+    # --- Parámetros de separación en coordenadas de figura ---
+    # para gráficos "sencillos" vs "multi" (muchas series)
+    base_gap = 0.075 if not detected_multi else 0.070         # espacio visual típico
+    min_axes_legend_gap = 0.070 if not detected_multi else 0.080  # mínimo absoluto entre eje y leyenda
     margin_buffer = 0.020                                      # margen al borde inferior de la figura
 
     legend_bottom_margin = chart_bottom_margin
@@ -653,12 +653,12 @@ def line_graf(
     legend_height_fraction = 0.0
 
     if lns:
-        # CÃ¡lculo de columnas/filas en la leyenda
+        # Cálculo de columnas/filas en la leyenda
         max_columns = 3 if detected_multi else 4
         legend_columns = max(1, min(len(legend_labels), max_columns))
         legend_rows = max(1, math.ceil(len(legend_labels) / legend_columns))
 
-        # Altura de la leyenda en pulgadas -> fracciÃ³n de la figura
+        # Altura de la leyenda en pulgadas -> fracción de la figura
         legend_font_points = legend_base_size
         legend_line_height_points = legend_font_points * 1.35
         legend_height_inches = (legend_line_height_points / 72.0) * legend_rows
@@ -667,7 +667,7 @@ def line_graf(
             legend_height_inches / figure_height_inches if figure_height_inches else 0.0
         )
 
-        # Espacio mÃ­nimo entre eje y leyenda
+        # Espacio mínimo entre eje y leyenda
         legend_clearance = max(base_gap, min_axes_legend_gap)
 
         # Aseguramos espacio suficiente abajo para leyenda + gap + buffer
@@ -678,10 +678,10 @@ def line_graf(
     else:
         legend_clearance = 0.0  # no hay leyenda, no hace falta espacio extra
 
-    # --- MÃ¡rgenes superior/inferior del eje ---
+    # --- Márgenes superior/inferior del eje ---
     effective_top_margin = chart_top_margin
     if not (show_title and title):
-        # Si no hay tÃ­tulo, no â€œregalemosâ€ tanto espacio arriba
+        # Si no hay título, no "regalemos" tanto espacio arriba
         effective_top_margin = min(0.97, chart_top_margin + 0.05)
     elif title:
         plt.title(title, size=title_base_size, pad=10)
@@ -697,7 +697,7 @@ def line_graf(
         right=chart_right_margin,
     )
 
-    # --- PosiciÃ³n final de la leyenda ---
+    # --- Posición final de la leyenda ---
     if lns:
         axes_box = ax.get_position()  # caja del eje en coordenadas de figura
 
@@ -865,7 +865,7 @@ def line_graf(
         for col, line in zip(plotted_columns, lns):
             color_collector[col] = line.get_color()
     return figure_to_stream(fig)
-#Normaliza etiquetas de periodo eliminando prefijos genÃ©ricos
+#Normaliza etiquetas de periodo eliminando prefijos genéricos
 def normalize_period_label(label) -> str:
     if label is None:
         return ""
@@ -879,7 +879,7 @@ def normalize_period_label(label) -> str:
 #Grafico de barras apiladas 100% para share por periodo
 def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=None):
     """
-    Genera un grÃ¡fico 100% apilado a partir de la participaciÃ³n de un periodo puntual.
+    Genera un gráfico 100% apilado a partir de la participación de un periodo puntual.
     """
     if not isinstance(share_values, (dict, OrderedDict)):
         share_values = {}
@@ -1097,7 +1097,7 @@ def _format_val(label_key, value):
         "Precio Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "Gasto Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "Compradores 000s": {"scale": 1 / 1000, "decimals": 0, "thousands": True},
-        # Mostrar con 1 decimal para que se vea 0.2 en lugar de 0 Ã³ 170
+        # Mostrar con 1 decimal para que se vea 0.2 en lugar de 0 ó 170
         "Volumen Promedio": {"scale": 1, "decimals": 2, "thousands": False},
         "% Penetracion": {"scale": 1, "decimals": 1, "thousands": False},
         "Total HHolds 000s": {"scale": 1 / 1000, "decimals": 0, "thousands": True},
@@ -1332,7 +1332,7 @@ def _unidad_desde_nombre_hoja(nombre_hoja):
         "M": "Metros",
     }
     return mapa.get(letra)
-#FunÃ§Ã£o que cria a tabela de aporte
+#Função que cria a tabela de aporte
 def aporte(df,p,lang,tipo):
         aux = df.copy()
         removed_non_numeric: list[str] = []
@@ -1435,12 +1435,12 @@ def aporte(df,p,lang,tipo):
                 if np.isfinite(value)
             }
         apo.attrs["share_mat_values"] = share_mat_values
-        #FormataÃ§Ã£o do volume
+        #Formatação do volume
         apo.iloc[:2, 1:] = apo.iloc[:2, 1:].applymap(lambda x: f"{round(x * 100, 1)}%")
-        #FormataÃ§Ã£o da variaÃ§Ã£o e aporte
+        #Formatação da variação e aporte
         apo.iloc[2:, 1:] = apo.iloc[2:, 1:].applymap(lambda x: f"{round(x * 100, 2)}%")
         return apo
-#FunÃ§Ã£o que cria o grÃ¡fico tabela de aporte
+#Função que cria o gráfico tabela de aporte
 def graf_apo(apo, c_fig, column_color_mapping=None):
     fig, ax = plt.subplots(num=c_fig, dpi=DEFAULT_EXPORT_DPI)
     row_height = 0.45
@@ -2094,13 +2094,13 @@ FLWT,Alimentos,Agua Saborizada"""
 categ = pd.read_csv(io.StringIO(CATEG_CSV_DATA), dtype={'cod': str, 'cest': str, 'cat': str})
 categ['cod'] = categ['cod'].str.strip().str.upper()
 CLIENT_NAME_SUFFIX_PATTERN = re.compile(r'[\s_-]*5w1h$', re.IGNORECASE)
-#obtÃ©m o paÃ­s,categoria,cesta e fabricante para template e ppt
+#obtém o país,categoria,cesta e fabricante para template e ppt
 base_dir = Path(__file__).resolve().parent
 os.chdir(base_dir)
 excel = select_excel_file(base_dir)
 file = pd.ExcelFile(str(base_dir / excel))
 W = file.sheet_names
-#ObtÃ©m o pais cesta categoria fabricante marca e idioma para o qual se farÃ¡ o estudo
+#Obtém o pais cesta categoria fabricante marca e idioma para o qual se fará o estudo
 excel_parts = excel.split('_')
 land = pais.loc[pais.cod==int(excel_parts[0]),'pais'].iloc[0]
 category_code = excel_parts[1].strip().upper()
@@ -2271,7 +2271,7 @@ def hex_to_rgb_color(color_value: str) -> Optional[RGBColor]:
 
 def hex_to_ansi_color(color_value: str) -> Optional[str]:
     """
-    Converte un color HEX a un cÃ³digo ANSI de 24 bits para la terminal.
+    Converte un color HEX a un código ANSI de 24 bits para la terminal.
     """
     try:
         r, g, b = (int(round(val * 255)) for val in mcolors.to_rgb(color_value))
@@ -3097,7 +3097,7 @@ def build_price_index_slide(
     comment_tf = comment_box.text_frame
     comment_tf.clear()
     comment_paragraph = comment_tf.paragraphs[0]
-    comment_paragraph.text = "ComentÃ¡rio" if lang == 'P' else "Comentario"
+    comment_paragraph.text = "Comentário" if lang == 'P' else "Comentario"
     comment_paragraph.font.size = Inches(0.25)
     chart_share_lookup = chart_share_lookup or {}
     if not price_df.empty and price_df.shape[1] > 1:
@@ -3441,7 +3441,7 @@ for w in W:
         comment_para = comment_tf.paragraphs[0]
         comment_para.text = "Comentario"
         comment_para.font.size = Inches(0.25)
-        # No imprimimos mensaje de finalizaciÃ³n para mantener la terminal concisa
+        # No imprimimos mensaje de finalización para mantener la terminal concisa
         continue
     #1- Quando, grafico de variacoes MAT
     if w[0]=='1':
@@ -3458,29 +3458,29 @@ for w in W:
         title_prefix = c_w[(lang,w[0])]+' '+ labels[(lang,'MAT')]+' | '
         title_brand = w[2:].strip()
         set_title_with_brand_color(tf, title_prefix, title_brand, '', 0.35, BRAND_TITLE_COLOR_LOOKUP)
-        #ObtÃ©m pipeline das vendas
+        #Obtém pipeline das vendas
         p=int(sheet_df.columns[1].split("_")[1])
         #Cria a base
         mat=df_mat(sheet_df,p)
         last_reference_source = mat
         last_reference_origin = None
-        #Elimina linhas com divisÃ£o com zero devido ao pipeline
+        #Elimina linhas com divisão com zero devido ao pipeline
         mat=mat[~np.isinf(mat.iloc[:, 3])]
-        #Incrementa contador do grÃ¡fico
+        #Incrementa contador do gráfico
         c_fig+=1
-        #Insere o grÃ¡fico do MAT
+        #Insere o gráfico do MAT
         left_margin = Inches(0.33)
         right_margin = Inches(0.33)
         available = available_width(ppt, left_margin, right_margin)
         pic=slide.shapes.add_picture(graf_mat(mat,c_fig,p), left_margin, Inches(CHART_TOP_INCH),width=available)
-        #Insere caixa de texto para comentÃ¡rio do slide
+        #Insere caixa de texto para comentário do slide
         txTitle = slide.shapes.add_textbox(Inches(0.33), Inches(5.8), Inches(10), Inches(0.5))
         tf = txTitle.text_frame
         tf.clear()
         t = tf.paragraphs[0]
-        t.text = "ComentÃ¡rio"
+        t.text = "Comentário"
         t.font.size = Inches(0.28)
-        #Limpa Ã¡rea de plotagem
+        #Limpa área de plotagem
         plt.clf()
         #mensaje de conclusion por cada slide
     #Outros
@@ -3524,12 +3524,12 @@ for w in W:
             title_prefix = c_w[(lang,w[0])]+' | '+ w[2:] 
             titulo = title_prefix
         set_title_with_brand_color(tf, title_prefix, title_brand_label, '', title_font_inches, title_color_lookup, title_palette_sequence)
-        #Insere caixa de texto para comentÃ¡rio do slide
+        #Insere caixa de texto para comentário do slide
         txTitle = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
         tf = txTitle.text_frame
         tf.clear()
         t = tf.paragraphs[0]
-        t.text ="ComentÃ¡rio"
+        t.text ="Comentário"
         t.font.size= Inches(0.25)
         # Control para la tabla de aporte
         target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
@@ -3597,7 +3597,7 @@ for w in W:
             footer_tf = footer_box.text_frame
             footer_tf.clear()
             footer_tf.word_wrap = True
-            footer_tf.text = "Se eliminaron los encabezados sin informaciÃ³n: " + ", ".join(unique_removed_headers)
+            footer_tf.text = "Se eliminaron los encabezados sin información: " + ", ".join(unique_removed_headers)
             footer_run = footer_tf.paragraphs[0].runs[0]
             footer_font = footer_run.font
             footer_font.name = 'Arial'
@@ -3942,7 +3942,7 @@ for w in W:
                             }
                         )
         if render_share_items:
-            delta_header = 'Crescimento vs ano anterior' if lang == 'P' else 'Crecimiento vs aÃ±o anterior'
+            delta_header = 'Crescimento vs ano anterior' if lang == 'P' else 'Crecimiento vs año anterior'
             share_slide = ppt.slides.add_slide(ppt.slide_layouts[1])
             share_title_box = share_slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
             share_tf = share_title_box.text_frame
@@ -3960,7 +3960,7 @@ for w in W:
             comment_tf = comment_box.text_frame
             comment_tf.clear()
             comment_paragraph = comment_tf.paragraphs[0]
-            comment_paragraph.text = "ComentÃ¡rio"
+            comment_paragraph.text = "Comentário"
             comment_paragraph.font.size = Inches(0.25)
             chart_top = Inches(0.55)
             multiple_sections = len(render_share_items) > 1
