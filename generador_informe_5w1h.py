@@ -2883,7 +2883,7 @@ def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> 
     has_ventas_header = any('venta' in col for col in normalized_columns)
     if not has_compras_header:
         print_colored(
-            f"No se encontro el encabezado de Compras{warning_context}. Se usaran los datos disponibles.",
+            f"No se encontro el encabezado de \"Compras\"{warning_context}. Se usaran los datos disponibles.",
             COLOR_RED
         )
     ventas_idx = None
@@ -2916,13 +2916,13 @@ def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> 
     if ventas_idx is None:
         if (fallback_separator_idx is not None or suffix_hint) and not has_ventas_header:
             print_colored(
-                f"No se encontro el encabezado de Ventas{warning_context}. No se pudo dividir la hoja.",
+                f"No se encontro el encabezado de \"Ventas\"{warning_context}. No se pudo dividir la hoja.",
                 COLOR_RED
             )
         return [df], 0
     if fallback_used and not has_ventas_header:
         print_colored(
-            f"No se encontro el encabezado de Ventas{warning_context}. Se detecto el bloque por la columna en blanco y se graficara con pipeline = 0.",
+            f"No se encontro el encabezado de \"Ventas\"{warning_context}. Se detecto el bloque por la columna en blanco y se graficara con pipeline = 0.",
             COLOR_RED
         )
         pipeline = 0
