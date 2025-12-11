@@ -151,6 +151,9 @@ TREND_COLOR_PALETTE = {
 TREND_COLOR_SEQUENCE = list(TREND_COLOR_PALETTE.values())
 # Paleta reservada para títulos de Competencia: usa los últimos colores para no interferir con los de marcas.
 COMPETITION_TITLE_PALETTE = list(reversed(TREND_COLOR_SEQUENCE[-8:]))
+# Paleta separada para títulos de Categoría (segmento 8). Usa un tramo distinto
+# al inicio de la paleta para evitar colisión con colores de marcas.
+CATEGORY_TITLE_PALETTE = TREND_COLOR_SEQUENCE[8:16] if len(TREND_COLOR_SEQUENCE) >= 16 else TREND_COLOR_SEQUENCE
 TABLE_WRAP_WIDTH = 14
 DISPLAY_TREND_REFERENCE_TEXT = False
 TREND_SCALE_RULES = [
@@ -2692,6 +2695,8 @@ def set_title_with_brand_color(
     _add_run(suffix_text)
 
 BRAND_TITLE_COLOR_LOOKUP: dict[str, str] = {}
+# Lookup independiente para categorías (segmento 8).
+CATEGORY_TITLE_COLOR_LOOKUP: dict[str, str] = {}
 
 def colorize_brand_for_terminal(
     label: str,
@@ -3767,7 +3772,8 @@ for w in W:
             brand_label,
             '',
             0.35,
-            BRAND_TITLE_COLOR_LOOKUP
+            CATEGORY_TITLE_COLOR_LOOKUP,
+            CATEGORY_TITLE_PALETTE
         )
         left_margin = Inches(0.33)
         right_margin = Inches(0.33)
@@ -3780,7 +3786,10 @@ for w in W:
             max_height_cap = max(1.5, comment_top_in - CHART_TOP_INCH - 0.2)
             max_height_in = min(max_height_in, max_height_cap)
         c_fig += 1
-        table_stream, fig_size = render_ppt8_table(ppt_rows, c_fig, BRAND_TITLE_COLOR_LOOKUP, mat_curr_label)
+        # Colores de marcas en tabla PPT8: iniciar desde el primer color de la paleta,
+        # sin heredar asignaciones previas de otros segmentos/títulos.
+        ppt8_brand_color_lookup: dict[str, str] = {}
+        table_stream, fig_size = render_ppt8_table(ppt_rows, c_fig, ppt8_brand_color_lookup, mat_curr_label)
         fig_width_in, fig_height_in = fig_size
         target_height_in = fig_height_in
         if fig_width_in and fig_width_in > 0 and available_width_in and available_width_in > 0:
