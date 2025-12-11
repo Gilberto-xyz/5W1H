@@ -500,6 +500,37 @@ def render_ppt8_table(
     COLOR_D = "#E2EFDA"
     COLOR_G = "#DCE6F1"
     COLOR_H = "#E2EFDA"
+    COLOR_ERR_GREEN = "#A8D08D"
+    COLOR_ERR_YELLOW = "#FFD966"
+    COLOR_ERR_RED = "#C00000"
+
+    def _interp_color(start_hex: str, end_hex: str, t: float) -> str:
+        t = max(0.0, min(1.0, t))
+        start_rgb = mcolors.to_rgb(start_hex)
+        end_rgb = mcolors.to_rgb(end_hex)
+        blended = tuple(s + (e - s) * t for s, e in zip(start_rgb, end_rgb))
+        return mcolors.to_hex(blended)
+
+    def _error_cell_color(err_ratio: float) -> str:
+        """Color degradado según error muestral (%)."""
+        if err_ratio is None or not np.isfinite(err_ratio):
+            return COLOR_H
+        val = err_ratio * 100.0
+        if val <= 1.0:
+            return COLOR_ERR_GREEN
+        if val <= 5.0:
+            t = (val - 1.0) / 4.0
+            return _interp_color(COLOR_ERR_GREEN, COLOR_ERR_YELLOW, t)
+        if val <= 51.0:
+            t = (val - 5.0) / 46.0
+            return _interp_color(COLOR_ERR_YELLOW, COLOR_ERR_RED, t)
+        return COLOR_ERR_RED
+
+    def _text_color_for_bg(hex_color: str) -> str:
+        r, g, b = mcolors.to_rgb(hex_color)
+        if 0.299 * r + 0.587 * g + 0.114 * b < 0.45:
+            return "#FFFFFF"
+        return "#1F1F1F"
 
     header_bottom = [
         "Marca",
@@ -556,8 +587,10 @@ def render_ppt8_table(
         table[r_idx, 2].set_facecolor(COLOR_C)
         table[r_idx, 3].set_facecolor(COLOR_D)
         table[r_idx, 4].set_facecolor(COLOR_G)
-        table[r_idx, 5].set_facecolor(COLOR_H)
-        table[r_idx, 5].set_text_props(color="#006100")
+        err_val = rows[r_idx - start_body].error_muestral
+        err_color = _error_cell_color(err_val)
+        table[r_idx, 5].set_facecolor(err_color)
+        table[r_idx, 5].set_text_props(color=_text_color_for_bg(err_color))
         brand_label = rows[r_idx - start_body].marca
         brand_color = assign_brand_palette_color(brand_label, brand_color_lookup, TREND_COLOR_SEQUENCE)
         if brand_color:
