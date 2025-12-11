@@ -20,11 +20,12 @@ from matplotlib import colors as mcolors
 import matplotlib.patches as mpatches
 from matplotlib.patches import Rectangle
 from matplotlib.font_manager import FontProperties
+from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
 from pptx import Presentation 
 from pptx.util import Inches, Cm, Pt
 from pptx.dml.color import RGBColor
-from typing import NamedTuple, Optional
+from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 from pathlib import Path
 from collections import OrderedDict
 
@@ -311,6 +312,261 @@ def figure_to_stream(
         except Exception:
             pass
     return buf
+
+# ---------------- Segmento 8: tabla PPT (intervalos) ----------------
+
+
+@dataclass
+class Ppt8MonthlyBlock:
+    brand: str
+    rows: pd.DataFrame  # columnas: 0=date, 1=Weighted PENET, 2=BUYERS
+
+
+@dataclass
+class Ppt8AggBlock:
+    brand: str
+    block: pd.DataFrame  # columnas: 4=label, 5=MAT base, 6=MAT actual
+
+
+@dataclass
+class Ppt8Row:
+    marca: str
+    mat_sep25: float
+    lim_inf: float
+    lim_sup: float
+    compradores_prom: float
+    pen12m: float
+    nivel_pen: str
+    error_muestral: float
+
+
+def ppt8_parse_monthly_blocks(df: pd.DataFrame) -> List[Ppt8MonthlyBlock]:
+    """Encuentra bloques de datos mensuales delimitados por marca en columnas 0-2."""
+    first_col = df.iloc[:, 0]
+    brand_rows = df[(first_col.notna()) & df.iloc[:, 1].isna() & df.iloc[:, 2].isna()].index.tolist()
+    blocks: List[Ppt8MonthlyBlock] = []
+    for i, start in enumerate(brand_rows):
+        end = brand_rows[i + 1] if i + 1 < len(brand_rows) else len(df)
+        data = df.loc[start + 1 : end - 1]
+        data = data[pd.to_numeric(data.iloc[:, 1], errors="coerce").notna()]
+        if data.empty:
+            continue
+        brand_label = str(df.iloc[start, 0]).strip()
+        blocks.append(Ppt8MonthlyBlock(brand=brand_label, rows=data))
+    return blocks
+
+
+def ppt8_parse_agg_blocks(df: pd.DataFrame) -> List[Ppt8AggBlock]:
+    """Encuentra bloques agregados por marca en columnas 4-6."""
+    label_col = df.iloc[:, 4]
+    agg_brand_rows = df[
+        label_col.notna()
+        & (~label_col.astype(str).str.contains("Weighted", case=False, na=False))
+        & (~label_col.astype(str).str.contains("table", case=False, na=False))
+        & df.iloc[:, 5].isna()
+        & df.iloc[:, 6].isna()
+    ].index.tolist()
+    blocks: List[Ppt8AggBlock] = []
+    for i, start in enumerate(agg_brand_rows):
+        end = agg_brand_rows[i + 1] if i + 1 < len(agg_brand_rows) else len(df)
+        block = df.loc[start + 1 : end - 1]
+        block = block[df.iloc[:, 4].notna()]
+        if block.empty:
+            continue
+        blocks.append(Ppt8AggBlock(brand=str(df.iloc[start, 4]).strip(), block=block))
+    return blocks
+
+
+def ppt8_extract_metrics(block: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
+    """Mapea etiqueta -> (MAT base, MAT actual)."""
+    metrics: Dict[str, Tuple[float, float]] = {}
+    for _, row in block.iterrows():
+        label = str(row.iloc[4]).strip().replace("Weighted ", "").strip().upper()
+        try:
+            metrics[label] = (float(row.iloc[5]), float(row.iloc[6]))
+        except (TypeError, ValueError):
+            continue
+    return metrics
+
+
+def ppt8_classify_penetration(p: float) -> str:
+    """Clasifica la penetracion (0-1)."""
+    if p <= 0:
+        return "Fuera de rango"
+    if 0.01 <= p <= 0.10:
+        return "Marca Pequena (1% a 10%)"
+    if 0.10 < p <= 0.30:
+        return "Marca Mediana (11% a 30%)"
+    if 0.30 < p <= 0.50:
+        return "Marca Grande (31% a 50%)"
+    if 0.50 < p <= 0.99:
+        return "Super Marca (51% a 99%)"
+    return "Fuera de rango"
+
+
+def ppt8_compute_rows(
+    monthly_blocks: Iterable[Ppt8MonthlyBlock], agg_blocks: Iterable[Ppt8AggBlock]
+) -> Tuple[List[Ppt8Row], List[str]]:
+    """Combina bloques mensuales y agregados para construir filas del cuadro PPT."""
+    rows: List[Ppt8Row] = []
+    errors: List[str] = []
+    required_metrics = {"R_VOL1", "PENET", "FREQ", "HHOLDS"}
+    for mblock, ablock in zip(monthly_blocks, agg_blocks):
+        try:
+            monthly = mblock.rows
+            if monthly.empty:
+                raise ValueError(f"{mblock.brand}: sin datos mensuales validos")
+            last12_pen = pd.to_numeric(monthly.iloc[:, 1], errors="coerce").tail(12)
+            last12_buy = pd.to_numeric(monthly.iloc[:, 2], errors="coerce").tail(12)
+            if last12_pen.dropna().empty or last12_buy.dropna().empty:
+                raise ValueError(f"{mblock.brand}: faltan valores para promedio 12m")
+            pen_avg = float(last12_pen.mean())
+            buyers_avg = float(last12_buy.mean())
+
+            metrics = ppt8_extract_metrics(ablock.block)
+            missing = [m for m in required_metrics if m not in metrics]
+            if missing:
+                raise ValueError(f"{mblock.brand}: faltan metricas {', '.join(missing)}")
+            vol1, vol2 = metrics["R_VOL1"]
+            pen1, pen2 = metrics["PENET"]
+            freq1, freq2 = metrics["FREQ"]
+            _, hh = metrics.get("HHOLDS", (np.nan, np.nan))
+
+            for name, value in {
+                "vol1": vol1,
+                "vol2": vol2,
+                "pen1": pen1,
+                "pen2": pen2,
+                "freq1": freq1,
+                "freq2": freq2,
+                "hh": hh,
+            }.items():
+                if value is None or not np.isfinite(value):
+                    raise ValueError(f"{mblock.brand}: valor invalido en {name}")
+            if hh <= 0:
+                raise ValueError(f"{mblock.brand}: HHOLDS no es positivo")
+            if vol1 == 0:
+                raise ValueError(f"{mblock.brand}: MAT base es cero")
+
+            dif = vol2 - vol1
+            b = (pen1 + pen2) / 200
+            w = (freq1 + freq2) / 2
+            m_val = b * w
+            if m_val <= 0:
+                raise ValueError(f"{mblock.brand}: valor m invalido")
+            se_rel = math.sqrt(2 / (m_val * hh))
+            avg_vol = (vol1 + vol2) / 2
+            int_dif = 2 * se_rel * avg_vol
+            lim_cant2_minus = vol1 + (dif - int_dif)
+            lim_cant2_plus = vol1 + (dif + int_dif)
+
+            evol = (vol2 / vol1 - 1) * 100
+            lim_evol_minus = (lim_cant2_minus / vol1 - 1) * 100
+            lim_evol_plus = (lim_cant2_plus / vol1 - 1) * 100
+
+            p_ratio = pen_avg / 100
+            if p_ratio <= 0:
+                err = np.nan
+            else:
+                err = 1.96 * math.sqrt((p_ratio * (1 - p_ratio)) / hh) / p_ratio
+            nivel = ppt8_classify_penetration(p_ratio)
+
+            rows.append(
+                Ppt8Row(
+                    marca=mblock.brand,
+                    mat_sep25=evol,
+                    lim_inf=lim_evol_minus,
+                    lim_sup=lim_evol_plus,
+                    compradores_prom=buyers_avg,
+                    pen12m=pen_avg,
+                    nivel_pen=nivel,
+                    error_muestral=err,
+                )
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+    return rows, errors
+
+
+def render_ppt8_table(
+    rows: List[Ppt8Row],
+    figure_id: int,
+    brand_color_lookup: Dict[str, str],
+) -> Tuple[io.BytesIO, Tuple[float, float]]:
+    """Renderiza la tabla PPT del segmento 8 y devuelve un stream PNG."""
+    COLOR_HEADER = "#1F4E78"
+    COLOR_B = "#DCE6F1"
+    COLOR_C = "#F2DCDB"
+    COLOR_D = "#E2EFDA"
+    COLOR_G = "#DCE6F1"
+    COLOR_H = "#E2EFDA"
+
+    header_bottom = [
+        "Marca",
+        "% VAR MAT Sep-25",
+        "% VAR LIM INFERIOR",
+        "% VAR LIM SUPERIOR",
+        "Nivel de penetracion",
+        "Error muestral",
+    ]
+
+    data = [
+        [
+            r.marca,
+            f"{r.mat_sep25:.1f}" if np.isfinite(r.mat_sep25) else "-",
+            f"{r.lim_inf:.1f}" if np.isfinite(r.lim_inf) else "-",
+            f"{r.lim_sup:.1f}" if np.isfinite(r.lim_sup) else "-",
+            r.nivel_pen,
+            f"{r.error_muestral:.1%}" if np.isfinite(r.error_muestral) else "-",
+        ]
+        for r in rows
+    ]
+
+    fig_height = 1.4 + 0.55 * len(rows)
+    fig, ax = plt.subplots(num=figure_id, figsize=(12, fig_height), dpi=TABLE_EXPORT_DPI)
+    ax.axis("off")
+
+    table = ax.table(
+        cellText=[header_bottom] + data,
+        colLabels=None,
+        cellLoc="center",
+        loc="center",
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(13)
+    table.scale(1.0, 1.15)
+
+    widths = [0.24, 0.14, 0.14, 0.14, 0.24, 0.14]
+    for i, w in enumerate(widths):
+        table.auto_set_column_width(i)
+        table._cells[(0, i)].set_width(w)
+    for (r_idx, c_idx), cell in table._cells.items():
+        cell.set_edgecolor("black")
+        cell.set_linewidth(1.5 if r_idx == 0 else 1.2)
+
+    for col in range(len(header_bottom)):
+        cell = table[0, col]
+        cell.set_facecolor(COLOR_HEADER)
+        cell.set_text_props(color="white", weight="bold")
+
+    start_body = 1
+    for r_idx in range(start_body, len(data) + start_body):
+        table[r_idx, 1].set_facecolor(COLOR_B)
+        table[r_idx, 2].set_facecolor(COLOR_C)
+        table[r_idx, 3].set_facecolor(COLOR_D)
+        table[r_idx, 4].set_facecolor(COLOR_G)
+        table[r_idx, 5].set_facecolor(COLOR_H)
+        table[r_idx, 5].set_text_props(color="#006100")
+        brand_label = rows[r_idx - start_body].marca
+        brand_color = assign_brand_palette_color(brand_label, brand_color_lookup, TREND_COLOR_SEQUENCE)
+        if brand_color:
+            table[r_idx, 0].set_text_props(color=brand_color, weight="bold")
+
+    plt.tight_layout()
+    fig_size = fig.get_size_inches()
+    return figure_to_stream(fig, dpi=TABLE_EXPORT_DPI, transparent=False), (float(fig_size[0]), float(fig_size[1]))
+
 pd.set_option('future.no_silent_downcasting', True)
 pd.set_option('mode.chained_assignment', None)
 warnings.filterwarnings('ignore')
@@ -2131,6 +2387,7 @@ c_w = {
     ('P','6-1') : 'Players - Preço indexado',
     ('P','7-R') : '7W - Distribuição por regiões',
     ('P','7-NSE'): '7W - Distribuição por NSE',
+    ('P','8')   : '8 - Intervalos de confiança',
 
     ('E','1')   : '1W - ¿Cuándo?',
     ('E','2')   : '2W - ¿Por qué?',
@@ -2143,7 +2400,8 @@ c_w = {
     ('E','6')   : 'Players',
     ('E','6-1') : 'Players - Precio indexado',
     ('E','7-R') : '7W - Distribución por regiones',
-    ('E','7-NSE'): '7W - Distribución por NSE'
+    ('E','7-NSE'): '7W - Distribución por NSE',
+    ('E','8')   : '8 - Intervalos de confianza'
 }
 
 # Etiquetas de los slides
@@ -2385,6 +2643,9 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     elif first_char == '6':
         cw_key = '6'
         brand_label = category_name
+    elif first_char == '8':
+        cw_key = '8'
+        brand_label = sheet_clean[2:].replace('_', ' ').strip()
     elif first_char == '5':
         cw_key = f"5-{suffix_char}" if suffix_char in {'1', '2'} else '5'
         brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else ''
@@ -3367,6 +3628,77 @@ for w in W:
         comment_para.text = "Comentario"
         comment_para.font.size = Inches(0.25)
         plt.clf()
+        continue
+    sheet_clean = str(w).strip()
+    if sheet_clean.startswith('8'):
+        try:
+            raw_df = file.parse(w, header=None)
+        except Exception as exc:
+            print_colored(f"No se pudo leer la hoja {w}: {exc}", COLOR_RED)
+            continue
+        monthly_blocks = ppt8_parse_monthly_blocks(raw_df)
+        agg_blocks = ppt8_parse_agg_blocks(raw_df)
+        if not monthly_blocks or not agg_blocks:
+            print_colored(f"Segmento 8: no se detectaron bloques validos en la hoja {w}.", COLOR_RED)
+            continue
+        if len(monthly_blocks) != len(agg_blocks):
+            print_colored(
+                f"Segmento 8: se usara el minimo comun de bloques en {w} (mensuales={len(monthly_blocks)}, agregados={len(agg_blocks)}).",
+                COLOR_YELLOW
+            )
+        ppt_rows, ppt_errors = ppt8_compute_rows(monthly_blocks, agg_blocks)
+        for err in ppt_errors:
+            print_colored(err, COLOR_YELLOW)
+        if not ppt_rows:
+            print_colored(f"Segmento 8: no hay filas calculables en la hoja {w}.", COLOR_RED)
+            continue
+        slide = ppt.slides.add_slide(ppt.slide_layouts[1])
+        title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
+        title_tf = title_box.text_frame
+        title_prefix = c_w.get((lang, '8'), '8 - Intervalos') + ' | '
+        brand_label = sheet_clean[2:].replace('_', ' ').strip() or cat
+        set_title_with_brand_color(
+            title_tf,
+            title_prefix,
+            brand_label,
+            '',
+            0.35,
+            BRAND_TITLE_COLOR_LOOKUP
+        )
+        left_margin = Inches(0.33)
+        right_margin = Inches(0.33)
+        available_width_emu = available_width(ppt, left_margin, right_margin)
+        available_width_in = emu_to_inches(int(available_width_emu))
+        slide_height_in = emu_to_inches(int(ppt.slide_height))
+        comment_top_in = emu_to_inches(int(Inches(6.33)))
+        max_height_in = max(2.5, slide_height_in - CHART_TOP_INCH - 0.3)
+        if comment_top_in > 0:
+            max_height_cap = max(1.5, comment_top_in - CHART_TOP_INCH - 0.2)
+            max_height_in = min(max_height_in, max_height_cap)
+        c_fig += 1
+        table_stream, fig_size = render_ppt8_table(ppt_rows, c_fig, BRAND_TITLE_COLOR_LOOKUP)
+        fig_width_in, fig_height_in = fig_size
+        target_height_in = fig_height_in
+        if fig_width_in and fig_width_in > 0 and available_width_in and available_width_in > 0:
+            target_height_in = fig_height_in * (available_width_in / fig_width_in)
+        if max_height_in and target_height_in > max_height_in:
+            target_height_in = max_height_in
+        slide.shapes.add_picture(
+            table_stream,
+            left_margin,
+            Inches(CHART_TOP_INCH),
+            width=available_width_emu,
+            height=Inches(target_height_in)
+        )
+        comment_box = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
+        comment_tf = comment_box.text_frame
+        comment_tf.clear()
+        comment_para = comment_tf.paragraphs[0]
+        comment_para.text = "Comentário" if lang == 'P' else "Comentario"
+        comment_para.font.size = Inches(0.25)
+        plt.clf()
+        last_reference_source = raw_df
+        last_reference_origin = 'Segmento 8'
         continue
     if is_price_index_sheet(w):
         players_base_key = extract_players_base_key(w)
