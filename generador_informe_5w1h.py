@@ -561,7 +561,7 @@ def render_ppt8_table(
         brand_label = rows[r_idx - start_body].marca
         brand_color = assign_brand_palette_color(brand_label, brand_color_lookup, TREND_COLOR_SEQUENCE)
         if brand_color:
-            table[r_idx, 0].set_text_props(color=brand_color, weight="bold")
+            table[r_idx, 0].set_text_props(color=brand_color, weight="normal")
 
     plt.tight_layout()
     fig_size = fig.get_size_inches()
@@ -2387,7 +2387,7 @@ c_w = {
     ('P','6-1') : 'Players - Preço indexado',
     ('P','7-R') : '7W - Distribuição por regiões',
     ('P','7-NSE'): '7W - Distribuição por NSE',
-    ('P','8')   : '8 - Intervalos de confiança',
+    ('P','8')   : 'Intervalos de confiança',
 
     ('E','1')   : '1W - ¿Cuándo?',
     ('E','2')   : '2W - ¿Por qué?',
@@ -2401,7 +2401,7 @@ c_w = {
     ('E','6-1') : 'Players - Precio indexado',
     ('E','7-R') : '7W - Distribución por regiones',
     ('E','7-NSE'): '7W - Distribución por NSE',
-    ('E','8')   : '8 - Intervalos de confianza'
+    ('E','8')   : 'Intervalos de confianza'
 }
 
 # Etiquetas de los slides
@@ -3655,7 +3655,7 @@ for w in W:
         slide = ppt.slides.add_slide(ppt.slide_layouts[1])
         title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
         title_tf = title_box.text_frame
-        title_prefix = c_w.get((lang, '8'), '8 - Intervalos') + ' | '
+        title_prefix = c_w.get((lang, '8'), 'Intervalos') + ' | '
         brand_label = sheet_clean[2:].replace('_', ' ').strip() or cat
         set_title_with_brand_color(
             title_tf,
