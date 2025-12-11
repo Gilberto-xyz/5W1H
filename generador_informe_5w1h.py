@@ -375,7 +375,7 @@ def ppt8_parse_agg_blocks(df: pd.DataFrame) -> List[Ppt8AggBlock]:
     for i, start in enumerate(agg_brand_rows):
         end = agg_brand_rows[i + 1] if i + 1 < len(agg_brand_rows) else len(df)
         block = df.loc[start + 1 : end - 1]
-        block = block[df.iloc[:, 4].notna()]
+        block = block[block.iloc[:, 4].notna()]
         if block.empty:
             continue
         blocks.append(Ppt8AggBlock(brand=str(df.iloc[start, 4]).strip(), block=block))
@@ -409,6 +409,11 @@ def ppt8_extract_metrics(block: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
             act_val = float(row.iloc[6])
         except (TypeError, ValueError):
             continue
+        # Si solo uno de los dos valores es numerico, replica para no perder la medida
+        if not np.isfinite(act_val) and np.isfinite(base_val):
+            act_val = base_val
+        if not np.isfinite(base_val) and np.isfinite(act_val):
+            base_val = act_val
         metrics[canonical] = (base_val, act_val)
     return metrics
 
@@ -452,8 +457,20 @@ def ppt8_compute_rows(
     rows: List[Ppt8Row] = []
     errors: List[str] = []
     required_metrics = {"R_VOL1", "PENET", "FREQ", "HHOLDS"}
-    for mblock, ablock in zip(monthly_blocks, agg_blocks):
+    def _norm(label: str) -> str:
+        normalized = unicodedata.normalize("NFKD", str(label))
+        normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+        return re.sub(r"[^a-z0-9]+", "", normalized.lower())
+
+    agg_lookup = {_norm(block.brand): block for block in agg_blocks}
+
+    for idx, mblock in enumerate(monthly_blocks):
         try:
+            ablock = agg_lookup.get(_norm(mblock.brand))
+            if ablock is None:
+                ablock = agg_blocks[idx] if idx < len(agg_blocks) else None
+            if ablock is None:
+                raise ValueError(f"{mblock.brand}: no se encontro bloque agregado correspondiente")
             monthly = mblock.rows
             if monthly.empty:
                 raise ValueError(f"{mblock.brand}: sin datos mensuales validos")
@@ -471,7 +488,10 @@ def ppt8_compute_rows(
             vol1, vol2 = metrics["R_VOL1"]
             pen1, pen2 = metrics["PENET"]
             freq1, freq2 = metrics["FREQ"]
-            _, hh = metrics.get("HHOLDS", (np.nan, np.nan))
+            hh_tuple = metrics.get("HHOLDS", (np.nan, np.nan))
+            hh = hh_tuple[1]
+            if not np.isfinite(hh):
+                hh = hh_tuple[0]
 
             for name, value in {
                 "vol1": vol1,
@@ -498,12 +518,14 @@ def ppt8_compute_rows(
             se_rel = math.sqrt(2 / (m_val * hh))
             avg_vol = (vol1 + vol2) / 2
             int_dif = 2 * se_rel * avg_vol
-            lim_cant2_minus = vol1 + (dif - int_dif)
-            lim_cant2_plus = vol1 + (dif + int_dif)
+            lim_dif_minus = dif - int_dif
+            lim_dif_plus = dif + int_dif
+            lim_cant2_minus = vol1 + lim_dif_minus
+            lim_cant2_plus = vol1 + lim_dif_plus
 
             evol = (vol2 / vol1 - 1) * 100
-            lim_evol_minus = (lim_cant2_minus / vol1 - 1) * 100
-            lim_evol_plus = (lim_cant2_plus / vol1 - 1) * 100
+            lim_evol_minus = (lim_dif_minus / vol1) * 100
+            lim_evol_plus = (lim_dif_plus / vol1) * 100
 
             p_ratio = pen_avg / 100
             if p_ratio <= 0:
