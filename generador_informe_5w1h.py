@@ -345,13 +345,17 @@ def ppt8_parse_monthly_blocks(df: pd.DataFrame) -> List[Ppt8MonthlyBlock]:
     first_col = df.iloc[:, 0]
     brand_rows = df[(first_col.notna()) & df.iloc[:, 1].isna() & df.iloc[:, 2].isna()].index.tolist()
     blocks: List[Ppt8MonthlyBlock] = []
+    skip_tokens = ("table", "categ", "total categ")
     for i, start in enumerate(brand_rows):
         end = brand_rows[i + 1] if i + 1 < len(brand_rows) else len(df)
         data = df.loc[start + 1 : end - 1]
+        brand_label = str(df.iloc[start, 0]).strip()
+        lower_label = brand_label.lower()
+        if any(tok in lower_label for tok in skip_tokens):
+            continue
         data = data[pd.to_numeric(data.iloc[:, 1], errors="coerce").notna()]
         if data.empty:
             continue
-        brand_label = str(df.iloc[start, 0]).strip()
         blocks.append(Ppt8MonthlyBlock(brand=brand_label, rows=data))
     return blocks
 
@@ -363,6 +367,7 @@ def ppt8_parse_agg_blocks(df: pd.DataFrame) -> List[Ppt8AggBlock]:
         label_col.notna()
         & (~label_col.astype(str).str.contains("Weighted", case=False, na=False))
         & (~label_col.astype(str).str.contains("table", case=False, na=False))
+        & (~label_col.astype(str).str.contains("categ", case=False, na=False))
         & df.iloc[:, 5].isna()
         & df.iloc[:, 6].isna()
     ].index.tolist()
@@ -378,15 +383,51 @@ def ppt8_parse_agg_blocks(df: pd.DataFrame) -> List[Ppt8AggBlock]:
 
 
 def ppt8_extract_metrics(block: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
-    """Mapea etiqueta -> (MAT base, MAT actual)."""
+    """Mapea etiqueta -> (MAT base, MAT actual) tolerando alias."""
+    def canonical_metric(label: str) -> Optional[str]:
+        normalized = str(label).replace("Weighted", "").upper()
+        normalized = re.sub(r"[^A-Z0-9]+", "", normalized)
+        if not normalized:
+            return None
+        if normalized in {"RVOL1", "VOL1", "UNITS", "UNIDAD", "UNIDADES"}:
+            return "R_VOL1"
+        if normalized.startswith("PEN"):
+            return "PENET"
+        if normalized.startswith("FREQ"):
+            return "FREQ"
+        if normalized.startswith("HH"):
+            return "HHOLDS"
+        return normalized
+
     metrics: Dict[str, Tuple[float, float]] = {}
     for _, row in block.iterrows():
-        label = str(row.iloc[4]).strip().replace("Weighted ", "").strip().upper()
+        canonical = canonical_metric(row.iloc[4])
+        if not canonical:
+            continue
         try:
-            metrics[label] = (float(row.iloc[5]), float(row.iloc[6]))
+            base_val = float(row.iloc[5])
+            act_val = float(row.iloc[6])
         except (TypeError, ValueError):
             continue
+        metrics[canonical] = (base_val, act_val)
     return metrics
+
+
+def ppt8_find_mat_labels(df: pd.DataFrame) -> Tuple[str, str]:
+    """Detecta las etiquetas de MAT (base y actual) en las columnas 5 y 6."""
+    mat_base = "MAT Base"
+    mat_current = "MAT Actual"
+    for _, row in df.iterrows():
+        val5 = row.iloc[5] if df.shape[1] > 5 else None
+        val6 = row.iloc[6] if df.shape[1] > 6 else None
+        if isinstance(val5, str) and "MAT" in val5.upper():
+            mat_base = val5.strip()
+        if isinstance(val6, str) and "MAT" in val6.upper():
+            mat_current = val6.strip()
+        if "MAT" in str(val5).upper() or "MAT" in str(val6).upper():
+            if mat_base != "MAT Base" and mat_current != "MAT Actual":
+                break
+    return mat_base, mat_current
 
 
 def ppt8_classify_penetration(p: float) -> str:
@@ -492,6 +533,7 @@ def render_ppt8_table(
     rows: List[Ppt8Row],
     figure_id: int,
     brand_color_lookup: Dict[str, str],
+    mat_label_current: str,
 ) -> Tuple[io.BytesIO, Tuple[float, float]]:
     """Renderiza la tabla PPT del segmento 8 y devuelve un stream PNG."""
     COLOR_HEADER = "#1F4E78"
@@ -534,7 +576,7 @@ def render_ppt8_table(
 
     header_bottom = [
         "Marca",
-        "% VAR MAT Sep-25",
+        f"% VAR {mat_label_current}" if mat_label_current else "% VAR MAT",
         "% VAR LIM INFERIOR",
         "% VAR LIM SUPERIOR",
         "Nivel de penetracion",
@@ -3679,6 +3721,7 @@ for w in W:
                 f"Segmento 8: se usara el minimo comun de bloques en {w} (mensuales={len(monthly_blocks)}, agregados={len(agg_blocks)}).",
                 COLOR_YELLOW
             )
+        mat_base_label, mat_curr_label = ppt8_find_mat_labels(raw_df)
         ppt_rows, ppt_errors = ppt8_compute_rows(monthly_blocks, agg_blocks)
         for err in ppt_errors:
             print_colored(err, COLOR_YELLOW)
@@ -3709,7 +3752,7 @@ for w in W:
             max_height_cap = max(1.5, comment_top_in - CHART_TOP_INCH - 0.2)
             max_height_in = min(max_height_in, max_height_cap)
         c_fig += 1
-        table_stream, fig_size = render_ppt8_table(ppt_rows, c_fig, BRAND_TITLE_COLOR_LOOKUP)
+        table_stream, fig_size = render_ppt8_table(ppt_rows, c_fig, BRAND_TITLE_COLOR_LOOKUP, mat_curr_label)
         fig_width_in, fig_height_in = fig_size
         target_height_in = fig_height_in
         if fig_width_in and fig_width_in > 0 and available_width_in and available_width_in > 0:
