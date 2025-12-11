@@ -384,18 +384,24 @@ def ppt8_parse_agg_blocks(df: pd.DataFrame) -> List[Ppt8AggBlock]:
 
 def ppt8_extract_metrics(block: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
     """Mapea etiqueta -> (MAT base, MAT actual) tolerando alias."""
+
     def canonical_metric(label: str) -> Optional[str]:
-        normalized = str(label).replace("Weighted", "").upper()
-        normalized = re.sub(r"[^A-Z0-9]+", "", normalized)
-        if not normalized:
+        raw_label = str(label)
+        if not raw_label or not raw_label.strip():
             return None
-        if normalized in {"RVOL1", "VOL1", "UNITS", "UNIDAD", "UNIDADES"}:
+        normalized = raw_label.replace("Weighted", "").strip().upper()
+        compact = re.sub(r"[^A-Z0-9]+", "", normalized)
+        if not compact:
+            return None
+        is_vertical = "VERT" in normalized
+
+        if compact in {"RVOL1", "VOL1", "UNITS", "UNIDAD", "UNIDADES"} and not is_vertical:
             return "R_VOL1"
-        if normalized.startswith("PEN"):
+        if compact.startswith("PEN") and not is_vertical:
             return "PENET"
-        if normalized.startswith("FREQ"):
+        if compact.startswith("FREQ") and not is_vertical:
             return "FREQ"
-        if normalized.startswith("HH"):
+        if compact.startswith("HH") and not is_vertical:
             return "HHOLDS"
         return normalized
 
@@ -524,8 +530,8 @@ def ppt8_compute_rows(
             lim_cant2_plus = vol1 + lim_dif_plus
 
             evol = (vol2 / vol1 - 1) * 100
-            lim_evol_minus = (lim_dif_minus / vol1) * 100
-            lim_evol_plus = (lim_dif_plus / vol1) * 100
+            lim_evol_minus = (lim_cant2_minus / vol1 - 1) * 100
+            lim_evol_plus = (lim_cant2_plus / vol1 - 1) * 100
 
             p_ratio = pen_avg / 100
             if p_ratio <= 0:
