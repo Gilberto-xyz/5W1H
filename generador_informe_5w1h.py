@@ -1,5 +1,9 @@
 ﻿# -*- coding: utf-8 -*-
-#Bibliotecas necessarias
+"""Genera informes 5W1H en PowerPoint a partir de datos Excel.
+
+Incluye tablas y graficos para multiples segmentos y comparativos.
+"""
+# Bibliotecas necesarias
 #---------------------------------------------------------------------------------------------------------------------
 import pandas as pd
 import numpy as np
@@ -31,6 +35,7 @@ from collections import OrderedDict
 
 # Fuerza E/S en UTF-8 para soportar acentos y ñ en la terminal de Windows
 def _configure_utf8_io():
+    """Configura E/S para forzar UTF-8 en la consola."""
     try:
         os.environ.setdefault('PYTHONUTF8', '1')
         os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
@@ -39,7 +44,7 @@ def _configure_utf8_io():
             if stream is not None and hasattr(stream, 'reconfigure'):
                 stream.reconfigure(encoding='utf-8')
     except Exception:
-        # Si la consola no soporta reconfigure, seguimos sin romper ejecución
+        # Si la consola no soporta reconfigure, seguimos sin romper ejecucion
         pass
 
 _configure_utf8_io()
@@ -213,15 +218,19 @@ MONTH_NAMES = {
     'E': ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 }
 def colorize(text: str, color: str = COLOR_BLUE) -> str:
+    """Devuelve el texto envuelto con el codigo ANSI de color."""
     return f"{color}{text}{COLOR_RESET}"
 def print_colored(text: str, color: str = COLOR_BLUE) -> None:
+    """Imprime texto coloreado en la terminal."""
     print(colorize(text, color))
 def select_trend_scale_rule(max_value: float) -> dict:
+    """Selecciona la regla de escala segun el valor maximo."""
     for rule in TREND_SCALE_RULES:
         if max_value >= rule["threshold"]:
             return rule
     return TREND_SCALE_RULES[-1]
 def format_value_with_suffix(value: float, divisor: float, suffix: str) -> str:
+    """Formatea un valor escalado con sufijo (K/M/B/T)."""
     if not np.isfinite(value):
         return ''
     scaled = value / divisor if divisor else value
@@ -236,9 +245,10 @@ def format_value_with_suffix(value: float, divisor: float, suffix: str) -> str:
         formatted = formatted.rstrip('0').rstrip('.')
     return f"{formatted}{suffix}"
 def available_width(presentation, left=Inches(0), right=Inches(0)):
+    """Calcula el ancho disponible en la diapositiva."""
     return presentation.slide_width - int(left) - int(right)
 def constrain_picture_width(picture, max_width):
-    """Clamp picture width to max_width while preserving aspect ratio."""
+    """Limita el ancho de una imagen preservando la relacion de aspecto."""
     if max_width is None:
         return
     max_width = int(max_width)
@@ -273,11 +283,12 @@ TABLE_EXPORT_DPI = 220
 EXPORT_PAD_INCHES = 0.08
 CHART_TOP_INCH = 0.72
 def emu_to_inches(value: int) -> float:
+    """Convierte unidades EMU a pulgadas."""
     return float(value) / EMU_PER_INCH
 def wrap_table_text(value, max_width: int = TABLE_WRAP_WIDTH):
     """
-    Return the given value with soft line breaks so long strings wrap nicely inside table cells.
-    Keeps non-string values intact.
+    Devuelve el valor con saltos suaves para ajustar el texto en celdas.
+    Mantiene los valores no string sin cambios.
     """
     if not isinstance(value, str):
         return value
@@ -676,8 +687,9 @@ def render_ppt8_table(
 pd.set_option('future.no_silent_downcasting', True)
 pd.set_option('mode.chained_assignment', None)
 warnings.filterwarnings('ignore')
-#Funcao que prepara os dados para criação do gráfico MAT
+# Funcion que prepara los datos para la creacion del grafico MAT
 def df_mat(df,p):
+    """Prepara el dataframe MAT con acumulados y variaciones."""
     v1 = pd.DataFrame([(df.iloc[i-12-p:i-p,1].sum()/df.iloc[i-24-p:i-12-p,1].sum()) - 1 if i >= 24 else np.nan for i in range(12, len(df)+1)],columns=['Var Sell-in'])
     v2 = pd.DataFrame([(df.iloc[i-12:i,2].sum()/df.iloc[i-24:i-12,2].sum()) - 1 if i >= 24 else np.nan for i in range(12, len(df)+1)],columns=['Var Sell-out'])
     ac1, ac2 = [pd.DataFrame(df[col].rolling(window=12).sum().dropna()) for col in df.columns[1:]]
@@ -689,6 +701,7 @@ def df_mat(df,p):
     return mat
 #Grafico de MAT 
 def graf_mat(mat, c_fig, p):
+    """Genera el grafico MAT y devuelve una imagen en memoria."""
     altura = 7  # Aumentamos aun mas la altura
     fig, ax = plt.subplots(num=c_fig, figsize=(15, altura), dpi=DEFAULT_EXPORT_DPI)
     fig.subplots_adjust(bottom=0.2, top=0.9)
@@ -770,6 +783,7 @@ def graf_mat(mat, c_fig, p):
 #Grafico de Lineas
 
 def format_title_with_bold_suffix(base_title: str, suffix: str) -> str:
+    """Devuelve un titulo con sufijo en negrita usando mathtext."""
     base_title = (base_title or '').strip()
     suffix = (suffix or '').strip()
     if not suffix:
@@ -1254,8 +1268,9 @@ def line_graf(
         for col, line in zip(plotted_columns, lns):
             color_collector[col] = line.get_color()
     return figure_to_stream(fig)
-#Normaliza etiquetas de periodo eliminando prefijos genéricos
+#Normaliza etiquetas de periodo eliminando prefijos genericos
 def normalize_period_label(label) -> str:
+    """Normaliza etiquetas de periodo eliminando prefijos genericos."""
     if label is None:
         return ""
     text = str(label).strip()
@@ -1429,6 +1444,7 @@ def _nombres_unidad(unidad):
         "ticket": "Gasto por Ticket $/Viaje",
     }
 def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
+    """Calcula niveles y variaciones porcentuales entre dos periodos."""
     etiquetas = _nombres_unidad(unidad)
     def calculate_percentage_change(old, new):
         try:
@@ -1762,8 +1778,9 @@ def _unidad_desde_nombre_hoja(nombre_hoja):
         "M": "Metros",
     }
     return mapa.get(letra)
-#Função que cria a tabela de aporte
+# Funcion que crea la tabla de aporte
 def aporte(df,p,lang,tipo):
+        """Construye la tabla de aporte y calcula shares/variaciones."""
         aux = df.copy()
         removed_non_numeric: list[str] = []
         if aux.empty:
@@ -1828,7 +1845,7 @@ def aporte(df,p,lang,tipo):
         apo=pd.DataFrame(columns=[tipo] + aux.columns[1:].tolist())
         #Vol ultimo MAT
         apo.loc[len(apo)] = [str('Vol' )+" "+aux.loc[len(aux)-1-12-p,date_col_name].strftime('%b-%y') ] + [aux.iloc[len(aux)-24-p:len(aux)-12-p, col].sum() / aux.iloc[len(aux)-24-p:len(aux)-12-p,aux.shape[1]-1].sum() for col in range(1,len(aux.columns) )]
-        #Vol MAT atual
+        #Vol MAT actual
         apo.loc[len(apo)] = [str('Vol' )+" "+aux.loc[len(aux)-1-p,date_col_name].strftime('%b-%y') ] + [aux.iloc[len(aux)-12-p:len(aux)-p, col].sum() / aux.iloc[len(aux)-12-p:len(aux)-p,aux.shape[1]-1].values.sum() for col in range(1,len(aux.columns))]
         #Var
         apo.loc[len(apo)] = ["Var %"] +  [ aux.iloc[len(aux)-12-p:len(aux)-p, col].sum() / aux.iloc[len(aux)-24-p:len(aux)-12-p, col].sum()-1 for col in range(1,len(aux.columns))]
@@ -1887,13 +1904,14 @@ def aporte(df,p,lang,tipo):
                 if np.isfinite(value)
             }
         apo.attrs["share_mat_values"] = share_mat_values
-        #Formatação do volume
+        #Formato del volumen
         apo.iloc[:2, 1:] = apo.iloc[:2, 1:].applymap(lambda x: f"{round(x * 100, 1)}%")
-        #Formatação da variação e aporte
+        #Formato de la variacion y el aporte
         apo.iloc[2:, 1:] = apo.iloc[2:, 1:].applymap(lambda x: f"{round(x * 100, 2)}%")
         return apo
-#Função que cria o gráfico tabela de aporte
+# Funcion que crea el grafico de la tabla de aporte
 def graf_apo(apo, c_fig, column_color_mapping=None):
+    """Renderiza la tabla de aporte como imagen PNG."""
     fig, ax = plt.subplots(num=c_fig, dpi=DEFAULT_EXPORT_DPI)
     row_height = 0.45
     col_width = 1.0
@@ -2139,8 +2157,8 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
     return figure_to_stream(fig, dpi=TABLE_EXPORT_DPI, bbox_inches=table_bbox, pad_inches=0)
 def simplify_name_segment(value: str, max_len: int) -> str:
     """
-    Reduce a string to a compact, filesystem-friendly segment.
-    Keeps alphanumeric characters, replaces others with dashes, and trims length.
+    Reduce una cadena a un segmento seguro para archivos.
+    Conserva alfanumericos, reemplaza otros con guiones y limita longitud.
     """
     if value is None:
         return 'NA'
@@ -2153,6 +2171,7 @@ def simplify_name_segment(value: str, max_len: int) -> str:
         cleaned = 'NA'
     return cleaned[:max_len]
 def select_excel_file(base_dir: Path) -> str:
+    """Lista archivos Excel disponibles y devuelve el nombre seleccionado."""
     excel_files = sorted([p for p in base_dir.glob('*.xlsx') if not p.name.startswith('~$')])
     def metadata_for(file_path: Path) -> str:
         try:
@@ -2193,6 +2212,7 @@ def select_excel_file(base_dir: Path) -> str:
             return matching[0]
         print_colored('Entrada invalida. Intente nuevamente.', COLOR_RED)
 def configure_cover_slide(presentation, lang):
+    """Configura el titulo de portada segun el idioma."""
     title_by_lang = {
         'P': 'Adicionais de Cobertura - 5W1H',
         'E': 'Adicionales de Cobertura - 5W1H'
@@ -2221,6 +2241,7 @@ def configure_cover_slide(presentation, lang):
     font.bold = True
     font.color.rgb = RGBColor(255, 255, 255)
 def plot_ven():
+    """Solicita el modo de grafico para ventas y compras."""
     options = [
         ("1 - Plotear Ventas y Compras Juntas", "1"),
         ("2 - Plotear Ventas y Compras Separadas", "2"),
@@ -2631,6 +2652,7 @@ COLOR_UNIT_SUFFIX_PATTERN = re.compile(
     re.IGNORECASE
 )
 def normalize_color_text(value) -> str:
+    """Normaliza texto para comparar etiquetas de color."""
     if value is None:
         return ''
     if not isinstance(value, str):
@@ -2639,6 +2661,7 @@ def normalize_color_text(value) -> str:
     normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
     return normalized.lower().strip()
 def strip_color_suffixes(text: str) -> str:
+    """Elimina sufijos de compras/ventas y unidades antes de buscar color."""
     base = text.strip()
     for suffix in COLOR_SUFFIXES:
         if base.endswith(suffix):
@@ -2648,6 +2671,7 @@ def strip_color_suffixes(text: str) -> str:
     base = COLOR_UNIT_SUFFIX_PATTERN.sub('', base)
     return base.strip()
 def generate_color_lookup_keys(label: str) -> list[str]:
+    """Genera variantes de claves para mapear etiquetas a colores."""
     normalized = normalize_color_text(label)
     if not normalized:
         return []
@@ -2679,6 +2703,7 @@ def generate_color_lookup_keys(label: str) -> list[str]:
         _push(' '.join(raw_tokens))
     return keys
 def build_color_lookup_dict(color_mapping: dict[str, str]) -> dict[str, str]:
+    """Construye un diccionario de busqueda de colores."""
     lookup: dict[str, str] = {}
     if not color_mapping:
         return lookup
@@ -2693,6 +2718,7 @@ def build_color_lookup_dict(color_mapping: dict[str, str]) -> dict[str, str]:
                 lookup[lookup_key] = color_value
     return lookup
 def lookup_color_for_label(label, lookup_dict: dict[str, str]) -> Optional[str]:
+    """Busca el color asociado a una etiqueta normalizada."""
     if not lookup_dict or label is None:
         return None
     raw_key = str(label).strip()
@@ -2704,6 +2730,7 @@ def lookup_color_for_label(label, lookup_dict: dict[str, str]) -> Optional[str]:
             return color_value
     return None
 def register_color_lookup(label, color_value: str, lookup_dict: dict[str, str], overwrite: bool = False) -> None:
+    """Registra una etiqueta y su color en el lookup."""
     if label is None or not color_value:
         return
     raw_key = str(label).strip()
@@ -2716,6 +2743,7 @@ def register_color_lookup(label, color_value: str, lookup_dict: dict[str, str], 
             lookup_dict[lookup_key] = color_value
 
 def hex_to_rgb_color(color_value: str) -> Optional[RGBColor]:
+    """Convierte un color HEX a RGBColor."""
     try:
         rgb_float = mcolors.to_rgb(color_value)
     except (ValueError, TypeError):
@@ -2725,7 +2753,7 @@ def hex_to_rgb_color(color_value: str) -> Optional[RGBColor]:
 
 def hex_to_ansi_color(color_value: str) -> Optional[str]:
     """
-    Converte un color HEX a un código ANSI de 24 bits para la terminal.
+    Convierte un color HEX a un codigo ANSI de 24 bits para la terminal.
     """
     try:
         r, g, b = (int(round(val * 255)) for val in mcolors.to_rgb(color_value))
@@ -2734,6 +2762,7 @@ def hex_to_ansi_color(color_value: str) -> Optional[str]:
     return f"\033[38;2;{r};{g};{b}m"
 
 def assign_brand_palette_color(label: str, lookup_dict: dict[str, str], palette_sequence: Optional[list[str]] = None) -> Optional[str]:
+    """Asigna un color de paleta a una marca si no existe en el lookup."""
     if not label:
         return None
     color_value = lookup_color_for_label(label, lookup_dict)
@@ -2760,6 +2789,7 @@ def set_title_with_brand_color(
     brand_lookup: dict[str, str],
     palette_sequence: Optional[list[str]] = None
 ) -> None:
+    """Escribe un titulo con el segmento de marca coloreado."""
     text_frame.clear()
     paragraph = text_frame.paragraphs[0]
     paragraph.text = ''
@@ -2876,12 +2906,14 @@ def build_terminal_progress_message(sheet_name: str, lang: str, category_name: s
     return f"Generando {label} (hoja {sheet_name})"
 
 def build_terminal_done_message(sheet_name: str, lang: str, category_name: str) -> Optional[str]:
+    """Devuelve el mensaje final de progreso en terminal."""
     label = build_terminal_label(sheet_name, lang, category_name)
     if not label:
         return None
     return f"Listo {label}"
 
 def _extract_pipeline(col_name: str) -> int:
+    """Extrae el numero de pipeline desde el encabezado."""
     if not isinstance(col_name, str):
         return 0
     parts = [part for part in col_name.split('_') if part.isdigit()]
@@ -2890,6 +2922,7 @@ def _extract_pipeline(col_name: str) -> int:
     digits = ''.join(ch for ch in col_name if ch.isdigit())
     return int(digits) if digits else 0
 def _is_separator_column(col) -> bool:
+    """Detecta columnas separadoras vacias o 'Unnamed'."""
     if col is None:
         return True
     if not isinstance(col, str):
@@ -2897,6 +2930,7 @@ def _is_separator_column(col) -> bool:
     stripped = col.strip()
     return not stripped or stripped.lower().startswith('unnamed')
 def _find_compras_header_row(df: pd.DataFrame) -> Optional[int]:
+    """Busca la fila con encabezado de Compras o table."""
     if df is None or df.empty:
         return None
     compras_idx = None
@@ -2950,6 +2984,7 @@ def ensure_date_column(df: pd.DataFrame, sheet_name: Optional[str] = None, date_
     return df_copy
 DISTRIBUTION_SHEET_PATTERN = re.compile(r'^7[-_](.+?)[-_](.+)$', re.IGNORECASE)
 def _normalize_simple(text: str) -> str:
+    """Normaliza texto a minusculas y sin tildes."""
     normalized = unicodedata.normalize('NFKD', str(text))
     normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
     return normalized.lower().strip()
@@ -3332,6 +3367,7 @@ def plot_distribution_chart(
     return figure_to_stream(fig), (fig_width, fig_height)
 
 def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
+    """Divide la hoja en bloques de compras/ventas y detecta pipeline."""
     warning_context = f" en la hoja {sheet_name}" if sheet_name else ""
     normalized_columns = [
         str(col).strip().lower() if isinstance(col, str) else ''
@@ -3418,6 +3454,7 @@ def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> 
     df_list.append(ventas)
     return df_list, pipeline
 def prepare_series_configs(df_list, lang, p_ventas, sheet_name: Optional[str] = None):
+    """Prepara configuraciones de series para graficar."""
     configs = []
     for original_df in df_list:
         if original_df is None or original_df.empty or original_df.shape[1] == 0:
@@ -3456,6 +3493,7 @@ def format_origin_label(display_tipo: Optional[str], lang: str) -> str:
         return 'Compras'
     return base
 def extract_players_base_key(sheet_name: str) -> Optional[str]:
+    """Deriva la clave base para hojas de jugadores (segmento 6)."""
     if not isinstance(sheet_name, str):
         return None
     if not sheet_name or not sheet_name.startswith('6'):
@@ -3469,6 +3507,7 @@ def extract_players_base_key(sheet_name: str) -> Optional[str]:
         return parts[0]
     return '_'.join(parts)
 def is_price_index_sheet(sheet_name: str) -> bool:
+    """Indica si la hoja corresponde a precio indexado."""
     if not isinstance(sheet_name, str):
         return False
     if not sheet_name.startswith('6'):
@@ -3479,6 +3518,7 @@ def is_price_index_sheet(sheet_name: str) -> bool:
     last_part = parts[-1]
     return last_part == '1'
 def prepare_price_index_dataframe(series_config: SeriesConfig, top10_columns: list[str]) -> tuple[pd.DataFrame, list[str], pd.DataFrame]:
+    """Prepara dataframes para grafico y tabla de precio indexado."""
     df_price = series_config.data.copy()
     if df_price.empty or df_price.shape[1] <= 1:
         return pd.DataFrame(), [], pd.DataFrame()
@@ -3538,6 +3578,7 @@ def graf_price_index_table(
     metric_label: str,
     c_fig: int
 ) -> tuple[io.BytesIO, tuple[float, float]]:
+    """Genera la tabla de indicadores de precio indexado."""
     column_count = max(len(columns), 1)
     fig_width = max(6.0, 1.25 * column_count)
     fig_height = 1.5
@@ -3594,6 +3635,7 @@ def build_price_index_slide(
     chart_share_lookup: dict,
     c_fig: int
 ) -> int:
+    """Construye la diapositiva de precio indexado."""
     slide = ppt.slides.add_slide(ppt.slide_layouts[1])
     titulo_base = c_w.get((lang, '6-1'), 'Precio indexado')
     titulo_completo = f"{titulo_base} | {labels[(lang,'comp')]}{cat}"
@@ -3700,8 +3742,9 @@ def build_price_index_slide(
                     constrain_picture_width(pic_table, available_line_width)
                     plt.clf()
     return c_fig
-#Variavel de controle do numero de graficos
+# Variable de control del numero de graficos
 def _try_parse_reference_date(value):
+    """Intenta parsear una fecha desde distintos formatos."""
     month_token_map = {
         'jan': 1, 'ene': 1,
         'feb': 2,
@@ -4676,7 +4719,7 @@ for w in W:
                 plt.clf()
         # Mensaje final omitido para evitar ruido en consola
 chart_generation_end = dt.now()
-#Referencia da base
+# Referencia de la base
 ref_source = last_reference_source if last_reference_source is not None else parse_sheet_with_compras_header(file, W[0])
 last_dt = None
 if ref_source is not None and not ref_source.empty:
