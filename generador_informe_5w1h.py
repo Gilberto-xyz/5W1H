@@ -523,7 +523,7 @@ def ppt8_classify_penetration(p: float) -> str:
     if p <= 0:
         return "Fuera de rango"
     if 0.01 <= p <= 0.10:
-        return "Marca Pequena (1% a 10%)"
+        return "Marca Pequeña (1% a 10%)"
     if 0.10 < p <= 0.30:
         return "Marca Mediana (11% a 30%)"
     if 0.30 < p <= 0.50:
@@ -708,7 +708,7 @@ def render_ppt8_table(
 
     table.auto_set_font_size(False)
     table.set_fontsize(13)
-    table.scale(1.0, 1.15)
+    table.scale(1.0, 1.25)
 
     widths = [0.24, 0.14, 0.14, 0.14, 0.24, 0.14]
     for i, w in enumerate(widths):
@@ -717,6 +717,7 @@ def render_ppt8_table(
     for (r_idx, c_idx), cell in table._cells.items():
         cell.set_edgecolor("black")
         cell.set_linewidth(1.5 if r_idx == 0 else 1.2)
+        cell.PAD = 0.08 if r_idx == 0 else 0.06
 
     for col in range(len(header_bottom)):
         cell = table[0, col]
@@ -739,8 +740,22 @@ def render_ppt8_table(
             table[r_idx, 0].set_text_props(color=brand_color, weight="normal")
 
     plt.tight_layout()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    table_bbox = table.get_tightbbox(renderer).transformed(fig.dpi_scale_trans.inverted())
     fig_size = fig.get_size_inches()
-    return figure_to_stream(fig, dpi=TABLE_EXPORT_DPI, transparent=False), (float(fig_size[0]), float(fig_size[1]))
+    bbox_width = float(table_bbox.width) if table_bbox.width else float(fig_size[0])
+    bbox_height = float(table_bbox.height) if table_bbox.height else float(fig_size[1])
+    return (
+        figure_to_stream(
+            fig,
+            dpi=TABLE_EXPORT_DPI,
+            bbox_inches=table_bbox,
+            pad_inches=0.02,
+            transparent=False,
+        ),
+        (bbox_width, bbox_height),
+    )
 
 pd.set_option('future.no_silent_downcasting', True)
 pd.set_option('mode.chained_assignment', None)
