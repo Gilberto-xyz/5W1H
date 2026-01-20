@@ -3614,7 +3614,7 @@ def build_price_index_slide(
     comment_tf = comment_box.text_frame
     comment_tf.clear()
     comment_paragraph = comment_tf.paragraphs[0]
-    comment_paragraph.text = "Comentário" if lang == 'P' else "Comentario"
+    comment_paragraph.text = "Comentario" if lang == 'P' else "Comentario"
     comment_paragraph.font.size = Inches(0.25)
     chart_share_lookup = chart_share_lookup or {}
     if not price_df.empty and price_df.shape[1] > 1:
@@ -3896,7 +3896,7 @@ for w in W:
         comment_tf = comment_box.text_frame
         comment_tf.clear()
         comment_para = comment_tf.paragraphs[0]
-        comment_para.text = "Comentário" if lang == 'P' else "Comentario"
+        comment_para.text = "Comentario" if lang == 'P' else "Comentario"
         comment_para.font.size = Inches(0.25)
         plt.clf()
         last_reference_source = raw_df
@@ -4071,7 +4071,7 @@ for w in W:
         tf = txTitle.text_frame
         tf.clear()
         t = tf.paragraphs[0]
-        t.text = "Comentário"
+        t.text = "Comentario"
         t.font.size = Inches(0.28)
         #Limpa área de plotagem
         plt.clf()
@@ -4122,7 +4122,7 @@ for w in W:
         tf = txTitle.text_frame
         tf.clear()
         t = tf.paragraphs[0]
-        t.text ="Comentário"
+        t.text ="Comentario"
         t.font.size= Inches(0.25)
         # Control para la tabla de aporte
         target_table_height = Cm(TABLE_TARGET_HEIGHT_CM)
@@ -4563,7 +4563,7 @@ for w in W:
             comment_tf = comment_box.text_frame
             comment_tf.clear()
             comment_paragraph = comment_tf.paragraphs[0]
-            comment_paragraph.text = "Comentário"
+            comment_paragraph.text = "Comentario"
             comment_paragraph.font.size = Inches(0.25)
             chart_top = Inches(0.55)
             multiple_sections = len(render_share_items) > 1
