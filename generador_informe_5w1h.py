@@ -1745,6 +1745,8 @@ def aporte(df,p,lang,tipo):
             apo.attrs["removed_columns"] = []
             apo.attrs["share_period_values"] = []
             apo.attrs["share_mat_values"] = {}
+            apo.attrs["skip_table"] = True
+            apo.attrs["skip_table_reason"] = "empty_data"
             return apo
         first_col_name = aux.columns[0]
         first_col = aux.iloc[:, 0].copy()
@@ -1774,14 +1776,34 @@ def aporte(df,p,lang,tipo):
             apo.attrs["removed_columns"] = list(dict.fromkeys(removed_non_numeric))
             apo.attrs["share_period_values"] = []
             apo.attrs["share_mat_values"] = {}
+            apo.attrs["skip_table"] = True
+            apo.attrs["skip_table_reason"] = "no_numeric_columns"
             return apo
+        try:
+            pipeline_offset = int(p) if p is not None else 0
+        except (TypeError, ValueError):
+            pipeline_offset = 0
+        if pipeline_offset < 0:
+            pipeline_offset = 0
+        p = pipeline_offset
+        required_rows = 24 + pipeline_offset
+        if len(aux) < required_rows:
+            apo = pd.DataFrame(columns=[tipo])
+            apo.attrs["removed_columns"] = list(dict.fromkeys(removed_non_numeric))
+            apo.attrs["share_period_values"] = []
+            apo.attrs["share_mat_values"] = {}
+            apo.attrs["skip_table"] = True
+            apo.attrs["skip_table_reason"] = "insufficient_periods"
+            return apo
+        date_col_label = labels.get((lang, 'Data'))
+        date_col_name = date_col_label if date_col_label in aux.columns else first_col_name
         aux_numeric = aux.iloc[:, 1:].apply(pd.to_numeric, errors='coerce')
         aux['Total'] = aux_numeric.sum(axis=1, skipna=True)
         apo=pd.DataFrame(columns=[tipo] + aux.columns[1:].tolist())
         #Vol ultimo MAT
-        apo.loc[len(apo)] = [str('Vol' )+" "+aux.loc[len(aux)-1-12-p,labels[(lang,'Data')]].strftime('%b-%y') ] + [aux.iloc[len(aux)-24-p:len(aux)-12-p, col].sum() / aux.iloc[len(aux)-24-p:len(aux)-12-p,aux.shape[1]-1].sum() for col in range(1,len(aux.columns) )]
+        apo.loc[len(apo)] = [str('Vol' )+" "+aux.loc[len(aux)-1-12-p,date_col_name].strftime('%b-%y') ] + [aux.iloc[len(aux)-24-p:len(aux)-12-p, col].sum() / aux.iloc[len(aux)-24-p:len(aux)-12-p,aux.shape[1]-1].sum() for col in range(1,len(aux.columns) )]
         #Vol MAT atual
-        apo.loc[len(apo)] = [str('Vol' )+" "+aux.loc[len(aux)-1-p,labels[(lang,'Data')]].strftime('%b-%y') ] + [aux.iloc[len(aux)-12-p:len(aux)-p, col].sum() / aux.iloc[len(aux)-12-p:len(aux)-p,aux.shape[1]-1].values.sum() for col in range(1,len(aux.columns))]
+        apo.loc[len(apo)] = [str('Vol' )+" "+aux.loc[len(aux)-1-p,date_col_name].strftime('%b-%y') ] + [aux.iloc[len(aux)-12-p:len(aux)-p, col].sum() / aux.iloc[len(aux)-12-p:len(aux)-p,aux.shape[1]-1].values.sum() for col in range(1,len(aux.columns))]
         #Var
         apo.loc[len(apo)] = ["Var %"] +  [ aux.iloc[len(aux)-12-p:len(aux)-p, col].sum() / aux.iloc[len(aux)-24-p:len(aux)-12-p, col].sum()-1 for col in range(1,len(aux.columns))]
         #Aporte
@@ -4268,7 +4290,13 @@ for w in W:
             pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_single_width,height=Cm(10))
             plt.clf()
         color_lookup_keys = build_color_lookup_dict(chart_color_mappings)
-        if apo_entries:
+        table_entries = [
+            entry for entry in apo_entries
+            if not entry["apo"].attrs.get("skip_table")
+            and not entry["apo"].empty
+            and entry["apo"].shape[1] > 1
+        ]
+        if table_entries:
             def column_color_for_table(column_name):
                 return lookup_color_for_label(column_name, color_lookup_keys)
             def build_table_color_mapping(apo_df):
@@ -4281,12 +4309,12 @@ for w in W:
             table_top = slide_height - target_table_height_emu - bottom_margin_emu
             if table_top > min_table_top:
                 table_top = min_table_top
-            if len(apo_entries) == 2:
+            if len(table_entries) == 2:
                 gap = Cm(TABLE_PAIR_GAP_CM)
                 half_slide_width = slide_width // 2
                 gap_half = int(gap) // 2
                 paired_shapes = []
-                for entry in apo_entries:
+                for entry in table_entries:
                     apo_df = entry["apo"]
                     display_tipo = str(entry.get("display_tipo", "")).strip().lower()
                     if display_tipo == 'ventas':
@@ -4329,7 +4357,7 @@ for w in W:
                         shape.height = new_h
                         shape.width = new_w
             else:
-                for entry in apo_entries:
+                for entry in table_entries:
                     apo_df = entry["apo"]
                     c_fig += 1
                     table_colors = build_table_color_mapping(apo_df)
