@@ -760,6 +760,7 @@ def render_ppt8_table(
 pd.set_option('future.no_silent_downcasting', True)
 pd.set_option('mode.chained_assignment', None)
 warnings.filterwarnings('ignore')
+# Segmento 1: utilidades para el grafico MAT (cuando).
 # Funcion que prepara los datos para la creacion del grafico MAT
 def df_mat(df,p):
     """Prepara el dataframe MAT con acumulados y variaciones."""
@@ -1465,7 +1466,7 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
     fig.subplots_adjust(left=0.05, right=0.92, top=0.995, bottom=0.02)
     fig_size = fig.get_size_inches()
     return figure_to_stream(fig), fig_size
-# --- Arbol de medidas helpers ---
+# Segmento 2: helpers para arbol de medidas (por que).
 def _limpiar_tabla_excel(df):
     """Detecta la fila de encabezados (MAT ...) tolerando filas adicionales al inicio."""
     header_idx = None
@@ -1851,7 +1852,7 @@ def _unidad_desde_nombre_hoja(nombre_hoja):
         "M": "Metros",
     }
     return mapa.get(letra)
-# Funcion que crea la tabla de aporte
+# Segmentos 3-6: tabla de aportes y calculos de shares/variaciones.
 def aporte(df,p,lang,tipo):
         """Construye la tabla de aporte y calcula shares/variaciones."""
         aux = df.copy()
@@ -3021,6 +3022,7 @@ def _find_compras_header_row(df: pd.DataFrame) -> Optional[int]:
     if compras_idx is not None:
         return compras_idx
     return table_idx
+# Segmentos 3-6: parsing de hojas con Compras/Ventas y series.
 def parse_sheet_with_compras_header(excel_file: pd.ExcelFile, sheet_name: str) -> pd.DataFrame:
     """
     Carga la hoja buscando la fila con 'Compras' como encabezado para tolerar filas vacias o
@@ -3055,6 +3057,7 @@ def ensure_date_column(df: pd.DataFrame, sheet_name: Optional[str] = None, date_
     df_copy = df.copy()
     df_copy.iloc[:, 0] = parsed
     return df_copy
+# Segmento 7: distribuciones (R/NSE/otros cortes).
 DISTRIBUTION_SHEET_PATTERN = re.compile(r'^7[-_](.+?)[-_](.+)$', re.IGNORECASE)
 def _normalize_simple(text: str) -> str:
     """Normaliza texto a minusculas y sin tildes."""
@@ -3579,6 +3582,7 @@ def extract_players_base_key(sheet_name: str) -> Optional[str]:
             return '_'.join(parts[:-1])
         return parts[0]
     return '_'.join(parts)
+# Precio indexado: identifica hojas y arma la tabla indexada con contexto Players.
 def is_price_index_sheet(sheet_name: str) -> bool:
     """Indica si la hoja corresponde a precio indexado."""
     if not isinstance(sheet_name, str):
@@ -3874,6 +3878,7 @@ for w in W:
     if progress_message:
         print_colored(progress_message, COLOR_QUESTION)
     distribution_match = DISTRIBUTION_SHEET_PATTERN.match(w.strip())
+    # Segmento 7: distribuciones (regiones/NSE/otros cortes) desde hojas 7_*_*.
     if distribution_match:
         dist_kind_raw = distribution_match.group(2)
         dist_kind = str(dist_kind_raw).upper().strip()
@@ -3943,6 +3948,7 @@ for w in W:
         plt.clf()
         continue
     sheet_clean = str(w).strip()
+    # Segmento 8: intervalos y error muestral con bloques mensuales + agregados.
     if sheet_clean.startswith('8'):
         try:
             raw_df = file.parse(w, header=None)
@@ -4036,6 +4042,7 @@ for w in W:
         last_reference_source = raw_df
         last_reference_origin = 'Segmento 8'
         continue
+    # Precio indexado: usa el contexto de Players (segmento 6) para construir la tabla.
     if is_price_index_sheet(w):
         players_base_key = extract_players_base_key(w)
         context = players_share_context.get(players_base_key)
@@ -4086,7 +4093,7 @@ for w in W:
         last_reference_source = price_series.data
         last_reference_origin = price_series.display_tipo
         continue
-    #2- Por que? Arbol de medidas
+    # Segmento 2: arbol de medidas (por que) con comparacion MAT.
     if w.startswith('2_'):
         raw_tree_df = file.parse(w, header=None)
         sheet_name_clean = w.strip()
@@ -4170,7 +4177,7 @@ for w in W:
         comment_para.font.size = Inches(0.25)
         # No imprimimos mensaje de finalización para mantener la terminal concisa
         continue
-    #1- Quando, grafico de variacoes MAT
+    # Segmento 1: grafico de variaciones MAT (cuando).
     if w[0]=='1':
         try:
             sheet_df = ensure_date_column(parse_sheet_with_compras_header(file, w), sheet_name=w)
@@ -4210,7 +4217,7 @@ for w in W:
         #Limpa área de plotagem
         plt.clf()
         #mensaje de conclusion por cada slide
-    #Outros
+    # Segmentos 3-6: comparativos y competencia con grafico + tabla de aportes.
     else: 
         #Carrega a base
         df_start=parse_sheet_with_compras_header(file, w)
