@@ -769,6 +769,15 @@ def graf_mat(mat, c_fig, p):
     return figure_to_stream(fig, bbox_inches=None)
 #Grafico de Lineas
 
+def format_title_with_bold_suffix(base_title: str, suffix: str) -> str:
+    base_title = (base_title or '').strip()
+    suffix = (suffix or '').strip()
+    if not suffix:
+        return base_title
+    safe_suffix = suffix.replace('\\', '\\\\').replace('$', '\\$')
+    spacer = ' ' if base_title else ''
+    return f"{base_title}{spacer}$\\bf{{{safe_suffix}}}$"
+
 def line_graf(
     df,
     p,
@@ -785,6 +794,8 @@ def line_graf(
     color_overrides=None,
     linestyle_overrides=None,
     show_title=True,
+    include_origin_suffix=True,
+    force_right_labels=False,
 ):
     """
     Renderiza la gráfica de tendencias y devuelve un buffer PNG listo para insertar en la slide.
@@ -843,6 +854,7 @@ def line_graf(
     xtick_font = FontProperties(family='DejaVu Sans', size=xtick_size, weight='regular')
     xtick_pad = max(6, int(8 * scale))
     marker_size = max(3.5, 4.5 * scale)
+    share_lookup = share_lookup or {}
     aux = df.copy()
     if aux.shape[1] > 1:
         kept_columns = [aux.columns[0]]
@@ -919,7 +931,9 @@ def line_graf(
         legend_label = col
         for suffix, suffix_text in suffix_map.items():
             if lower_col.endswith(suffix):
-                legend_label = f"{col[:-len(suffix)].strip()} ({suffix_text})"
+                base_label = col[:-len(suffix)].strip()
+                if base_label:
+                    legend_label = f"{base_label} ({suffix_text})" if include_origin_suffix else base_label
                 break
         if linestyle_overrides and col in linestyle_overrides:
             estilo = linestyle_overrides[col]
@@ -1086,7 +1100,7 @@ def line_graf(
         frame.set_edgecolor("#D3D3D3")
         frame.set_alpha(0.85)
 
-    if plotted_columns and share_lookup:
+    if plotted_columns and (share_lookup or force_right_labels):
         legend_label_map = {col: label for col, label in zip(plotted_columns, legend_labels)}
         annotation_candidates = []
         share_lookup_lower = {str(key).lower(): value for key, value in share_lookup.items()} if share_lookup else {}
@@ -1095,8 +1109,8 @@ def line_graf(
             if not points:
                 continue
             last_x, last_y = points[-1]
-            share_value = share_lookup.get(col)
-            if share_value is None:
+            share_value = share_lookup.get(col) if share_lookup else None
+            if share_value is None and share_lookup_lower:
                 share_value = share_lookup_lower.get(str(col).lower())
             annotation_candidates.append({
                 "column": col,
@@ -1115,10 +1129,22 @@ def line_graf(
                 with_share = [info for info in annotation_candidates if info["share"] is not None]
                 without_share = [info for info in annotation_candidates if info["share"] is None]
                 with_share.sort(key=lambda info: info["share"], reverse=True)
-                selected_series = with_share[:5]
-                if len(selected_series) < 5:
-                    remaining = [info for info in annotation_candidates if info not in selected_series]
-                    selected_series.extend(remaining[: max(0, 5 - len(selected_series))])
+                if force_right_labels:
+                    without_share.sort(key=lambda info: info["last_y"], reverse=True)
+                    selected_series = []
+                    if with_share:
+                        selected_series.extend(with_share[:3])
+                    if without_share:
+                        selected_series.extend(without_share[:2])
+                    if len(selected_series) < 5:
+                        remaining = [info for info in annotation_candidates if info not in selected_series]
+                        remaining.sort(key=lambda info: info["last_y"], reverse=True)
+                        selected_series.extend(remaining[: max(0, 5 - len(selected_series))])
+                else:
+                    selected_series = with_share[:5]
+                    if len(selected_series) < 5:
+                        remaining = [info for info in annotation_candidates if info not in selected_series]
+                        selected_series.extend(remaining[: max(0, 5 - len(selected_series))])
             if selected_series:
                 x_limits = ax.get_xlim()
                 y_limits = ax.get_ylim()
@@ -4223,6 +4249,7 @@ for w in W:
                 share_lookup=series_share_lookup,
                 color_collector=chart_colors,
                 color_overrides=chart_color_mappings,
+                force_right_labels=True,
                 show_title=False,
             )
             if isinstance(chart_colors, dict):
@@ -4249,10 +4276,11 @@ for w in W:
                 c_fig+=1
                 left_position = left_margin + idx * (chart_width + int(gap))
                 chart_colors = {}
+                chart_title = format_title_with_bold_suffix(titulo, serie.display_tipo)
                 chart_stream = line_graf(
                     serie.data,
                     serie.pipeline,
-                    titulo+' '+serie.display_tipo,
+                    chart_title,
                     c_fig,
                     ven_param,
                     width_emu=chart_width,
@@ -4260,7 +4288,9 @@ for w in W:
                     multi_chart=True,
                     share_lookup=series_share_lookup,
                     color_collector=chart_colors,
-                    color_overrides=chart_color_mappings
+                    color_overrides=chart_color_mappings,
+                    force_right_labels=True,
+                    include_origin_suffix=False
                 )
                 if isinstance(chart_colors, dict):
                     chart_color_mappings.update(chart_colors)
