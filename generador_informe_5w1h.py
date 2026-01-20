@@ -1425,11 +1425,36 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
     # (sin escalar) para todas las unidades.
     factor_volumen_prom = 1
     factor_volumen_viaje = 1
+    def _normalize_metric_label(label):
+        normalized = unicodedata.normalize("NFKD", str(label))
+        normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+        normalized = re.sub(r"\bweighted\b", "", normalized, flags=re.IGNORECASE)
+        normalized = normalized.strip().upper()
+        return re.sub(r"[^A-Z0-9]+", "", normalized)
+    metric_index = df["Metric"].map(_normalize_metric_label).fillna("")
+    def _metric_candidates(metrico):
+        if isinstance(metrico, (list, tuple, set)):
+            raw = list(metrico)
+        else:
+            raw = [metrico]
+        return [_normalize_metric_label(m) for m in raw if m is not None]
     def leer_metric(metrico, columna):
-        serie = df.loc[df['Metric'] == metrico, columna]
-        if serie.empty:
-            raise KeyError(f"No se encontro la metrica '{metrico}' en los datos.")
-        return serie.values[0]
+        candidates = _metric_candidates(metrico)
+        for candidate in candidates:
+            mask = metric_index == candidate
+            if mask.any():
+                return df.loc[mask, columna].values[0]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            mask = metric_index.str.contains(candidate, na=False)
+            if mask.any():
+                return df.loc[mask, columna].values[0]
+        if isinstance(metrico, (list, tuple, set)):
+            display_name = ", ".join(str(m) for m in metrico)
+        else:
+            display_name = str(metrico)
+        raise KeyError(f"No se encontro la metrica '{display_name}' en los datos.")
     def build_entry(label, metrica, transform=lambda x, _: x):
         inicial = transform(leer_metric(metrica, periodo_inicial), periodo_inicial)
         final = transform(leer_metric(metrica, periodo_final), periodo_final)
@@ -1440,15 +1465,31 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         }
     metrics_calculated = {
         etiquetas["valor"]: build_entry(etiquetas["valor"], 'Weighted VAL_LC'),
-        etiquetas["volumen"]: build_entry(etiquetas["volumen"], 'Weighted R_VOL1', lambda v, _: v * factor),
-        etiquetas["precio"]: build_entry(etiquetas["precio"], 'Weighted PM1_LC', lambda v, _: v / factor),
+        etiquetas["volumen"]: build_entry(
+            etiquetas["volumen"],
+            ["Weighted R_VOL1", "Weighted VOLSU", "Weighted R_VOL2"],
+            lambda v, _: v * factor
+        ),
+        etiquetas["precio"]: build_entry(
+            etiquetas["precio"],
+            ["Weighted PM1_LC", "Weighted PMSU_LC"],
+            lambda v, _: v / factor
+        ),
         etiquetas["gasto"]: build_entry(etiquetas["gasto"], 'Weighted VALC_BUY'),
         etiquetas["compradores"]: build_entry(etiquetas["compradores"], 'Weighted BUYERS'),
-        etiquetas["volumen_prom"]: build_entry(etiquetas["volumen_prom"], 'Weighted VO1_BUY', lambda v, _: v * factor_volumen_prom),
+        etiquetas["volumen_prom"]: build_entry(
+            etiquetas["volumen_prom"],
+            ["Weighted VO1_BUY", "Weighted VOSU_BUY"],
+            lambda v, _: v * factor_volumen_prom
+        ),
         etiquetas["penetracion"]: build_entry(etiquetas["penetracion"], 'Weighted PENET'),
         etiquetas["hholds"]: build_entry(etiquetas["hholds"], 'Weighted HHOLDS'),
         etiquetas["frecuencia"]: build_entry(etiquetas["frecuencia"], 'Weighted FREQ'),
-        etiquetas["volumen_viaje"]: build_entry(etiquetas["volumen_viaje"], 'Weighted VO1_DAY', lambda v, _: v * factor_volumen_viaje),
+        etiquetas["volumen_viaje"]: build_entry(
+            etiquetas["volumen_viaje"],
+            ["Weighted VO1_DAY", "Weighted VOSU_DAY"],
+            lambda v, _: v * factor_volumen_viaje
+        ),
         etiquetas["ticket"]: build_entry(etiquetas["ticket"], 'Weighted VALC_DAY'),
     }
     return metrics_calculated
