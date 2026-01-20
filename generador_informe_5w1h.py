@@ -329,6 +329,10 @@ def figure_to_stream(
 
 # ---------------- Segmento 8: tabla PPT (intervalos) ----------------
 
+# Valores z: limites (2.0) y error muestral (1.96).
+PPT8_Z_SCORE_INTERVAL = 2.0
+PPT8_Z_SCORE_ERROR = 1.96
+
 
 @dataclass
 class Ppt8MonthlyBlock:
@@ -354,18 +358,74 @@ class Ppt8Row:
     error_muestral: float
 
 
+def ppt8_normalize_label(label: str) -> str:
+    """Normaliza etiquetas para emparejar bloques por marca."""
+    normalized = unicodedata.normalize("NFKD", str(label))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", "", normalized.lower())
+
+
+def ppt8_is_header_label(label: str) -> bool:
+    """Detecta etiquetas de encabezado en lugar de marcas."""
+    raw = str(label).strip()
+    if not raw:
+        return True
+    lower = raw.lower()
+    if re.search(r"\btable\b", lower):
+        return True
+    if re.search(r"\bcateg", lower):
+        return True
+    if re.search(r"\bbrands\b", lower) and ("=" in lower or "total" in lower):
+        return True
+    compact = ppt8_normalize_label(label)
+    return not compact
+
+
+def ppt8_block_has_numeric(block: pd.DataFrame) -> bool:
+    """Verifica si el bloque tiene valores numericos en las columnas 5/6."""
+    if block.empty:
+        return False
+    for col in (5, 6):
+        if block.shape[1] > col:
+            numeric = pd.to_numeric(block.iloc[:, col], errors="coerce")
+            if numeric.notna().any():
+                return True
+    return False
+
+
+def ppt8_filter_agg_blocks(
+    monthly_blocks: Iterable[Ppt8MonthlyBlock],
+    agg_blocks: Iterable[Ppt8AggBlock],
+) -> Tuple[List[Ppt8AggBlock], List[str]]:
+    """Omite bloques agregados sin datos o que son encabezados."""
+    monthly_norms = {ppt8_normalize_label(block.brand) for block in monthly_blocks if block.brand}
+    filtered: List[Ppt8AggBlock] = []
+    dropped: List[str] = []
+    for block in agg_blocks:
+        brand_label = block.brand
+        norm = ppt8_normalize_label(brand_label)
+        header_like = ppt8_is_header_label(brand_label)
+        has_numeric = ppt8_block_has_numeric(block.block)
+        if header_like and not has_numeric:
+            dropped.append(brand_label)
+            continue
+        if norm and norm not in monthly_norms and not has_numeric:
+            dropped.append(brand_label)
+            continue
+        filtered.append(block)
+    return filtered, dropped
+
+
 def ppt8_parse_monthly_blocks(df: pd.DataFrame) -> List[Ppt8MonthlyBlock]:
     """Encuentra bloques de datos mensuales delimitados por marca en columnas 0-2."""
     first_col = df.iloc[:, 0]
     brand_rows = df[(first_col.notna()) & df.iloc[:, 1].isna() & df.iloc[:, 2].isna()].index.tolist()
     blocks: List[Ppt8MonthlyBlock] = []
-    skip_tokens = ("table", "categ", "total categ")
     for i, start in enumerate(brand_rows):
         end = brand_rows[i + 1] if i + 1 < len(brand_rows) else len(df)
         data = df.loc[start + 1 : end - 1]
         brand_label = str(df.iloc[start, 0]).strip()
-        lower_label = brand_label.lower()
-        if any(tok in lower_label for tok in skip_tokens):
+        if ppt8_is_header_label(brand_label):
             continue
         data = data[pd.to_numeric(data.iloc[:, 1], errors="coerce").notna()]
         if data.empty:
@@ -392,7 +452,10 @@ def ppt8_parse_agg_blocks(df: pd.DataFrame) -> List[Ppt8AggBlock]:
         block = block[block.iloc[:, 4].notna()]
         if block.empty:
             continue
-        blocks.append(Ppt8AggBlock(brand=str(df.iloc[start, 4]).strip(), block=block))
+        brand_label = str(df.iloc[start, 4]).strip()
+        if ppt8_is_header_label(brand_label):
+            continue
+        blocks.append(Ppt8AggBlock(brand=brand_label, block=block))
     return blocks
 
 
@@ -477,16 +540,11 @@ def ppt8_compute_rows(
     rows: List[Ppt8Row] = []
     errors: List[str] = []
     required_metrics = {"R_VOL1", "PENET", "FREQ", "HHOLDS"}
-    def _norm(label: str) -> str:
-        normalized = unicodedata.normalize("NFKD", str(label))
-        normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
-        return re.sub(r"[^a-z0-9]+", "", normalized.lower())
-
-    agg_lookup = {_norm(block.brand): block for block in agg_blocks}
+    agg_lookup = {ppt8_normalize_label(block.brand): block for block in agg_blocks}
 
     for idx, mblock in enumerate(monthly_blocks):
         try:
-            ablock = agg_lookup.get(_norm(mblock.brand))
+            ablock = agg_lookup.get(ppt8_normalize_label(mblock.brand))
             if ablock is None:
                 ablock = agg_blocks[idx] if idx < len(agg_blocks) else None
             if ablock is None:
@@ -537,7 +595,7 @@ def ppt8_compute_rows(
                 raise ValueError(f"{mblock.brand}: valor m invalido")
             se_rel = math.sqrt(2 / (m_val * hh))
             avg_vol = (vol1 + vol2) / 2
-            int_dif = 2 * se_rel * avg_vol
+            int_dif = PPT8_Z_SCORE_INTERVAL * se_rel * avg_vol
             lim_dif_minus = dif - int_dif
             lim_dif_plus = dif + int_dif
             lim_cant2_minus = vol1 + lim_dif_minus
@@ -551,7 +609,7 @@ def ppt8_compute_rows(
             if p_ratio <= 0:
                 err = np.nan
             else:
-                err = 1.96 * math.sqrt((p_ratio * (1 - p_ratio)) / hh) / p_ratio
+                err = PPT8_Z_SCORE_ERROR * math.sqrt((p_ratio * (1 - p_ratio)) / hh) / p_ratio
             nivel = ppt8_classify_penetration(p_ratio)
 
             rows.append(
@@ -3880,6 +3938,24 @@ for w in W:
         agg_blocks = ppt8_parse_agg_blocks(raw_df)
         if not monthly_blocks or not agg_blocks:
             print_colored(f"Segmento 8: no se detectaron bloques validos en la hoja {w}.", COLOR_RED)
+            continue
+        agg_blocks, agg_dropped = ppt8_filter_agg_blocks(monthly_blocks, agg_blocks)
+        if agg_dropped:
+            unique_labels: list[str] = []
+            for label in agg_dropped:
+                cleaned = str(label).strip()
+                if cleaned and cleaned not in unique_labels:
+                    unique_labels.append(cleaned)
+            preview = ", ".join(unique_labels[:3])
+            extra = len(unique_labels) - 3
+            extra_note = f", +{extra} mas" if extra > 0 else ""
+            detail = f": {preview}{extra_note}" if preview else ""
+            print_colored(
+                f"Segmento 8: se omitieron {len(agg_dropped)} bloque(s) agregados sin datos{detail}.",
+                COLOR_YELLOW
+            )
+        if not agg_blocks:
+            print_colored(f"Segmento 8: no se detectaron bloques agregados validos en la hoja {w}.", COLOR_RED)
             continue
         if len(monthly_blocks) != len(agg_blocks):
             print_colored(
