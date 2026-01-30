@@ -1522,10 +1522,11 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
     """Calcula niveles y variaciones porcentuales entre dos periodos."""
     etiquetas = _nombres_unidad(unidad)
     def calculate_percentage_change(old, new):
-        try:
-            return ((new - old) / old) * 100
-        except ZeroDivisionError:
+        if old is None or new is None:
             return 0
+        if not np.isfinite(old) or not np.isfinite(new) or old == 0:
+            return 0
+        return ((new - old) / old) * 100
     factores = {
         'Units': 1,
         'Litros': 1,
