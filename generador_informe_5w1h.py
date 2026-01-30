@@ -1501,6 +1501,7 @@ def _nombres_unidad(unidad):
         "toneladas": ("Tons", "Ton"),
         "rollos": ("Rollos", "Rollo"),
         "metros": ("MTs", "MT"),
+        "hojas": ("Hojas", "Hoja"),
     }.get(unidad_lower, (unidad, unidad))
     vol_label, sub_label = nombre_vol
     precio_unit = vol_label[:-1] if vol_label.endswith("s") else vol_label
@@ -1534,7 +1535,8 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         # y se multiplica por 1000 en precios; factor < 1 corrige el inflado observado.
         'Toneladas': 0.001,
         'Rollos': 10,
-        'Metros': 100
+        'Metros': 100,
+        'Hojas': 1
     }
     factor = factores.get(unidad, 1)
     # Los promedios por comprador/viaje ya vienen en la unidad correcta
@@ -1588,14 +1590,14 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         ),
         etiquetas["precio"]: build_entry(
             etiquetas["precio"],
-            ["Weighted PM1_LC", "Weighted PMSU_LC"],
+            ["Weighted PM1_LC", "Weighted PMSU_LC", "Weighted PM2_LC"],
             lambda v, _: v / factor
         ),
         etiquetas["gasto"]: build_entry(etiquetas["gasto"], 'Weighted VALC_BUY'),
         etiquetas["compradores"]: build_entry(etiquetas["compradores"], 'Weighted BUYERS'),
         etiquetas["volumen_prom"]: build_entry(
             etiquetas["volumen_prom"],
-            ["Weighted VO1_BUY", "Weighted VOSU_BUY"],
+            ["Weighted VO1_BUY", "Weighted VOSU_BUY", "Weighted VO2_BUY"],
             lambda v, _: v * factor_volumen_prom
         ),
         etiquetas["penetracion"]: build_entry(etiquetas["penetracion"], 'Weighted PENET'),
@@ -1603,7 +1605,7 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         etiquetas["frecuencia"]: build_entry(etiquetas["frecuencia"], 'Weighted FREQ'),
         etiquetas["volumen_viaje"]: build_entry(
             etiquetas["volumen_viaje"],
-            ["Weighted VO1_DAY", "Weighted VOSU_DAY"],
+            ["Weighted VO1_DAY", "Weighted VOSU_DAY", "Weighted VO2_DAY"],
             lambda v, _: v * factor_volumen_viaje
         ),
         etiquetas["ticket"]: build_entry(etiquetas["ticket"], 'Weighted VALC_DAY'),
@@ -1850,6 +1852,7 @@ def _unidad_desde_nombre_hoja(nombre_hoja):
         "T": "Toneladas",
         "R": "Rollos",
         "M": "Metros",
+        "H": "Hojas",
     }
     return mapa.get(letra)
 # Segmentos 3-6: tabla de aportes y calculos de shares/variaciones.
@@ -3003,18 +3006,22 @@ def _is_separator_column(col) -> bool:
         return False
     stripped = col.strip()
     return not stripped or stripped.lower().startswith('unnamed')
-def _find_compras_header_row(df: pd.DataFrame) -> Optional[int]:
-    """Busca la fila con encabezado de Compras o table."""
+def _normalize_header_text(value: str) -> str:
+    normalized = unicodedata.normalize('NFKD', str(value))
+    normalized = ''.join(ch for ch in normalized if not unicodedata.combining(ch))
+    return normalized.lower().strip()
+def _find_compras_header_row(df: pd.DataFrame, include_table: bool = True) -> Optional[int]:
+    """Busca la fila con encabezado de Compras (y opcionalmente table)."""
     if df is None or df.empty:
         return None
     compras_idx = None
     table_idx = None
     for idx, row in df.iterrows():
         for value in row:
-            if isinstance(value, str) and 'compras' in value.strip().lower():
+            if isinstance(value, str) and 'compras' in _normalize_header_text(value):
                 compras_idx = idx
                 break
-            if isinstance(value, str) and 'table' in value.strip().lower():
+            if include_table and isinstance(value, str) and 'table' in _normalize_header_text(value):
                 if table_idx is None:
                     table_idx = idx
         if compras_idx is not None:
@@ -3022,17 +3029,104 @@ def _find_compras_header_row(df: pd.DataFrame) -> Optional[int]:
     if compras_idx is not None:
         return compras_idx
     return table_idx
+
+
+def _find_table_anchor_row(df: pd.DataFrame) -> Optional[int]:
+    if df is None or df.empty or df.shape[1] == 0:
+        return None
+    first_col = df.iloc[:, 0]
+    for idx, value in first_col.items():
+        if isinstance(value, str) and 'table' in _normalize_header_text(value):
+            return idx
+    return None
+
+
+def _find_first_date_row(
+    df: pd.DataFrame,
+    start_idx: int,
+    date_format: str
+) -> Optional[int]:
+    if df is None or df.empty or df.shape[1] == 0:
+        return None
+    first_col = df.iloc[start_idx:, 0]
+    parsed = pd.to_datetime(first_col, format=date_format, errors='coerce')
+    non_empty = pd.Series(True, index=first_col.index)
+    if first_col.dtype == object:
+        non_empty = first_col.astype(str).str.strip().ne('')
+    valid = parsed.notna() & non_empty
+    if valid.any():
+        return valid[valid].index[0]
+    return None
+
+
+def _find_header_row_near_date(df: pd.DataFrame, date_row_idx: int) -> Optional[int]:
+    if df is None or df.empty:
+        return None
+    for idx in range(date_row_idx, max(date_row_idx - 6, -1), -1):
+        row = df.iloc[idx]
+        for value in row:
+            if isinstance(value, str):
+                text = _normalize_header_text(value)
+                if 'compras' in text or 'ventas' in text:
+                    return idx
+    if date_row_idx > 0:
+        return date_row_idx - 1
+    return None
+
+
+def _row_has_mat_headers(row: pd.Series) -> bool:
+    for value in row:
+        if isinstance(value, str) and 'mat' in _normalize_header_text(value):
+            return True
+    return False
 # Segmentos 3-6: parsing de hojas con Compras/Ventas y series.
-def parse_sheet_with_compras_header(excel_file: pd.ExcelFile, sheet_name: str) -> pd.DataFrame:
+def parse_sheet_with_compras_header(
+    excel_file: pd.ExcelFile,
+    sheet_name: str,
+    include_table: bool = True
+) -> pd.DataFrame:
     """
     Carga la hoja buscando la fila con 'Compras' como encabezado para tolerar filas vacias o
     textos previos; si no se encuentra, usa el encabezado por defecto.
     """
     raw_df = excel_file.parse(sheet_name, header=None)
-    header_row = _find_compras_header_row(raw_df)
+    header_row = _find_compras_header_row(raw_df, include_table=include_table)
     if header_row is None:
         return excel_file.parse(sheet_name)
     return excel_file.parse(sheet_name, header=header_row)
+
+
+def parse_sheet_with_date_fallback(
+    excel_file: pd.ExcelFile,
+    sheet_name: str,
+    date_format: str = '%b-%y  '
+) -> pd.DataFrame:
+    """
+    Intenta leer la hoja con encabezado Compras/Ventas.
+    Si falla, busca la primera fecha debajo de un ancla "table" y reintenta.
+    """
+    raw_df = excel_file.parse(sheet_name, header=None)
+    try:
+        base_df = parse_sheet_with_compras_header(excel_file, sheet_name, include_table=False)
+        return ensure_date_column(base_df, sheet_name=sheet_name, date_format=date_format)
+    except ValueError:
+        table_idx = _find_table_anchor_row(raw_df)
+        start_idx = table_idx + 1 if table_idx is not None else 0
+        date_row_idx = _find_first_date_row(raw_df, start_idx, date_format)
+        if date_row_idx is None:
+            if table_idx is not None and _row_has_mat_headers(raw_df.iloc[table_idx]):
+                raise ValueError(
+                    f"La hoja {sheet_name} contiene un encabezado 'table' con periodos MAT, "
+                    "pero no se encontraron fechas en la primera columna."
+                )
+            raise
+        header_idx = _find_header_row_near_date(raw_df, date_row_idx)
+        if header_idx is None:
+            raise ValueError(
+                f"No se encontro encabezado de Compras/Ventas alrededor de las fechas en la hoja {sheet_name}."
+            )
+        df = excel_file.parse(sheet_name, header=header_idx)
+        return ensure_date_column(df, sheet_name=sheet_name, date_format=date_format)
 def ensure_date_column(df: pd.DataFrame, sheet_name: Optional[str] = None, date_format: str = '%b-%y  ') -> pd.DataFrame:
     """
     Valida y convierte la primera columna a fecha (formato MMM-YY).
@@ -3529,6 +3623,13 @@ def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> 
         df_list.append(compras)
     df_list.append(ventas)
     return df_list, pipeline
+
+
+def _detect_ventas_pipeline(columns: pd.Index) -> int:
+    for col in columns:
+        if isinstance(col, str) and 'ventas' in col.lower():
+            return _extract_pipeline(col)
+    return 0
 def prepare_series_configs(df_list, lang, p_ventas, sheet_name: Optional[str] = None):
     """Prepara configuraciones de series para graficar."""
     configs = []
@@ -4054,7 +4155,9 @@ for w in W:
         try:
             series_configs = prepare_series_configs(df_list, lang, p_ventas, sheet_name=w)
         except ValueError as exc:
-            print_colored(str(exc), COLOR_RED)
+            msg = str(exc)
+            color = COLOR_YELLOW if "encabezado 'table' con periodos MAT" in msg else COLOR_RED
+            print_colored(msg, color)
             continue
         price_series = None
         for cfg in series_configs:
@@ -4180,7 +4283,7 @@ for w in W:
     # Segmento 1: grafico de variaciones MAT (cuando).
     if w[0]=='1':
         try:
-            sheet_df = ensure_date_column(parse_sheet_with_compras_header(file, w), sheet_name=w)
+            sheet_df = parse_sheet_with_date_fallback(file, w)
         except ValueError as exc:
             print_colored(str(exc), COLOR_RED)
             continue
@@ -4193,7 +4296,7 @@ for w in W:
         title_brand = w[2:].strip()
         set_title_with_brand_color(tf, title_prefix, title_brand, '', 0.35, BRAND_TITLE_COLOR_LOOKUP)
         #Obtém pipeline das vendas
-        p=int(sheet_df.columns[1].split("_")[1])
+        p = _detect_ventas_pipeline(sheet_df.columns)
         #Cria a base
         mat=df_mat(sheet_df,p)
         last_reference_source = mat
