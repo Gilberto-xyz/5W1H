@@ -381,6 +381,87 @@ def ppt8_is_header_label(label: str) -> bool:
     return not compact
 
 
+def ppt8_clean_dimension_label(label: str) -> str:
+    """Limpia etiquetas de dimensiones tipo 'DIM = Total X\\Total DIM'."""
+    raw = str(label).strip()
+    if not raw:
+        return ""
+    cleaned = raw
+    if "=" in cleaned:
+        cleaned = cleaned.split("=", 1)[1].strip()
+    if "\\" in cleaned:
+        cleaned = cleaned.split("\\", 1)[0].strip()
+    cleaned = re.sub(r"(?i)^total\s+", "", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or raw
+
+
+def _ppt8_normalize_text(value) -> str:
+    text = unicodedata.normalize("NFKD", str(value))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return text.lower().strip()
+
+
+def ppt8_is_monthly_header_row(row: pd.Series) -> bool:
+    """Detecta encabezados mensuales del bloque izquierdo (PENET/BUYERS)."""
+    if len(row) < 3:
+        return False
+    col0 = _ppt8_normalize_text(row.iloc[0]) if pd.notna(row.iloc[0]) else ""
+    col1 = _ppt8_normalize_text(row.iloc[1]) if pd.notna(row.iloc[1]) else ""
+    col2 = _ppt8_normalize_text(row.iloc[2]) if pd.notna(row.iloc[2]) else ""
+    has_penet = "penet" in col1
+    has_buyers = ("buyer" in col2) or ("comprad" in col2)
+    has_table = "table" in col0
+    return has_penet and has_buyers and (has_table or bool(col1 and col2))
+
+
+def ppt8_is_agg_header_row(row: pd.Series) -> bool:
+    """Detecta encabezados MAT del bloque agregado derecho."""
+    if len(row) < 7:
+        return False
+    col4 = _ppt8_normalize_text(row.iloc[4]) if pd.notna(row.iloc[4]) else ""
+    col5 = _ppt8_normalize_text(row.iloc[5]) if pd.notna(row.iloc[5]) else ""
+    col6 = _ppt8_normalize_text(row.iloc[6]) if pd.notna(row.iloc[6]) else ""
+    has_table = "table" in col4
+    has_mat = ("mat" in col5) or ("mat" in col6)
+    return has_table and has_mat
+
+
+def _ppt8_resolve_block_label(
+    df: pd.DataFrame,
+    header_idx: int,
+    label_col: int,
+    val_col_a: int,
+    val_col_b: int,
+) -> str:
+    """Resuelve la etiqueta del bloque buscando fila de marca cercana al encabezado."""
+    max_rows = len(df)
+    # Escenario base: etiqueta inmediatamente debajo del encabezado.
+    for row_idx in range(header_idx + 1, min(header_idx + 4, max_rows)):
+        label_val = df.iloc[row_idx, label_col]
+        if pd.isna(label_val):
+            continue
+        val_a = df.iloc[row_idx, val_col_a]
+        val_b = df.iloc[row_idx, val_col_b]
+        if pd.isna(val_a) and pd.isna(val_b):
+            cleaned = ppt8_clean_dimension_label(label_val)
+            if cleaned and not ppt8_is_header_label(cleaned):
+                return cleaned
+    # Escenario alterno: metadatos justo encima del encabezado (ej.: L_REGION).
+    for row_idx in range(header_idx - 1, max(-1, header_idx - 5), -1):
+        label_val = df.iloc[row_idx, label_col]
+        if pd.isna(label_val):
+            continue
+        val_a = df.iloc[row_idx, val_col_a]
+        val_b = df.iloc[row_idx, val_col_b]
+        if pd.isna(val_a) and pd.isna(val_b):
+            cleaned = ppt8_clean_dimension_label(label_val)
+            if cleaned and not ppt8_is_header_label(cleaned):
+                return cleaned
+    fallback = str(df.iloc[header_idx, label_col]).strip()
+    return ppt8_clean_dimension_label(fallback) or fallback or f"Bloque {header_idx + 1}"
+
+
 def ppt8_block_has_numeric(block: pd.DataFrame) -> bool:
     """Verifica si el bloque tiene valores numericos en las columnas 5/6."""
     if block.empty:
@@ -418,24 +499,58 @@ def ppt8_filter_agg_blocks(
 
 def ppt8_parse_monthly_blocks(df: pd.DataFrame) -> List[Ppt8MonthlyBlock]:
     """Encuentra bloques de datos mensuales delimitados por marca en columnas 0-2."""
+    if df.shape[1] < 3:
+        return []
+    header_blocks: List[Ppt8MonthlyBlock] = []
+    header_rows = [idx for idx, row in df.iterrows() if ppt8_is_monthly_header_row(row)]
+    if header_rows:
+        for i, header_idx in enumerate(header_rows):
+            end = header_rows[i + 1] if i + 1 < len(header_rows) else len(df)
+            data = df.loc[header_idx + 1 : end - 1]
+            data = data[pd.to_numeric(data.iloc[:, 1], errors="coerce").notna()]
+            if data.empty:
+                continue
+            brand_label = _ppt8_resolve_block_label(df, header_idx, 0, 1, 2)
+            if not brand_label or ppt8_is_header_label(brand_label):
+                continue
+            header_blocks.append(Ppt8MonthlyBlock(brand=brand_label, rows=data))
+
     first_col = df.iloc[:, 0]
     brand_rows = df[(first_col.notna()) & df.iloc[:, 1].isna() & df.iloc[:, 2].isna()].index.tolist()
-    blocks: List[Ppt8MonthlyBlock] = []
+    fallback_blocks: List[Ppt8MonthlyBlock] = []
     for i, start in enumerate(brand_rows):
         end = brand_rows[i + 1] if i + 1 < len(brand_rows) else len(df)
         data = df.loc[start + 1 : end - 1]
-        brand_label = str(df.iloc[start, 0]).strip()
+        brand_label = ppt8_clean_dimension_label(df.iloc[start, 0])
         if ppt8_is_header_label(brand_label):
             continue
         data = data[pd.to_numeric(data.iloc[:, 1], errors="coerce").notna()]
         if data.empty:
             continue
-        blocks.append(Ppt8MonthlyBlock(brand=brand_label, rows=data))
-    return blocks
+        fallback_blocks.append(Ppt8MonthlyBlock(brand=brand_label, rows=data))
+    if header_blocks and len(header_blocks) >= len(fallback_blocks):
+        return header_blocks
+    return fallback_blocks
 
 
 def ppt8_parse_agg_blocks(df: pd.DataFrame) -> List[Ppt8AggBlock]:
     """Encuentra bloques agregados por marca en columnas 4-6."""
+    if df.shape[1] < 7:
+        return []
+    header_blocks: List[Ppt8AggBlock] = []
+    header_rows = [idx for idx, row in df.iterrows() if ppt8_is_agg_header_row(row)]
+    if header_rows:
+        for i, header_idx in enumerate(header_rows):
+            end = header_rows[i + 1] if i + 1 < len(header_rows) else len(df)
+            block = df.loc[header_idx + 1 : end - 1]
+            block = block[block.iloc[:, 4].notna()]
+            if block.empty:
+                continue
+            brand_label = _ppt8_resolve_block_label(df, header_idx, 4, 5, 6)
+            if not brand_label or ppt8_is_header_label(brand_label):
+                continue
+            header_blocks.append(Ppt8AggBlock(brand=brand_label, block=block))
+
     label_col = df.iloc[:, 4]
     agg_brand_rows = df[
         label_col.notna()
@@ -445,48 +560,66 @@ def ppt8_parse_agg_blocks(df: pd.DataFrame) -> List[Ppt8AggBlock]:
         & df.iloc[:, 5].isna()
         & df.iloc[:, 6].isna()
     ].index.tolist()
-    blocks: List[Ppt8AggBlock] = []
+    fallback_blocks: List[Ppt8AggBlock] = []
     for i, start in enumerate(agg_brand_rows):
         end = agg_brand_rows[i + 1] if i + 1 < len(agg_brand_rows) else len(df)
         block = df.loc[start + 1 : end - 1]
         block = block[block.iloc[:, 4].notna()]
         if block.empty:
             continue
-        brand_label = str(df.iloc[start, 4]).strip()
+        brand_label = ppt8_clean_dimension_label(df.iloc[start, 4])
         if ppt8_is_header_label(brand_label):
             continue
-        blocks.append(Ppt8AggBlock(brand=brand_label, block=block))
-    return blocks
+        fallback_blocks.append(Ppt8AggBlock(brand=brand_label, block=block))
+    if header_blocks and len(header_blocks) >= len(fallback_blocks):
+        return header_blocks
+    return fallback_blocks
 
 
-def ppt8_extract_metrics(block: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
-    """Mapea etiqueta -> (MAT base, MAT actual) tolerando alias."""
+def ppt8_extract_metrics(block: pd.DataFrame) -> Tuple[Dict[str, Tuple[float, float]], Dict[str, str]]:
+    """Mapea etiqueta -> (MAT base, MAT actual) y registra la fuente detectada."""
 
-    def canonical_metric(label: str) -> Optional[str]:
+    volume_metric_priority = {
+        "RVOL1": 300,
+        "RVOL2": 300,
+        "VOLSU": 250,
+        "UNITS": 200,
+        "UNIDAD": 200,
+        "UNIDADES": 200,
+        "VOL1": 150,
+        "VOL2": 150,
+        # VOL*_P se toma como ultima opcion cuando no hay R_VOL*
+        "VOL1P": 100,
+        "VOL2P": 100,
+    }
+
+    def canonical_metric(label: str) -> Tuple[Optional[str], Optional[str], int]:
         raw_label = str(label)
         if not raw_label or not raw_label.strip():
-            return None
+            return None, None, -1
         normalized = raw_label.replace("Weighted", "").strip().upper()
         compact = re.sub(r"[^A-Z0-9]+", "", normalized)
         if not compact:
-            return None
+            return None, None, -1
         is_vertical = "VERT" in compact
 
         if is_vertical:
-            return None
+            return None, None, -1
         if compact in {"RVOL1", "RVOL2", "VOL1", "VOL2", "VOL1P", "VOL2P", "VOLSU", "UNITS", "UNIDAD", "UNIDADES"}:
-            return "R_VOL1"
+            return "R_VOL1", compact, volume_metric_priority.get(compact, 0)
         if compact.startswith("PEN"):
-            return "PENET"
+            return "PENET", compact, 100
         if compact.startswith("FREQ"):
-            return "FREQ"
+            return "FREQ", compact, 100
         if compact.startswith("HH"):
-            return "HHOLDS"
-        return normalized
+            return "HHOLDS", compact, 100
+        return normalized, compact, 0
 
     metrics: Dict[str, Tuple[float, float]] = {}
+    metric_priority: Dict[str, int] = {}
+    metric_source: Dict[str, str] = {}
     for _, row in block.iterrows():
-        canonical = canonical_metric(row.iloc[4])
+        canonical, source_compact, priority = canonical_metric(row.iloc[4])
         if not canonical:
             continue
         try:
@@ -499,7 +632,61 @@ def ppt8_extract_metrics(block: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
             act_val = base_val
         if not np.isfinite(base_val) and np.isfinite(act_val):
             base_val = act_val
+        previous_priority = metric_priority.get(canonical, -1)
+        # Evita que metricas de menor prioridad (ej. VOL2_P) pisen R_VOL2/R_VOL1.
+        if previous_priority > priority:
+            continue
         metrics[canonical] = (base_val, act_val)
+        metric_priority[canonical] = priority
+        if source_compact:
+            metric_source[canonical] = source_compact
+    return metrics, metric_source
+
+
+def ppt8_detect_volume_metric(agg_blocks: Iterable[Ppt8AggBlock]) -> Optional[str]:
+    """Detecta la metrica de volumen usada en Segmento 8 para reportarla en terminal."""
+    source_counts: Dict[str, int] = {}
+    source_priority = {
+        "RVOL1": 300,
+        "RVOL2": 300,
+        "VOLSU": 250,
+        "UNITS": 200,
+        "UNIDAD": 200,
+        "UNIDADES": 200,
+        "VOL1": 150,
+        "VOL2": 150,
+        "VOL1P": 100,
+        "VOL2P": 100,
+    }
+    source_display = {
+        "RVOL1": "R_VOL1",
+        "RVOL2": "R_VOL2",
+        "VOL1": "VOL1",
+        "VOL2": "VOL2",
+        "VOL1P": "VOL1_P",
+        "VOL2P": "VOL2_P",
+        "VOLSU": "VOLSU",
+        "UNITS": "UNITS",
+        "UNIDAD": "UNIDAD",
+        "UNIDADES": "UNIDADES",
+    }
+    for block in agg_blocks:
+        _, metric_sources = ppt8_extract_metrics(block.block)
+        source = metric_sources.get("R_VOL1")
+        if source:
+            source_counts[source] = source_counts.get(source, 0) + 1
+    if not source_counts:
+        return None
+    selected_source = max(
+        source_counts.keys(),
+        key=lambda key: (source_counts.get(key, 0), source_priority.get(key, 0), key),
+    )
+    return source_display.get(selected_source, selected_source)
+
+
+def ppt8_extract_metrics_values(block: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
+    """Compatibilidad: devuelve solo valores de metricas agregadas."""
+    metrics, _ = ppt8_extract_metrics(block)
     return metrics
 
 
@@ -561,7 +748,7 @@ def ppt8_compute_rows(
             pen_avg = float(last12_pen.mean())
             buyers_avg = float(last12_buy.mean())
 
-            metrics = ppt8_extract_metrics(ablock.block)
+            metrics = ppt8_extract_metrics_values(ablock.block)
             missing = [m for m in required_metrics if m not in metrics]
             if missing:
                 raise ValueError(f"{mblock.brand}: faltan metricas {', '.join(missing)}")
@@ -2977,14 +3164,20 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     detail = f" - {brand_terminal}" if brand_terminal else ''
     return f"{step_label}{detail}"
 
-def build_terminal_progress_message(sheet_name: str, lang: str, category_name: str) -> Optional[str]:
+def build_terminal_progress_message(
+    sheet_name: str,
+    lang: str,
+    category_name: str,
+    suffix: str = "",
+) -> Optional[str]:
     """
     Mensaje de progreso claro (ej: 'Generando 3W Marcas - X (hoja 3_Marca_P)').
     """
     label = build_terminal_label(sheet_name, lang, category_name)
     if not label:
         return None
-    return f"Generando {label} (hoja {sheet_name})"
+    suffix_text = f" {suffix}" if suffix else ""
+    return f"Generando {label} (hoja {sheet_name}){suffix_text}"
 
 def build_terminal_done_message(sheet_name: str, lang: str, category_name: str) -> Optional[str]:
     """Devuelve el mensaje final de progreso en terminal."""
@@ -3979,8 +4172,9 @@ players_share_context = {}
 #---------------------------------------------------------------------------------------------------------------------
 chart_generation_start = dt.now()
 for w in W:
+    sheet_clean = str(w).strip()
     progress_message = build_terminal_progress_message(w, lang, cat)
-    if progress_message:
+    if progress_message and not sheet_clean.startswith('8'):
         print_colored(progress_message, COLOR_QUESTION)
     distribution_match = DISTRIBUTION_SHEET_PATTERN.match(w.strip())
     # Segmento 7: distribuciones (regiones/NSE/otros cortes) desde hojas 7_*_*.
@@ -4052,7 +4246,6 @@ for w in W:
         comment_para.font.size = Inches(0.25)
         plt.clf()
         continue
-    sheet_clean = str(w).strip()
     # Segmento 8: intervalos y error muestral con bloques mensuales + agregados.
     if sheet_clean.startswith('8'):
         try:
@@ -4088,6 +4281,15 @@ for w in W:
                 f"Segmento 8: se usara el minimo comun de bloques en {w} (mensuales={len(monthly_blocks)}, agregados={len(agg_blocks)}).",
                 COLOR_YELLOW
             )
+        volume_metric_used = ppt8_detect_volume_metric(agg_blocks) or "R_VOL1"
+        progress_message = build_terminal_progress_message(
+            w,
+            lang,
+            cat,
+            suffix=f"- [{volume_metric_used}]",
+        )
+        if progress_message:
+            print_colored(progress_message, COLOR_QUESTION)
         mat_base_label, mat_curr_label = ppt8_find_mat_labels(raw_df)
         ppt_rows, ppt_errors = ppt8_compute_rows(monthly_blocks, agg_blocks)
         for err in ppt_errors:
