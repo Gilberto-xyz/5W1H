@@ -470,15 +470,17 @@ def ppt8_extract_metrics(block: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
         compact = re.sub(r"[^A-Z0-9]+", "", normalized)
         if not compact:
             return None
-        is_vertical = "VERT" in normalized
+        is_vertical = "VERT" in compact
 
-        if compact in {"RVOL1", "VOL1", "UNITS", "UNIDAD", "UNIDADES"} and not is_vertical:
+        if is_vertical:
+            return None
+        if compact in {"RVOL1", "RVOL2", "VOL1", "VOL2", "VOL1P", "VOL2P", "VOLSU", "UNITS", "UNIDAD", "UNIDADES"}:
             return "R_VOL1"
-        if compact.startswith("PEN") and not is_vertical:
+        if compact.startswith("PEN"):
             return "PENET"
-        if compact.startswith("FREQ") and not is_vertical:
+        if compact.startswith("FREQ"):
             return "FREQ"
-        if compact.startswith("HH") and not is_vertical:
+        if compact.startswith("HH"):
             return "HHOLDS"
         return normalized
 
@@ -1551,6 +1553,7 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         normalized = normalized.strip().upper()
         return re.sub(r"[^A-Z0-9]+", "", normalized)
     metric_index = df["Metric"].map(_normalize_metric_label).fillna("")
+    metric_vertical_mask = metric_index.str.contains("VERT", na=False)
     def _metric_candidates(metrico):
         if isinstance(metrico, (list, tuple, set)):
             raw = list(metrico)
@@ -1560,13 +1563,13 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
     def leer_metric(metrico, columna):
         candidates = _metric_candidates(metrico)
         for candidate in candidates:
-            mask = metric_index == candidate
+            mask = (metric_index == candidate) & (~metric_vertical_mask)
             if mask.any():
                 return df.loc[mask, columna].values[0]
         for candidate in candidates:
             if not candidate:
                 continue
-            mask = metric_index.str.contains(candidate, na=False)
+            mask = metric_index.str.contains(candidate, na=False) & (~metric_vertical_mask)
             if mask.any():
                 return df.loc[mask, columna].values[0]
         if isinstance(metrico, (list, tuple, set)):
@@ -1586,7 +1589,7 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         etiquetas["valor"]: build_entry(etiquetas["valor"], 'Weighted VAL_LC'),
         etiquetas["volumen"]: build_entry(
             etiquetas["volumen"],
-            ["Weighted R_VOL1", "Weighted VOLSU", "Weighted R_VOL2"],
+            ["Weighted R_VOL1", "Weighted R_VOL2", "Weighted VOL1_P", "Weighted VOL2_P", "Weighted VOLSU"],
             lambda v, _: v * factor
         ),
         etiquetas["precio"]: build_entry(
