@@ -776,54 +776,98 @@ def crear_excel_desde_plantilla(
     marcas_validas = [m for m in marcas if str(m).strip()]
     if not marcas_validas:
         raise ValueError("Debe proporcionar al menos una marca.")
+    ordered_templates = [
+        sheet
+        for _, sheet in TEMPLATE_SEGMENTS
+        if sheet in keep_sheets and sheet != README_SHEET_NAME
+    ]
+    brand_template_names = [name for name in ordered_templates if 'MarcaEjemplo' in name]
+    category_template_names = [name for name in ordered_templates if 'MarcaEjemplo' not in name]
 
-    worksheet_snapshot = list(wb.worksheets)
-    for ws in worksheet_snapshot:
-        original = ws.title
-        if original == README_SHEET_NAME:
-            usados.add(ws.title)
-            continue
+    generated_brand_sheets = {}
+    generated_category_sheets = {}
 
-        is_brand_template = 'MarcaEjemplo' in original
-        if is_brand_template:
-            sheets_for_brand = [ws]
-            for _ in marcas_validas[1:]:
-                sheets_for_brand.append(wb.copy_worksheet(ws))
-            for idx, brand_sheet in enumerate(sheets_for_brand):
-                marca_actual = marcas_validas[idx]
-                replacements = {
-                    'MarcaEjemplo': marca_actual,
-                    'CategoriaEjemplo': categoria_label,
-                    'PaisEjemplo': nombre_pais,
-                }
-                final_name = construir_nombre_hoja(
-                    original,
-                    marca_actual,
-                    categoria_label,
-                    players_suffix,
-                    distribution_cut
-                )
-                final_name = asegurar_nombre_hoja_unico(final_name, usados)
-                brand_sheet.title = final_name
-                usados.add(brand_sheet.title)
-                aplicar_reemplazos_en_celdas(brand_sheet, replacements)
-        else:
+    # Genera hojas de marca para todas las marcas sin intercalar contenido.
+    for template_name in brand_template_names:
+        ws = wb[template_name]
+        sheets_for_brand = [ws]
+        for _ in marcas_validas[1:]:
+            sheets_for_brand.append(wb.copy_worksheet(ws))
+        generated_brand_sheets[template_name] = []
+        for idx, brand_sheet in enumerate(sheets_for_brand):
+            marca_actual = marcas_validas[idx]
             replacements = {
-                'MarcaEjemplo': marcas_validas[0],
+                'MarcaEjemplo': marca_actual,
                 'CategoriaEjemplo': categoria_label,
                 'PaisEjemplo': nombre_pais,
             }
             final_name = construir_nombre_hoja(
-                original,
-                marcas_validas[0],
+                template_name,
+                marca_actual,
                 categoria_label,
                 players_suffix,
                 distribution_cut
             )
             final_name = asegurar_nombre_hoja_unico(final_name, usados)
-            ws.title = final_name
-            usados.add(ws.title)
-            aplicar_reemplazos_en_celdas(ws, replacements)
+            brand_sheet.title = final_name
+            usados.add(brand_sheet.title)
+            aplicar_reemplazos_en_celdas(brand_sheet, replacements)
+            generated_brand_sheets[template_name].append(brand_sheet)
+
+    # Hojas no-marca (categoria/players/distribucion/intervalos).
+    for template_name in category_template_names:
+        ws = wb[template_name]
+        replacements = {
+            'MarcaEjemplo': marcas_validas[0],
+            'CategoriaEjemplo': categoria_label,
+            'PaisEjemplo': nombre_pais,
+        }
+        final_name = construir_nombre_hoja(
+            template_name,
+            marcas_validas[0],
+            categoria_label,
+            players_suffix,
+            distribution_cut
+        )
+        final_name = asegurar_nombre_hoja_unico(final_name, usados)
+        ws.title = final_name
+        usados.add(ws.title)
+        aplicar_reemplazos_en_celdas(ws, replacements)
+        generated_category_sheets[template_name] = ws
+
+    # Orden final: README -> 6/7/8 -> (por marca) 1,2,3,4,5...
+    desired_sheets = []
+    if README_SHEET_NAME in wb.sheetnames:
+        desired_sheets.append(wb[README_SHEET_NAME])
+
+    def _category_priority(template_name: str) -> tuple[int, int]:
+        order_idx = ordered_templates.index(template_name) if template_name in ordered_templates else 999
+        if template_name.startswith('6_'):
+            return (0, order_idx)
+        if template_name.startswith('7_'):
+            return (1, order_idx)
+        if template_name.startswith('8_'):
+            return (2, order_idx)
+        return (3, order_idx)
+
+    for template_name in sorted(category_template_names, key=_category_priority):
+        sheet_obj = generated_category_sheets.get(template_name)
+        if sheet_obj is not None:
+            desired_sheets.append(sheet_obj)
+
+    for brand_idx, _ in enumerate(marcas_validas):
+        for template_name in brand_template_names:
+            sheet_list = generated_brand_sheets.get(template_name, [])
+            if brand_idx < len(sheet_list):
+                desired_sheets.append(sheet_list[brand_idx])
+
+    # Conserva cualquier hoja remanente no contemplada al final (fallback seguro).
+    desired_ids = {id(ws) for ws in desired_sheets}
+    for ws in wb.worksheets:
+        if id(ws) not in desired_ids:
+            desired_sheets.append(ws)
+            desired_ids.add(id(ws))
+    wb._sheets = desired_sheets
 
     agregar_resumen_parametros(wb, summary_lines)
     wb.save(nombre_archivo_unico)
