@@ -45,18 +45,47 @@ import os
 import re
 import unicodedata
 import sys
+try:
+    from rich.console import Console
+except ImportError as exc:
+    raise ImportError("Falta la dependencia 'rich'. Instala con: pip install rich") from exc
 
-# Para la parte de colores ANSI (si lo deseas):
+console = Console(highlight=False, soft_wrap=True)
+
+def print(*args, sep=' ', end='\n', **kwargs):
+    """Wrapper de salida usando rich para una lectura mas clara en terminal."""
+    text = sep.join(str(arg) for arg in args)
+    style = kwargs.pop('style', None)
+    markup = kwargs.pop('markup', True)
+    console.print(text, style=style, end=end, markup=markup)
+
+def input(prompt=''):
+    """Wrapper de entrada usando rich para prompts coloreados."""
+    return console.input(str(prompt))
+
+# Estilos de texto (markup rich).
 class Colors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKCYAN = '\033[96m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+    HEADER = '[bold bright_cyan]'
+    OKBLUE = '[cyan]'
+    OKCYAN = '[bright_cyan]'
+    OKGREEN = '[bold green]'
+    WARNING = '[bold yellow]'
+    FAIL = '[bold red]'
+    ENDC = '[/]'
+    BOLD = ''
+    UNDERLINE = ''
+
+class PromptColors:
+    COUNTRY = '[bold #C2185B]'
+    CATEGORY_SEARCH = '[bold #1976D2]'
+    CATEGORY_SELECT = '[bold #00695C]'
+    MANUFACTURER = '[bold #F57C00]'
+    BRAND = '[bold #6A1B9A]'
+    TEMPLATE_SELECT = '[bold #283593]'
+    CATEGORY_LABEL = '[bold #00838F]'
+    PLAYERS_LABEL = '[bold #455A64]'
+    DISTRIBUTION_LABEL = '[bold #AD1457]'
+    CONTINUE = '[bold #546E7A]'
 
 def strip_accents(s):
     return ''.join(c for c in unicodedata.normalize('NFD', s)
@@ -138,7 +167,7 @@ def obtener_codigo_pais(input_pais):
             for idx, key in enumerate(matches, 1):
                 print(f"{Colors.OKGREEN}{idx}. {obtener_nombre_pais(key)}{Colors.ENDC}")
             try:
-                seleccion = int(input(f"{Colors.OKBLUE}Seleccione el país (número): {Colors.ENDC}"))
+                seleccion = int(input(f"{PromptColors.COUNTRY}Seleccione el país (número): {Colors.ENDC}"))
                 if 1 <= seleccion <= len(matches):
                     selected_key = matches[seleccion - 1]
                     return countries[selected_key], obtener_nombre_pais(selected_key)
@@ -461,6 +490,29 @@ TEMPLATE_SEGMENTS = [
     ("7W - Distribucion", "7_Categoria_Canal"),
     ("8W - Intervalos de confianza", "8_Categoria"),
 ]
+QUESTION_STYLE_MAP = {
+    "1": "bold #1f77b4",
+    "2": "bold #d62728",
+    "3": "bold #2ca02c",
+    "4": "bold #ff7f0e",
+    "5": "bold #9467bd",
+    "6": "bold #17becf",
+    "7": "bold #8c564b",
+    "8": "bold #e377c2",
+}
+DEFAULT_SEGMENT_STYLE = "bold white"
+
+def question_key_from_template_sheet(template_sheet):
+    """Extrae el numero de pregunta base desde el nombre de hoja plantilla."""
+    if not isinstance(template_sheet, str):
+        return ""
+    first_token = template_sheet.split('_', 1)[0].strip()
+    return first_token[0] if first_token else ""
+
+def question_style_for_sheet(template_sheet):
+    """Devuelve el estilo rich asociado a la pregunta."""
+    qkey = question_key_from_template_sheet(template_sheet)
+    return QUESTION_STYLE_MAP.get(qkey, DEFAULT_SEGMENT_STYLE)
 
 def buscar_categorias(keyword):
     keyword_normalizado = strip_accents(keyword)
@@ -471,7 +523,7 @@ def buscar_categorias(keyword):
 
 def seleccionar_categoria():
     while True:
-        keyword = input(f"{Colors.OKBLUE}Ingrese palabra clave para la categoría: {Colors.ENDC}").strip()
+        keyword = input(f"{PromptColors.CATEGORY_SEARCH}Ingrese palabra clave para la categoría: {Colors.ENDC}").strip()
         if not keyword:
             print(f"{Colors.FAIL}La palabra clave no puede estar vacía.{Colors.ENDC}")
             continue
@@ -483,7 +535,7 @@ def seleccionar_categoria():
         print(f"{Colors.OKCYAN}Categorías encontradas:{Colors.ENDC}")
         for idx, cat in enumerate(matches, 1):
             print(f"{Colors.OKGREEN}{idx}. {cat['descripcion']} ({cat['cod']}){Colors.ENDC}")
-        seleccion = input(f"{Colors.OKBLUE}Número de categoría (o 'r' para reintentar): {Colors.ENDC}").strip()
+        seleccion = input(f"{PromptColors.CATEGORY_SELECT}Número de categoría (o 'r' para reintentar): {Colors.ENDC}").strip()
         if seleccion.lower() == 'r':
             continue
         
@@ -533,7 +585,7 @@ def obtener_marcas():
     vistos = set()
     print(f"{Colors.OKCYAN}Ingrese las marcas (Enter vacio para terminar):{Colors.ENDC}")
     while True:
-        marca = input(f"{Colors.OKBLUE}Marca #{len(marcas) + 1}: {Colors.ENDC}").strip()
+        marca = input(f"{PromptColors.BRAND}Marca #{len(marcas) + 1}: {Colors.ENDC}").strip()
         if not marca:
             if marcas:
                 return marcas
@@ -548,9 +600,23 @@ def obtener_marcas():
 
 def mostrar_opciones_plantillas():
     print(f"{Colors.OKCYAN}Plantillas disponibles:{Colors.ENDC}")
-    print(f"{Colors.OKGREEN}1. TODAS{Colors.ENDC}")
+    print("1. TODAS", style="bold white", markup=False)
     for idx, (label, template_sheet) in enumerate(TEMPLATE_SEGMENTS, start=2):
-        print(f"{Colors.OKGREEN}{idx}. {label} ({template_sheet}){Colors.ENDC}")
+        style = question_style_for_sheet(template_sheet)
+        print(f"{idx}. {label} ({template_sheet})", style=style, markup=False)
+
+def mostrar_segmentos_seleccionados(hojas_seleccionadas):
+    """Muestra el resumen de segmentos elegidos respetando color por pregunta."""
+    print(f"{Colors.OKCYAN}Segmentos seleccionados:{Colors.ENDC}")
+    selected_set = set(hojas_seleccionadas)
+    shown = 0
+    for label, sheet in TEMPLATE_SEGMENTS:
+        if sheet in selected_set:
+            style = question_style_for_sheet(sheet)
+            print(f"  - {label} ({sheet})", style=style, markup=False)
+            shown += 1
+    if shown == 0:
+        print(f"{Colors.WARNING}No hay segmentos seleccionados.{Colors.ENDC}")
 
 def seleccionar_plantillas():
     """Devuelve lista de hojas plantilla a conservar segun seleccion del usuario."""
@@ -558,7 +624,7 @@ def seleccionar_plantillas():
     while True:
         mostrar_opciones_plantillas()
         raw = input(
-            f"{Colors.OKBLUE}Seleccione opcion(es) separadas por coma (1 para TODAS, Enter para TODAS): {Colors.ENDC}"
+            f"{PromptColors.TEMPLATE_SELECT}Seleccione opcion(es) separadas por coma (1 para TODAS, Enter para TODAS): {Colors.ENDC}"
         ).strip()
         if not raw:
             return [sheet for _, sheet in TEMPLATE_SEGMENTS]
@@ -586,26 +652,26 @@ def seleccionar_plantillas():
 def solicitar_etiqueta_categoria(cat_sel):
     default_value = str(cat_sel.get('descripcion', 'Categoria')).strip() or 'Categoria'
     raw = input(
-        f"{Colors.OKBLUE}Etiqueta para reemplazar 'Categoria' en hojas (Enter para '{default_value}'): {Colors.ENDC}"
+        f"{PromptColors.CATEGORY_LABEL}Etiqueta para reemplazar 'Categoria' en hojas (Enter para '{default_value}'): {Colors.ENDC}"
     ).strip()
     return raw if raw else default_value
 
 def solicitar_etiqueta_players():
     raw = input(
-        f"{Colors.OKBLUE}Etiqueta para reemplazar 'XX' en hoja de Players (Enter para 'XX'): {Colors.ENDC}"
+        f"{PromptColors.PLAYERS_LABEL}Etiqueta para reemplazar 'XX' en hoja de Players (Enter para 'XX'): {Colors.ENDC}"
     ).strip()
     return raw if raw else 'XX'
 
 def solicitar_corte_distribucion():
     raw = input(
-        f"{Colors.OKBLUE}Etiqueta para corte de distribucion (hoja 7_...; Enter para 'Canal'): {Colors.ENDC}"
+        f"{PromptColors.DISTRIBUTION_LABEL}Etiqueta para corte de distribucion (hoja 7_...; Enter para 'Canal'): {Colors.ENDC}"
     ).strip()
     return raw if raw else 'Canal'
 
 def solicitar_fabricante():
     """Solicita fabricante para el nombre del archivo de salida."""
     while True:
-        fabricante = input(f"{Colors.OKBLUE}Ingrese nombre del fabricante (para el nombre del archivo): {Colors.ENDC}").strip()
+        fabricante = input(f"{PromptColors.MANUFACTURER}Ingrese nombre del fabricante (para el nombre del archivo): {Colors.ENDC}").strip()
         if fabricante:
             return fabricante
         print(f"{Colors.FAIL}El fabricante no puede estar vacio.{Colors.ENDC}")
@@ -647,6 +713,23 @@ def aplicar_reemplazos_en_celdas(sheet, replacements):
                 if updated != cell.value:
                     cell.value = updated
 
+def agregar_resumen_parametros(wb, summary_lines):
+    """
+    Agrega al final del archivo un resumen de parametros seleccionados.
+    Se escribe al final de la hoja README si existe.
+    """
+    if not summary_lines:
+        return
+    if README_SHEET_NAME in wb.sheetnames:
+        ws = wb[README_SHEET_NAME]
+    else:
+        ws = wb.create_sheet("PARAMETROS_GENERACION")
+    last_row = ws.max_row if ws.max_row else 1
+    start_row = last_row + 2
+    ws.cell(row=start_row, column=1, value="Parametros seleccionados")
+    for idx, line in enumerate(summary_lines, start=1):
+        ws.cell(row=start_row + idx, column=1, value=line)
+
 def crear_excel_desde_plantilla(
     nombre_archivo,
     marcas,
@@ -655,6 +738,7 @@ def crear_excel_desde_plantilla(
     hojas_seleccionadas,
     players_suffix,
     distribution_cut,
+    summary_lines=None,
 ):
     """Crea un archivo Excel desde Plantilla_Entrada_5W1H con contenido filtrado y dinamico."""
     try:
@@ -741,6 +825,7 @@ def crear_excel_desde_plantilla(
             usados.add(ws.title)
             aplicar_reemplazos_en_celdas(ws, replacements)
 
+    agregar_resumen_parametros(wb, summary_lines)
     wb.save(nombre_archivo_unico)
 
     if nombre_archivo_unico == nombre_archivo:
@@ -752,10 +837,11 @@ def crear_excel_desde_plantilla(
     return nombre_archivo_unico
 
 def limpiar_pantalla():
-    os.system('cls' if os.name == 'nt' else 'clear')
+    # No limpiamos la terminal para conservar el historial completo.
+    return
 
 def mostrar_encabezado(contador, lista_archivos):
-    print(f"{Colors.HEADER}{Colors.BOLD}=== Automatizador de Archivos ==={Colors.ENDC}\n")
+    console.rule("[bold bright_cyan]Automatizador de Archivos[/bold bright_cyan]")
     print(f"{Colors.OKCYAN}Archivos creados: {contador}{Colors.ENDC}")
     if lista_archivos:
         print(f"{Colors.OKCYAN}Lista de archivos creados:{Colors.ENDC}")
@@ -775,7 +861,7 @@ def main():
             
             # 1. Seleccionar país
             while True:
-                input_pais = input(f"{Colors.OKBLUE}Ingrese nombre/abreviación del país: {Colors.ENDC}").strip()
+                input_pais = input(f"{PromptColors.COUNTRY}Ingrese nombre/abreviación del país: {Colors.ENDC}").strip()
                 if not input_pais:
                     print(f"{Colors.FAIL}No puede estar vacío.{Colors.ENDC}")
                     continue
@@ -804,14 +890,12 @@ def main():
 
             # 5. Seleccionar segmentos/plantillas
             hojas_seleccionadas = seleccionar_plantillas()
-            etiquetas_seleccionadas = [
-                label for (label, sheet) in TEMPLATE_SEGMENTS
-                if sheet in hojas_seleccionadas
-            ]
-            print(f"{Colors.OKGREEN}Segmentos seleccionados: {', '.join(etiquetas_seleccionadas)}{Colors.ENDC}\n")
+            mostrar_segmentos_seleccionados(hojas_seleccionadas)
+            print("")
 
             # 6. Parametros dinamicos para placeholders de categoria y cortes
-            categoria_label = str(cat_sel.get('descripcion', 'Categoria')).strip() or 'Categoria'
+            categoria_default = str(cat_sel.get('descripcion', 'Categoria')).strip() or 'Categoria'
+            categoria_label = categoria_default
             if any('Categoria' in sheet for sheet in hojas_seleccionadas):
                 categoria_label = solicitar_etiqueta_categoria(cat_sel)
 
@@ -822,6 +906,11 @@ def main():
             distribution_cut = 'Canal'
             if "7_Categoria_Canal" in hojas_seleccionadas:
                 distribution_cut = solicitar_corte_distribucion()
+            summary_lines = [
+                f"Etiqueta para reemplazar 'Categoria' en hojas (Enter para '{categoria_default}'): {categoria_label}",
+                f"Etiqueta para reemplazar 'XX' en hoja de Players (Enter para 'XX'): {players_suffix}",
+                f"Etiqueta para corte de distribucion (hoja 7_...; Enter para 'Canal'): {distribution_cut}",
+            ]
 
             # 7. Generar un unico archivo con todas las marcas
             segmento_nombre = sanitizar_segmento_archivo(fabricante, 80)
@@ -835,12 +924,13 @@ def main():
                 hojas_seleccionadas=hojas_seleccionadas,
                 players_suffix=players_suffix,
                 distribution_cut=distribution_cut,
+                summary_lines=summary_lines,
             )
             contador += 1
             lista_archivos.append(nombre_archivo_creado)
             
             # Esperar a que el usuario esté listo para continuar
-            input(f"\n{Colors.OKBLUE}Presione Enter para crear otro archivo o Ctrl+C para salir...{Colors.ENDC}\n")
+            input(f"\n{PromptColors.CONTINUE}Presione Enter para crear otro archivo o Ctrl+C para salir...{Colors.ENDC}\n")
     
     except KeyboardInterrupt:
         limpiar_pantalla()

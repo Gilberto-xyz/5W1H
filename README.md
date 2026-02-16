@@ -10,11 +10,12 @@ El script `generador_informe_5w1h.py` genera presentaciones de apoyo para estudi
 - matplotlib
 - python-pptx
 - openpyxl (controlador que pandas usa para leer archivos .xlsx)
+- rich (salida de terminal mejorada para `generador_plantilla.py`)
 
 Instalacion rapida:
 
 ```bash
-pip install pandas numpy matplotlib python-pptx openpyxl
+pip install pandas numpy matplotlib python-pptx openpyxl rich
 ```
 
 ## Archivos del proyecto
@@ -107,6 +108,8 @@ Mejoras implementadas:
   - nombre de archivo unico si ya existe (`(1)`, `(2)`, ...)
   - aviso cuando una hoja plantilla seleccionada no existe
   - error claro si no hay hojas funcionales seleccionadas
+- Visualizacion de terminal mejorada con `rich` (colores y encabezados mas legibles).
+- Se conserva el historial de interaccion en consola (no se limpia la pantalla al finalizar ni entre iteraciones).
 
 ## Salida generada
 - Presentacion PowerPoint basada en `Modelo_5W1H.pptx` que incluye:
