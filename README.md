@@ -19,6 +19,8 @@ pip install pandas numpy matplotlib python-pptx openpyxl
 
 ## Archivos del proyecto
 - `generador_informe_5w1h.py`: script principal que lee los datos y arma la presentacion final.
+- `generador_plantilla.py`: generador asistido de archivos `.xlsx` de entrada basado en plantilla.
+- `Plantilla_Entrada_5W1H.xlsx`: plantilla base para crear libros de entrada compatibles con el generador de informe.
 - `Instrucciones de llenado.txt`: guia para preparar cada hoja del libro de Excel 5W1H.
 - `Modelo_5W1H.pptx`: plantilla requerida por el script (debe ubicarse en el mismo directorio que `generador_informe_5w1h.py`).
 - `<codPais>_<codCategoria>_<cliente>.xlsx`: libro de entrada con las hojas 5W1H. Se pueden colocar varios libros en el mismo directorio; el script permite elegir cual procesar.
@@ -74,6 +76,37 @@ pip install pandas numpy matplotlib python-pptx openpyxl
    - `3` indica que no hay ventas en el libro.
 6. Espere a que se generen los graficos MAT, de lineas y las tablas de aporte. El script informara en consola el avance por cada W procesada.
 7. Al final aparecera un archivo `.pptx` nombrado como `<Pais>-<Categoria>-<Cliente>-<Marca>-5W1H-<ref>.pptx`, donde `<ref>` es el periodo de corte detectado en los datos.
+
+## Generador de plantillas de entrada
+`generador_plantilla.py` crea archivos de entrada `.xlsx` a partir de `Plantilla_Entrada_5W1H.xlsx`.
+
+Flujo actual:
+1. Solicita pais y categoria.
+2. Solicita fabricante (este valor se usa en el nombre del archivo final).
+3. Solicita marcas (una por linea) y las agrega en un unico archivo de salida.
+4. Solicita que plantillas/segmentos incluir:
+   - `1`: TODAS
+   - `2+`: cada segmento individual (1W, 2W, 3-1, 3-2, 3-3, 4W, 5-1, 5-2, 6W, 6-1, 7W, 8W)
+5. Solicita etiquetas dinamicas segun corresponda:
+   - etiqueta de categoria para hojas `Categoria`
+   - sufijo `XX` para hoja de Players
+   - corte de distribucion para hoja `7_*_*` (ej. Canal, NSE)
+6. Genera un solo archivo con nombre `<codPais>_<codCategoria>_<fabricante>.xlsx`.
+
+Mejoras implementadas:
+- Generacion desde plantilla real (`Plantilla_Entrada_5W1H.xlsx`) en lugar de una hoja minima fija.
+- Duplicacion automatica de hojas de marca (`MarcaEjemplo`) para cada marca ingresada dentro del mismo archivo.
+- Hojas de categoria (6/7/8) se conservan una sola vez por archivo.
+- Reemplazos dinamicos en nombres de hoja y celdas:
+  - `MarcaEjemplo` -> marca ingresada
+  - `Categoria`/`CategoriaEjemplo` -> etiqueta de categoria seleccionada
+  - `XX` -> sufijo definido para Players
+- Validaciones adicionales:
+  - sanitizacion de nombres de hoja (compatibles con Excel, max 31 chars)
+  - manejo de nombres duplicados de hoja
+  - nombre de archivo unico si ya existe (`(1)`, `(2)`, ...)
+  - aviso cuando una hoja plantilla seleccionada no existe
+  - error claro si no hay hojas funcionales seleccionadas
 
 ## Salida generada
 - Presentacion PowerPoint basada en `Modelo_5W1H.pptx` que incluye:
