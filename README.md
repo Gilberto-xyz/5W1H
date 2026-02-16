@@ -80,6 +80,7 @@ pip install pandas numpy matplotlib python-pptx openpyxl
   - Portada ajustada segun idioma (portugues para Brasil, espanol para el resto).
   - Un slide para cada W con graficos y tablas de aporte.
   - Espacios reservados para comentarios.
+- Reestructuracion de salida por archivo: cada `.pptx` generado ahora se guarda dentro de una carpeta con metadatos esenciales (`<Pais>-<Categoria>-<Cliente>-<ref>_5W1H`).
 
 ## Notas y diagnostico rapido
 - El script imprime mensajes en color para facilitar el seguimiento (usar una terminal que soporte ANSI).

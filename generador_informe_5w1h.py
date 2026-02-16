@@ -2438,6 +2438,22 @@ def simplify_name_segment(value: str, max_len: int) -> str:
     if not cleaned:
         cleaned = 'NA'
     return cleaned[:max_len]
+def simplify_folder_segment(value: str, max_len: int = 80) -> str:
+    """
+    Limpia un segmento para nombre de carpeta conservando espacios.
+    Reemplaza caracteres invalidos de ruta por guion y limita longitud.
+    """
+    if value is None:
+        return 'NA'
+    value_str = str(value).strip()
+    if not value_str:
+        return 'NA'
+    invalid_chars = '<>:"/\\|?*'
+    cleaned = ''.join('-' if (ch in invalid_chars or ord(ch) < 32) else ch for ch in value_str)
+    cleaned = ' '.join(cleaned.split()).strip(' .')
+    if not cleaned:
+        cleaned = 'NA'
+    return cleaned[:max_len]
 def select_excel_file(base_dir: Path) -> str:
     """Lista archivos Excel disponibles y devuelve el nombre seleccionado."""
     excel_files = sorted([p for p in base_dir.glob('*.xlsx') if not p.name.startswith('~$')])
@@ -5180,7 +5196,17 @@ output_filename = "-".join([
     '5W1H',
     simplify_name_segment(ref, 5)
 ]) + '.pptx'
-ppt.save(output_filename)
+output_foldername = "-".join([
+    simplify_folder_segment(land, 30),
+    simplify_folder_segment(cat, 80),
+    simplify_folder_segment(client, 40),
+    simplify_folder_segment(ref, 10)
+]) + '_5W1H'
+output_folder = base_dir / output_foldername
+output_folder.mkdir(parents=True, exist_ok=True)
+output_path = output_folder / output_filename
+ppt.save(str(output_path))
+print_colored(f'Presentacion guardada en: {output_path}', COLOR_GREEN)
 chart_elapsed = int((chart_generation_end - chart_generation_start).total_seconds())
 print_colored(
     f'Tiempo de generacion de graficos : {chart_elapsed//60} min {chart_elapsed%60} s'
