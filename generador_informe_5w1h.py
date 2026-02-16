@@ -16,6 +16,8 @@ import math
 import textwrap
 import re
 import unicodedata
+import hashlib
+import colorsys
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
@@ -54,6 +56,8 @@ COLOR_GREEN = '\033[92m'
 COLOR_RED = '\033[91m'
 COLOR_RESET = '\033[0m'
 COLOR_QUESTION = '\033[38;5;37m'
+MIN_READABLE_LUMINANCE = 170.0
+PREVIEW_COPY_SUFFIX_RE = re.compile(r'^(?P<brand>.+?)(?P<suffix>(?:[\s_-]+(?:copia|copy|preview))*)$', re.IGNORECASE)
 HEADER_COLOR_PRIMARY = '#286B72'
 HEADER_COLOR_SECONDARY = '#3EBBC7'
 HEADER_FONT_COLOR = '#FFFFFF'
@@ -223,6 +227,83 @@ def colorize(text: str, color: str = COLOR_BLUE) -> str:
 def print_colored(text: str, color: str = COLOR_BLUE) -> None:
     """Imprime texto coloreado en la terminal."""
     print(colorize(text, color))
+
+def normalize_brand_key(brand: str) -> str:
+    """Normaliza fabricante para mapearlo siempre al mismo color."""
+    normalized = unicodedata.normalize("NFKD", str(brand or ""))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = re.sub(r"\s+", " ", normalized).strip().lower()
+    return normalized
+
+def parse_filename_brand(filename: str) -> Tuple[str, str, str, str]:
+    """Separa nombre de archivo en prefijo, marca, sufijo y extension."""
+    base, ext = os.path.splitext(filename)
+    parts = base.split("_", 2)
+    if len(parts) < 3:
+        return "", "", "", ext
+    prefix = f"{parts[0]}_{parts[1]}_"
+    raw_brand_segment = parts[2].strip()
+    if not raw_brand_segment:
+        return prefix, "", "", ext
+    match = PREVIEW_COPY_SUFFIX_RE.match(raw_brand_segment)
+    if not match:
+        return prefix, raw_brand_segment, "", ext
+    brand = (match.group("brand") or "").strip()
+    suffix = match.group("suffix") or ""
+    return prefix, brand, suffix, ext
+
+def relative_luminance(rgb: Tuple[int, int, int]) -> float:
+    """Calcula luminancia relativa para evitar colores oscuros."""
+    r, g, b = rgb
+    return (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+
+def lift_color_to_min_luminance(
+    rgb: Tuple[int, int, int],
+    min_luminance: float = MIN_READABLE_LUMINANCE
+) -> Tuple[int, int, int]:
+    """Aclara color mezclandolo con blanco hasta luminancia minima."""
+    lum = relative_luminance(rgb)
+    if lum >= min_luminance:
+        return rgb
+    r, g, b = rgb
+    mix = min(0.7, max(0.0, (min_luminance - lum) / 255.0))
+    r = int(round(r + (255 - r) * mix))
+    g = int(round(g + (255 - g) * mix))
+    b = int(round(b + (255 - b) * mix))
+    return (r, g, b)
+
+def ansi_truecolor(text: str, rgb: Tuple[int, int, int]) -> str:
+    """Envuelve texto con ANSI truecolor (24-bit)."""
+    r, g, b = rgb
+    return f"\033[38;2;{r};{g};{b}m{text}{COLOR_RESET}"
+
+def brand_color_rgb(brand: str, color_cache: Dict[str, Tuple[int, int, int]]) -> Tuple[int, int, int]:
+    """Asigna un color estable por marca usando hash + HSV."""
+    key = normalize_brand_key(brand)
+    if not key:
+        return (255, 235, 59)
+    cached = color_cache.get(key)
+    if cached:
+        return cached
+    digest = hashlib.sha1(key.encode("utf-8")).digest()
+    hue = int.from_bytes(digest[:2], "big") / 65535.0
+    saturation = 0.38 + (digest[2] / 255.0) * 0.27
+    value = 0.88 + (digest[3] / 255.0) * 0.10
+    r_f, g_f, b_f = colorsys.hsv_to_rgb(hue, saturation, value)
+    rgb = (int(r_f * 255), int(g_f * 255), int(b_f * 255))
+    rgb = lift_color_to_min_luminance(rgb)
+    color_cache[key] = rgb
+    return rgb
+
+def colorize_filename_brand(filename: str, color_cache: Dict[str, Tuple[int, int, int]]) -> str:
+    """Colorea solo la marca dentro del nombre del archivo .xlsx."""
+    prefix, brand, suffix, ext = parse_filename_brand(filename)
+    if not brand:
+        return filename
+    rgb = brand_color_rgb(brand, color_cache)
+    brand_colored = ansi_truecolor(brand, rgb)
+    return f"{prefix}{brand_colored}{COLOR_BLUE}{suffix}{ext}"
+
 def select_trend_scale_rule(max_value: float) -> dict:
     """Selecciona la regla de escala segun el valor maximo."""
     for rule in TREND_SCALE_RULES:
@@ -2457,6 +2538,7 @@ def simplify_folder_segment(value: str, max_len: int = 80) -> str:
 def select_excel_file(base_dir: Path) -> str:
     """Lista archivos Excel disponibles y devuelve el nombre seleccionado."""
     excel_files = sorted([p for p in base_dir.glob('*.xlsx') if not p.name.startswith('~$')])
+    brand_color_cache: Dict[str, Tuple[int, int, int]] = {}
     def metadata_for(file_path: Path) -> str:
         try:
             if file_path.stem.lower() == 'plantilla_entrada_5w1h':
@@ -2475,13 +2557,19 @@ def select_excel_file(base_dir: Path) -> str:
     if len(excel_files) == 1:
         meta = metadata_for(excel_files[0])
         meta_color = COLOR_RED if meta == 'Metadata no disponible' else COLOR_YELLOW
-        print_colored(f"Archivo encontrado: {excel_files[0].name} {colorize('[' + meta + ']', meta_color)}", COLOR_BLUE)
+        archivo_coloreado = colorize_filename_brand(excel_files[0].name, brand_color_cache)
+        print_colored(f"Archivo encontrado: {archivo_coloreado} {colorize('[' + meta + ']', meta_color)}", COLOR_BLUE)
         return excel_files[0].name
     print_colored('Archivos Excel disponibles:', COLOR_QUESTION)
+    max_name_len = max(len(archivo.name) for archivo in excel_files)
+    idx_width = len(str(len(excel_files)))
     for idx, archivo in enumerate(excel_files, 1):
         meta = metadata_for(archivo)
         meta_color = COLOR_RED if meta == 'Metadata no disponible' else COLOR_YELLOW
-        print(f"{colorize(f'  {idx}. {archivo.name}', COLOR_BLUE)} {colorize('[' + meta + ']', meta_color)}")
+        archivo_coloreado = colorize_filename_brand(archivo.name, brand_color_cache)
+        pad = " " * (max_name_len - len(archivo.name) + 3)
+        prefix = colorize(f"  {idx:>{idx_width}}. ", COLOR_BLUE)
+        print(f"{prefix}{archivo_coloreado}{pad}{colorize('[' + meta + ']', meta_color)}")
     prompt = colorize(f"Seleccione el numero del archivo (1-{len(excel_files)}). Enter para {excel_files[0].name}: ", COLOR_QUESTION)
     while True:
         choice = input(prompt).strip()
