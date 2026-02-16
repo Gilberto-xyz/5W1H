@@ -983,91 +983,88 @@ def main():
     lista_archivos = []
 
     try:
+        limpiar_pantalla()
+        mostrar_encabezado(contador, lista_archivos)
+        print(f"{Colors.OKGREEN}Nota: Puede salir del programa en cualquier momento presionando Ctrl+C.{Colors.ENDC}\n")
+            
+        # 1. Seleccionar país
         while True:
-            limpiar_pantalla()
-            mostrar_encabezado(contador, lista_archivos)
-            print(f"{Colors.OKGREEN}Nota: Puede salir del programa en cualquier momento presionando Ctrl+C.{Colors.ENDC}\n")
-            
-            # 1. Seleccionar país
-            while True:
-                input_pais = input(f"{PromptColors.COUNTRY}Ingrese nombre/abreviación del país: {Colors.ENDC}").strip()
-                if not input_pais:
-                    print(f"{Colors.FAIL}No puede estar vacío.{Colors.ENDC}")
-                    continue
-                codigo_pais, nombre_pais = obtener_codigo_pais(input_pais)
-                if codigo_pais:
-                    print(f"{Colors.OKCYAN}País: {nombre_pais} (Código: {codigo_pais}){Colors.ENDC}")
-                    cobertura = pop_coverage.get(nombre_pais)
-                    if cobertura:
-                        print(f"{Colors.OKBLUE}Cobertura poblacional: {cobertura}{Colors.ENDC}")
-                    print()
-                    break
-                else:
-                    print(f"{Colors.FAIL}País no encontrado. Intente nuevamente.{Colors.ENDC}\n")
-            
-            # 2. Seleccionar categoría
-            cat_sel = seleccionar_categoria()
-            print(f"{Colors.OKCYAN}Categoría: {cat_sel['descripcion']} (Código: {cat_sel['cod']}){Colors.ENDC}\n")
+            input_pais = input(f"{PromptColors.COUNTRY}Ingrese nombre/abreviación del país: {Colors.ENDC}").strip()
+            if not input_pais:
+                print(f"{Colors.FAIL}No puede estar vacío.{Colors.ENDC}")
+                continue
+            codigo_pais, nombre_pais = obtener_codigo_pais(input_pais)
+            if codigo_pais:
+                print(f"{Colors.OKCYAN}País: {nombre_pais} (Código: {codigo_pais}){Colors.ENDC}")
+                cobertura = pop_coverage.get(nombre_pais)
+                if cobertura:
+                    print(f"{Colors.OKBLUE}Cobertura poblacional: {cobertura}{Colors.ENDC}")
+                print()
+                break
+            else:
+                print(f"{Colors.FAIL}País no encontrado. Intente nuevamente.{Colors.ENDC}\n")
+        
+        # 2. Seleccionar categoría
+        cat_sel = seleccionar_categoria()
+        print(f"{Colors.OKCYAN}Categoría: {cat_sel['descripcion']} (Código: {cat_sel['cod']}){Colors.ENDC}\n")
 
-            # 3. Solicitar fabricante para nombre del archivo final
-            fabricante = solicitar_fabricante()
-            print(f"{Colors.OKCYAN}Fabricante para nombre de archivo: {fabricante}{Colors.ENDC}\n")
-            
-            # 4. Capturar marcas para generar una plantilla unica multimarca
-            marcas = obtener_marcas()
-            print(f"{Colors.OKCYAN}Se agregaran {len(marcas)} marca(s) en un solo archivo: {', '.join(marcas)}{Colors.ENDC}\n")
+        # 3. Solicitar fabricante para nombre del archivo final
+        fabricante = solicitar_fabricante()
+        print(f"{Colors.OKCYAN}Fabricante para nombre de archivo: {fabricante}{Colors.ENDC}\n")
+        
+        # 4. Capturar marcas para generar una plantilla unica multimarca
+        marcas = obtener_marcas()
+        print(f"{Colors.OKCYAN}Se agregaran {len(marcas)} marca(s) en un solo archivo: {', '.join(marcas)}{Colors.ENDC}\n")
 
-            # 5. Seleccionar segmentos/plantillas
-            hojas_seleccionadas = seleccionar_plantillas()
-            print(f"{Colors.OKBLUE}Plantillas seleccionadas: {len(hojas_seleccionadas)}{Colors.ENDC}\n")
+        # 5. Seleccionar segmentos/plantillas
+        hojas_seleccionadas = seleccionar_plantillas()
+        print(f"{Colors.OKBLUE}Plantillas seleccionadas: {len(hojas_seleccionadas)}{Colors.ENDC}\n")
 
-            # 6. Unidad para Segmento 2 (inmediatamente despues de elegir plantillas)
-            tree_unit_letter = 'K'
-            tree_unit_name = TREE_UNIT_MAP.get(tree_unit_letter, 'Kilos')
-            if "2_MarcaEjemplo_K" in hojas_seleccionadas:
-                tree_unit_letter, tree_unit_name = solicitar_unidad_arbol()
+        # 6. Unidad para Segmento 2 (inmediatamente despues de elegir plantillas)
+        tree_unit_letter = 'K'
+        tree_unit_name = TREE_UNIT_MAP.get(tree_unit_letter, 'Kilos')
+        if "2_MarcaEjemplo_K" in hojas_seleccionadas:
+            tree_unit_letter, tree_unit_name = solicitar_unidad_arbol()
 
-            # 7. Parametros dinamicos para placeholders de categoria y cortes
-            categoria_default = str(cat_sel.get('descripcion', 'Categoria')).strip() or 'Categoria'
-            categoria_label = categoria_default
-            if any('Categoria' in sheet for sheet in hojas_seleccionadas):
-                categoria_label = solicitar_etiqueta_categoria(cat_sel)
+        # 7. Parametros dinamicos para placeholders de categoria y cortes
+        categoria_default = str(cat_sel.get('descripcion', 'Categoria')).strip() or 'Categoria'
+        categoria_label = categoria_default
+        if any('Categoria' in sheet for sheet in hojas_seleccionadas):
+            categoria_label = solicitar_etiqueta_categoria(cat_sel)
 
-            players_suffix = 'XX'
-            if "6_Categoria_XX" in hojas_seleccionadas:
-                players_suffix = solicitar_etiqueta_players()
+        players_suffix = 'XX'
+        if "6_Categoria_XX" in hojas_seleccionadas:
+            players_suffix = solicitar_etiqueta_players()
 
-            distribution_cut = 'Canal'
-            if "7_Categoria_Canal" in hojas_seleccionadas:
-                distribution_cut = solicitar_corte_distribucion()
+        distribution_cut = 'Canal'
+        if "7_Categoria_Canal" in hojas_seleccionadas:
+            distribution_cut = solicitar_corte_distribucion()
 
-            summary_lines = [
-                f"Etiqueta para reemplazar 'Categoria' en hojas (Enter para '{categoria_default}'): {categoria_label}",
-                f"Etiqueta objetivo para Players (hoja 6_Categoria_XX, ej: Fabricante/Marca Propia). Enter para 'XX': {players_suffix}",
-                f"Etiqueta para corte de distribucion (hoja 7_...; Enter para 'Canal'): {distribution_cut}",
-                f"Unidad Segmento 2 (hoja 2_*): {tree_unit_letter} -> {tree_unit_name}",
-            ]
+        summary_lines = [
+            f"Etiqueta para reemplazar 'Categoria' en hojas (Enter para '{categoria_default}'): {categoria_label}",
+            f"Etiqueta objetivo para Players (hoja 6_Categoria_XX, ej: Fabricante/Marca Propia). Enter para 'XX': {players_suffix}",
+            f"Etiqueta para corte de distribucion (hoja 7_...; Enter para 'Canal'): {distribution_cut}",
+            f"Unidad Segmento 2 (hoja 2_*): {tree_unit_letter} -> {tree_unit_name}",
+        ]
 
-            # 7. Generar un unico archivo con todas las marcas
-            segmento_nombre = sanitizar_segmento_archivo(fabricante, 80)
-            nombre_archivo = f"{codigo_pais}_{cat_sel['cod']}_{segmento_nombre}.xlsx"
-            print(f"{Colors.OKBLUE}Generando archivo: {nombre_archivo}{Colors.ENDC}")
-            nombre_archivo_creado = crear_excel_desde_plantilla(
-                nombre_archivo=nombre_archivo,
-                marcas=marcas,
-                categoria_label=categoria_label,
-                nombre_pais=nombre_pais,
-                hojas_seleccionadas=hojas_seleccionadas,
-                players_suffix=players_suffix,
-                distribution_cut=distribution_cut,
-                tree_unit_letter=tree_unit_letter,
-                summary_lines=summary_lines,
-            )
-            contador += 1
-            lista_archivos.append(nombre_archivo_creado)
-            
-            # Esperar a que el usuario esté listo para continuar
-            input(f"\n{PromptColors.CONTINUE}Presione Enter para crear otro archivo o Ctrl+C para salir...{Colors.ENDC}\n")
+        # 8. Generar un unico archivo con todas las marcas
+        segmento_nombre = sanitizar_segmento_archivo(fabricante, 80)
+        nombre_archivo = f"{codigo_pais}_{cat_sel['cod']}_{segmento_nombre}.xlsx"
+        print(f"{Colors.OKBLUE}Generando archivo: {nombre_archivo}{Colors.ENDC}")
+        nombre_archivo_creado = crear_excel_desde_plantilla(
+            nombre_archivo=nombre_archivo,
+            marcas=marcas,
+            categoria_label=categoria_label,
+            nombre_pais=nombre_pais,
+            hojas_seleccionadas=hojas_seleccionadas,
+            players_suffix=players_suffix,
+            distribution_cut=distribution_cut,
+            tree_unit_letter=tree_unit_letter,
+            summary_lines=summary_lines,
+        )
+        contador += 1
+        lista_archivos.append(nombre_archivo_creado)
+        print(f"\n{Colors.OKGREEN}Proceso finalizado. Archivo generado: {nombre_archivo_creado}{Colors.ENDC}\n")
     
     except KeyboardInterrupt:
         limpiar_pantalla()
