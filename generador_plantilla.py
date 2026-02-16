@@ -97,6 +97,15 @@ TREE_UNIT_MAP = {
     "M": "Metros",
     "H": "Hojas",
 }
+TREND_COLOR_SEQUENCE = [
+    "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
+    "#AEC7E8", "#FFBB78", "#98DF8A", "#FF9896", "#C5B0D5", "#C49C94", "#F7B6D2", "#C7C7C7", "#DBDB8D", "#9EDAE5",
+    "#393B79", "#5254A3", "#6B6ECF", "#9C9EDE", "#637939", "#8CA252", "#B5CF6B", "#CEDB9C", "#8C6D31", "#BD9E39",
+    "#E7BA52", "#E7CB94", "#843C39", "#AD494A", "#D6616B", "#E7969C", "#7B4173", "#A55194", "#CE6DBD", "#DE9ED6",
+    "#3182BD", "#6BAED6", "#9ECAE1", "#C6DBEF", "#E6550D", "#FD8D3C", "#FDAE6B", "#FDD0A2", "#31A354", "#74C476",
+    "#A1D99B", "#C7E9C0", "#756BB1", "#9E9AC8", "#BCBDDC", "#DADAEB", "#636363", "#969696", "#BDBDBD", "#D9D9D9",
+    "#393E46", "#00ADB5", "#FF5722", "#795548", "#607D8B", "#8BC34A", "#CDDC39", "#FFC107", "#FF4081", "#3F51B5",
+]
 
 def strip_accents(s):
     return ''.join(c for c in unicodedata.normalize('NFD', s)
@@ -710,6 +719,40 @@ def solicitar_fabricante():
             return fabricante
         print(f"{Colors.FAIL}El fabricante no puede estar vacio.{Colors.ENDC}")
 
+def _normalize_brand_key(label: str) -> str:
+    if label is None:
+        return ""
+    return strip_accents(str(label).strip())
+
+def _hex_to_tab_argb(hex_color: str) -> str:
+    """Convierte #RRGGBB a AARRGGBB para color de pestaña de Excel."""
+    value = str(hex_color or "").strip()
+    if value.startswith("#"):
+        value = value[1:]
+    if len(value) != 6:
+        return "FF808080"
+    return f"FF{value.upper()}"
+
+def assign_brand_tab_color(brand_label: str, brand_color_lookup: dict[str, str]) -> str:
+    """
+    Asigna color consistente por marca usando la misma idea de paleta del generador de informe:
+    primer color libre no usado; fallback ciclico.
+    """
+    norm_key = _normalize_brand_key(brand_label)
+    if not norm_key:
+        return TREND_COLOR_SEQUENCE[0]
+    existing = brand_color_lookup.get(norm_key)
+    if existing:
+        return existing
+    used_colors = {value for value in brand_color_lookup.values() if value}
+    for candidate in TREND_COLOR_SEQUENCE:
+        if candidate not in used_colors:
+            brand_color_lookup[norm_key] = candidate
+            return candidate
+    fallback = TREND_COLOR_SEQUENCE[len(brand_color_lookup) % len(TREND_COLOR_SEQUENCE)]
+    brand_color_lookup[norm_key] = fallback
+    return fallback
+
 def asegurar_nombre_hoja_unico(nombre, usados):
     """Garantiza nombre unico de hoja respetando maximo 31 caracteres."""
     base = sanitizar_nombre_hoja(nombre)
@@ -813,6 +856,7 @@ def crear_excel_desde_plantilla(
     marcas_validas = [m for m in marcas if str(m).strip()]
     if not marcas_validas:
         raise ValueError("Debe proporcionar al menos una marca.")
+    brand_tab_color_lookup: dict[str, str] = {}
     ordered_templates = [
         sheet
         for _, sheet in TEMPLATE_SEGMENTS
@@ -833,6 +877,7 @@ def crear_excel_desde_plantilla(
         generated_brand_sheets[template_name] = []
         for idx, brand_sheet in enumerate(sheets_for_brand):
             marca_actual = marcas_validas[idx]
+            brand_hex = assign_brand_tab_color(marca_actual, brand_tab_color_lookup)
             replacements = {
                 'MarcaEjemplo': marca_actual,
                 'CategoriaEjemplo': categoria_label,
@@ -848,6 +893,7 @@ def crear_excel_desde_plantilla(
             )
             final_name = asegurar_nombre_hoja_unico(final_name, usados)
             brand_sheet.title = final_name
+            brand_sheet.sheet_properties.tabColor = _hex_to_tab_argb(brand_hex)
             usados.add(brand_sheet.title)
             aplicar_reemplazos_en_celdas(brand_sheet, replacements)
             generated_brand_sheets[template_name].append(brand_sheet)
