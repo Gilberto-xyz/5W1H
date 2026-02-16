@@ -66,9 +66,9 @@ def input(prompt=''):
 # Estilos de texto (markup rich).
 class Colors:
     HEADER = '[bold bright_cyan]'
-    OKBLUE = '[cyan]'
-    OKCYAN = '[bright_cyan]'
-    OKGREEN = '[bold green]'
+    OKBLUE = '[bold #4FC3F7]'
+    OKCYAN = '[bold #80DEEA]'
+    OKGREEN = '[bold #66BB6A]'
     WARNING = '[bold yellow]'
     FAIL = '[bold red]'
     ENDC = '[/]'
@@ -76,16 +76,16 @@ class Colors:
     UNDERLINE = ''
 
 class PromptColors:
-    COUNTRY = '[bold #C2185B]'
-    CATEGORY_SEARCH = '[bold #1976D2]'
-    CATEGORY_SELECT = '[bold #00695C]'
-    MANUFACTURER = '[bold #F57C00]'
-    BRAND = '[bold #6A1B9A]'
-    TEMPLATE_SELECT = '[bold #283593]'
-    CATEGORY_LABEL = '[bold #00838F]'
-    PLAYERS_LABEL = '[bold #455A64]'
-    DISTRIBUTION_LABEL = '[bold #AD1457]'
-    CONTINUE = '[bold #546E7A]'
+    COUNTRY = '[bold #EC407A]'
+    CATEGORY_SEARCH = '[bold #42A5F5]'
+    CATEGORY_SELECT = '[bold #26C6DA]'
+    MANUFACTURER = '[bold #FFA726]'
+    BRAND = '[bold #AB47BC]'
+    TEMPLATE_SELECT = '[bold #5C6BC0]'
+    CATEGORY_LABEL = '[bold #26A69A]'
+    PLAYERS_LABEL = '[bold #90A4AE]'
+    DISTRIBUTION_LABEL = '[bold #EF5350]'
+    CONTINUE = '[bold #78909C]'
 
 def strip_accents(s):
     return ''.join(c for c in unicodedata.normalize('NFD', s)
@@ -165,7 +165,7 @@ def obtener_codigo_pais(input_pais):
         elif len(matches) > 1:
             print(f"{Colors.WARNING}Se encontraron múltiples países:{Colors.ENDC}")
             for idx, key in enumerate(matches, 1):
-                print(f"{Colors.OKGREEN}{idx}. {obtener_nombre_pais(key)}{Colors.ENDC}")
+                print(f"{Colors.OKBLUE}{idx}. {obtener_nombre_pais(key)}{Colors.ENDC}")
             try:
                 seleccion = int(input(f"{PromptColors.COUNTRY}Seleccione el país (número): {Colors.ENDC}"))
                 if 1 <= seleccion <= len(matches):
@@ -534,7 +534,7 @@ def seleccionar_categoria():
         
         print(f"{Colors.OKCYAN}Categorías encontradas:{Colors.ENDC}")
         for idx, cat in enumerate(matches, 1):
-            print(f"{Colors.OKGREEN}{idx}. {cat['descripcion']} ({cat['cod']}){Colors.ENDC}")
+            print(f"{Colors.OKBLUE}{idx}. {cat['descripcion']} ({cat['cod']}){Colors.ENDC}")
         seleccion = input(f"{PromptColors.CATEGORY_SELECT}Número de categoría (o 'r' para reintentar): {Colors.ENDC}").strip()
         if seleccion.lower() == 'r':
             continue
@@ -600,7 +600,7 @@ def obtener_marcas():
 
 def mostrar_opciones_plantillas():
     print(f"{Colors.OKCYAN}Plantillas disponibles:{Colors.ENDC}")
-    print("1. TODAS", style="bold white", markup=False)
+    print("1. TODAS", style="bold #ECEFF1", markup=False)
     for idx, (label, template_sheet) in enumerate(TEMPLATE_SEGMENTS, start=2):
         style = question_style_for_sheet(template_sheet)
         print(f"{idx}. {label} ({template_sheet})", style=style, markup=False)
@@ -624,7 +624,7 @@ def seleccionar_plantillas():
     while True:
         mostrar_opciones_plantillas()
         raw = input(
-            f"{PromptColors.TEMPLATE_SELECT}Seleccione opcion(es) separadas por coma (1 para TODAS, Enter para TODAS): {Colors.ENDC}"
+            f"{PromptColors.TEMPLATE_SELECT}Opciones (1=TODAS | ej: 2,4,9 | Enter=TODAS): {Colors.ENDC}"
         ).strip()
         if not raw:
             return [sheet for _, sheet in TEMPLATE_SEGMENTS]
@@ -867,10 +867,10 @@ def main():
                     continue
                 codigo_pais, nombre_pais = obtener_codigo_pais(input_pais)
                 if codigo_pais:
-                    print(f"{Colors.OKGREEN}País: {nombre_pais} (Código: {codigo_pais}){Colors.ENDC}")
+                    print(f"{Colors.OKCYAN}País: {nombre_pais} (Código: {codigo_pais}){Colors.ENDC}")
                     cobertura = pop_coverage.get(nombre_pais)
                     if cobertura:
-                        print(f"{Colors.OKCYAN}Cobertura poblacional: {cobertura}{Colors.ENDC}")
+                        print(f"{Colors.OKBLUE}Cobertura poblacional: {cobertura}{Colors.ENDC}")
                     print()
                     break
                 else:
@@ -878,20 +878,19 @@ def main():
             
             # 2. Seleccionar categoría
             cat_sel = seleccionar_categoria()
-            print(f"{Colors.OKGREEN}Categoría: {cat_sel['descripcion']} (Código: {cat_sel['cod']}){Colors.ENDC}\n")
+            print(f"{Colors.OKCYAN}Categoría: {cat_sel['descripcion']} (Código: {cat_sel['cod']}){Colors.ENDC}\n")
 
             # 3. Solicitar fabricante para nombre del archivo final
             fabricante = solicitar_fabricante()
-            print(f"{Colors.OKGREEN}Fabricante para nombre de archivo: {fabricante}{Colors.ENDC}\n")
+            print(f"{Colors.OKCYAN}Fabricante para nombre de archivo: {fabricante}{Colors.ENDC}\n")
             
             # 4. Capturar marcas para generar una plantilla unica multimarca
             marcas = obtener_marcas()
-            print(f"{Colors.OKGREEN}Se agregaran {len(marcas)} marca(s) en un solo archivo: {', '.join(marcas)}{Colors.ENDC}\n")
+            print(f"{Colors.OKCYAN}Se agregaran {len(marcas)} marca(s) en un solo archivo: {', '.join(marcas)}{Colors.ENDC}\n")
 
             # 5. Seleccionar segmentos/plantillas
             hojas_seleccionadas = seleccionar_plantillas()
-            mostrar_segmentos_seleccionados(hojas_seleccionadas)
-            print("")
+            print(f"{Colors.OKBLUE}Plantillas seleccionadas: {len(hojas_seleccionadas)}{Colors.ENDC}\n")
 
             # 6. Parametros dinamicos para placeholders de categoria y cortes
             categoria_default = str(cat_sel.get('descripcion', 'Categoria')).strip() or 'Categoria'
@@ -915,7 +914,7 @@ def main():
             # 7. Generar un unico archivo con todas las marcas
             segmento_nombre = sanitizar_segmento_archivo(fabricante, 80)
             nombre_archivo = f"{codigo_pais}_{cat_sel['cod']}_{segmento_nombre}.xlsx"
-            print(f"{Colors.OKGREEN}Generando archivo: {nombre_archivo}{Colors.ENDC}")
+            print(f"{Colors.OKBLUE}Generando archivo: {nombre_archivo}{Colors.ENDC}")
             nombre_archivo_creado = crear_excel_desde_plantilla(
                 nombre_archivo=nombre_archivo,
                 marcas=marcas,
