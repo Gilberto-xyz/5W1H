@@ -2856,7 +2856,13 @@ base_dir = Path(__file__).resolve().parent
 os.chdir(base_dir)
 excel = select_excel_file(base_dir)
 file = pd.ExcelFile(str(base_dir / excel))
-W = file.sheet_names
+all_sheet_names = file.sheet_names
+W = [sheet for sheet in all_sheet_names if str(sheet).strip().lower() != 'readme']
+ignored_sheets = [sheet for sheet in all_sheet_names if str(sheet).strip().lower() == 'readme']
+if ignored_sheets:
+    print_colored(f"Se ignora(n) hoja(s) no analitica(s): {', '.join(map(str, ignored_sheets))}.", COLOR_YELLOW)
+if not W:
+    raise ValueError("El archivo no contiene hojas 5W1H validas para procesar (solo README u hojas vacias).")
 #Obtém o pais cesta categoria fabricante marca e idioma para o qual se fará o estudo
 excel_parts = excel.split('_')
 land = pais.loc[pais.cod==int(excel_parts[0]),'pais'].iloc[0]
