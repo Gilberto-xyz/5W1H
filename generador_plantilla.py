@@ -85,7 +85,18 @@ class PromptColors:
     CATEGORY_LABEL = '[bold #26A69A]'
     PLAYERS_LABEL = '[bold #90A4AE]'
     DISTRIBUTION_LABEL = '[bold #EF5350]'
+    TREE_UNIT = '[bold #8D6E63]'
     CONTINUE = '[bold #78909C]'
+
+TREE_UNIT_MAP = {
+    "U": "Units",
+    "L": "Litros",
+    "K": "Kilos",
+    "T": "Toneladas",
+    "R": "Rollos",
+    "M": "Metros",
+    "H": "Hojas",
+}
 
 def strip_accents(s):
     return ''.join(c for c in unicodedata.normalize('NFD', s)
@@ -658,7 +669,7 @@ def solicitar_etiqueta_categoria(cat_sel):
 
 def solicitar_etiqueta_players():
     raw = input(
-        f"{PromptColors.PLAYERS_LABEL}Etiqueta para reemplazar 'XX' en hoja de Players (Enter para 'XX'): {Colors.ENDC}"
+        f"{PromptColors.PLAYERS_LABEL}Etiqueta objetivo para Players (hoja 6_Categoria_XX, ej: Fabricante/Marca Propia). Enter para 'XX': {Colors.ENDC}"
     ).strip()
     return raw if raw else 'XX'
 
@@ -667,6 +678,29 @@ def solicitar_corte_distribucion():
         f"{PromptColors.DISTRIBUTION_LABEL}Etiqueta para corte de distribucion (hoja 7_...; Enter para 'Canal'): {Colors.ENDC}"
     ).strip()
     return raw if raw else 'Canal'
+
+def solicitar_unidad_arbol():
+    """
+    Solicita la unidad de medida para Segmento 2 (arbol de medidas).
+    Devuelve (letra, nombre_unidad).
+    """
+    print(f"{Colors.OKCYAN}Unidad para Segmento 2 (Arbol de medidas):{Colors.ENDC}")
+    unit_options = list(TREE_UNIT_MAP.items())
+    index_lookup = {str(idx): key for idx, (key, _) in enumerate(unit_options, start=1)}
+    for idx, (key, label) in enumerate(unit_options, start=1):
+        print(f"{Colors.OKBLUE}  {idx}= {key} -> {label}{Colors.ENDC}")
+    while True:
+        raw = input(
+            f"{PromptColors.TREE_UNIT}Unidad para hoja 2_* (numero o letra). Enter para 'K' (Kilos): {Colors.ENDC}"
+        ).strip().upper()
+        if not raw:
+            return "K", TREE_UNIT_MAP["K"]
+        if raw in index_lookup:
+            unit_key = index_lookup[raw]
+            return unit_key, TREE_UNIT_MAP[unit_key]
+        if raw in TREE_UNIT_MAP:
+            return raw, TREE_UNIT_MAP[raw]
+        print(f"{Colors.FAIL}Unidad invalida. Use numero (1-{len(unit_options)}) o letra U/L/K/T/R/M/H.{Colors.ENDC}")
 
 def solicitar_fabricante():
     """Solicita fabricante para el nombre del archivo de salida."""
@@ -690,9 +724,11 @@ def asegurar_nombre_hoja_unico(nombre, usados):
             return candidato
         contador += 1
 
-def construir_nombre_hoja(template_name, marca, categoria_label, players_suffix, distribution_cut):
+def construir_nombre_hoja(template_name, marca, categoria_label, players_suffix, distribution_cut, tree_unit_letter="K"):
     """Construye el nombre final de hoja desde el nombre plantilla."""
     title = template_name.replace('MarcaEjemplo', marca).replace('Categoria', categoria_label)
+    if template_name.startswith('2_'):
+        title = re.sub(r'_[A-Za-z]$', f"_{tree_unit_letter}", title)
     if template_name.endswith('_XX'):
         title = title[:-2] + players_suffix
     if template_name.startswith('7_'):
@@ -738,6 +774,7 @@ def crear_excel_desde_plantilla(
     hojas_seleccionadas,
     players_suffix,
     distribution_cut,
+    tree_unit_letter="K",
     summary_lines=None,
 ):
     """Crea un archivo Excel desde Plantilla_Entrada_5W1H con contenido filtrado y dinamico."""
@@ -806,7 +843,8 @@ def crear_excel_desde_plantilla(
                 marca_actual,
                 categoria_label,
                 players_suffix,
-                distribution_cut
+                distribution_cut,
+                tree_unit_letter
             )
             final_name = asegurar_nombre_hoja_unico(final_name, usados)
             brand_sheet.title = final_name
@@ -827,7 +865,8 @@ def crear_excel_desde_plantilla(
             marcas_validas[0],
             categoria_label,
             players_suffix,
-            distribution_cut
+            distribution_cut,
+            tree_unit_letter
         )
         final_name = asegurar_nombre_hoja_unico(final_name, usados)
         ws.title = final_name
@@ -936,7 +975,13 @@ def main():
             hojas_seleccionadas = seleccionar_plantillas()
             print(f"{Colors.OKBLUE}Plantillas seleccionadas: {len(hojas_seleccionadas)}{Colors.ENDC}\n")
 
-            # 6. Parametros dinamicos para placeholders de categoria y cortes
+            # 6. Unidad para Segmento 2 (inmediatamente despues de elegir plantillas)
+            tree_unit_letter = 'K'
+            tree_unit_name = TREE_UNIT_MAP.get(tree_unit_letter, 'Kilos')
+            if "2_MarcaEjemplo_K" in hojas_seleccionadas:
+                tree_unit_letter, tree_unit_name = solicitar_unidad_arbol()
+
+            # 7. Parametros dinamicos para placeholders de categoria y cortes
             categoria_default = str(cat_sel.get('descripcion', 'Categoria')).strip() or 'Categoria'
             categoria_label = categoria_default
             if any('Categoria' in sheet for sheet in hojas_seleccionadas):
@@ -949,10 +994,12 @@ def main():
             distribution_cut = 'Canal'
             if "7_Categoria_Canal" in hojas_seleccionadas:
                 distribution_cut = solicitar_corte_distribucion()
+
             summary_lines = [
                 f"Etiqueta para reemplazar 'Categoria' en hojas (Enter para '{categoria_default}'): {categoria_label}",
-                f"Etiqueta para reemplazar 'XX' en hoja de Players (Enter para 'XX'): {players_suffix}",
+                f"Etiqueta objetivo para Players (hoja 6_Categoria_XX, ej: Fabricante/Marca Propia). Enter para 'XX': {players_suffix}",
                 f"Etiqueta para corte de distribucion (hoja 7_...; Enter para 'Canal'): {distribution_cut}",
+                f"Unidad Segmento 2 (hoja 2_*): {tree_unit_letter} -> {tree_unit_name}",
             ]
 
             # 7. Generar un unico archivo con todas las marcas
@@ -967,6 +1014,7 @@ def main():
                 hojas_seleccionadas=hojas_seleccionadas,
                 players_suffix=players_suffix,
                 distribution_cut=distribution_cut,
+                tree_unit_letter=tree_unit_letter,
                 summary_lines=summary_lines,
             )
             contador += 1
