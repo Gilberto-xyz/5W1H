@@ -61,6 +61,26 @@ Flujo del script:
    - `3`: sin ventas.
 3. Genera slides y guarda el `.pptx`.
 
+## Flujo general (Mermaid)
+
+```mermaid
+flowchart TD
+    A[Inicio] --> B{Ya tienes un Excel<br/>5W1H valido?}
+    B -- No --> C[Ejecutar<br/>python generador_plantilla.py]
+    C --> D[Ingresar pais, categoria,<br/>fabricante y marcas]
+    D --> E[Seleccionar segmentos<br/>1=TODAS o seleccion puntual]
+    E --> F[Definir parametros extra<br/>unidad arbol, categoria,<br/>players, distribucion]
+    F --> G[Salida Excel<br/>&lt;codPais&gt;_&lt;codCategoria&gt;_&lt;fabricante&gt;.xlsx]
+    B -- Si --> H[Usar Excel existente<br/>&lt;codPais&gt;_&lt;codCategoria&gt;_&lt;cliente&gt;.xlsx]
+    G --> I[Ejecutar<br/>python generador_informe_5w1h.py]
+    H --> I
+    I --> J[Seleccionar archivo Excel]
+    J --> K[Elegir modo de graficacion<br/>1, 2 o 3]
+    K --> L[Procesa hojas 5W1H<br/>ignora README si existe]
+    L --> M[Salida carpeta<br/>&lt;Pais&gt;-&lt;Categoria&gt;-&lt;Cliente&gt;-&lt;ref&gt;_5W1H]
+    M --> N[Salida PPT<br/>&lt;Pais&gt;-&lt;Cliente&gt;-&lt;Categoria&gt;-&lt;Marca&gt;-5W1H-&lt;ref&gt;.pptx]
+```
+
 ## Formato del Excel de entrada
 
 ### Nombre de archivo
