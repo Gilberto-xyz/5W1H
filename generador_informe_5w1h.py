@@ -34,6 +34,12 @@ from pptx.dml.color import RGBColor
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 from pathlib import Path
 from collections import OrderedDict
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+except Exception:
+    Console = None
+    Panel = None
 
 # Fuerza E/S en UTF-8 para soportar acentos y ñ en la terminal de Windows
 def _configure_utf8_io():
@@ -227,6 +233,54 @@ def colorize(text: str, color: str = COLOR_BLUE) -> str:
 def print_colored(text: str, color: str = COLOR_BLUE) -> None:
     """Imprime texto coloreado en la terminal."""
     print(colorize(text, color))
+
+def _format_elapsed_hms(seconds: float) -> str:
+    """Convierte segundos a H:MM:SS para mensajes en terminal."""
+    try:
+        total = int(round(float(seconds)))
+    except Exception:
+        return "-"
+    if total < 0:
+        total = 0
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    return f"{h}:{m:02d}:{s:02d}"
+
+def print_file_locked_error(path_str: str, *, elapsed_seconds: Optional[float] = None) -> None:
+    """Muestra un mensaje estilo CoverageLab cuando el archivo esta en uso/bloqueado."""
+    path_disp = str(path_str or "").strip() or "-"
+    base = os.path.basename(path_disp) if path_disp not in {"-", ""} else "-"
+    hora_actual = dt.now().strftime("%I:%M:%S %p")
+    elapsed_line = ""
+    if elapsed_seconds is not None:
+        elapsed_line = f"\nTiempo total: {_format_elapsed_hms(elapsed_seconds)}"
+    if Console is not None and Panel is not None:
+        try:
+            console = Console()
+            msg = (
+                "[bright_white]Proceso terminado con error[/bright_white]\n\n"
+                f"[white]Archivo en uso: [bold]{base}[/bold][/white]\n"
+                "[white]No se pudo reescribir porque esta abierto o bloqueado.[/white]\n"
+                "[white]Cierra el archivo y vuelve a ejecutar.[/white]\n\n"
+                f"[white]Hora de finalizacion: [bold]{hora_actual}[/bold][/white]"
+                + (f"\n[white]Tiempo total: [bold]{_format_elapsed_hms(elapsed_seconds)}[/bold][/white]" if elapsed_seconds is not None else "")
+                + f"\n\n[grey]{path_disp}[/grey]"
+            )
+            console.print()
+            console.print(Panel.fit(msg, border_style="red", title="Coverages Latam"))
+            console.print()
+            return
+        except Exception:
+            pass
+    print_colored("", COLOR_RED)
+    print_colored("[Coverages Latam] Proceso terminado con error", COLOR_RED)
+    print_colored(f"Archivo en uso: {base}", COLOR_RED)
+    print_colored("No se pudo reescribir porque esta abierto o bloqueado.", COLOR_RED)
+    print_colored("Cierra el archivo y vuelve a ejecutar.", COLOR_RED)
+    print_colored(f"Hora de finalizacion: {hora_actual}{elapsed_line}", COLOR_RED)
+    print_colored(path_disp, COLOR_RED)
+    print_colored("", COLOR_RED)
 
 def normalize_brand_key(brand: str) -> str:
     """Normaliza fabricante para mapearlo siempre al mismo color."""
@@ -2535,10 +2589,34 @@ def simplify_folder_segment(value: str, max_len: int = 80) -> str:
     if not cleaned:
         cleaned = 'NA'
     return cleaned[:max_len]
+def is_locked_for_write(file_path: Path) -> bool:
+    """Indica si un archivo existente parece bloqueado para escritura."""
+    if not file_path.exists():
+        return False
+    try:
+        with open(file_path, 'a+b'):
+            pass
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
 def select_excel_file(base_dir: Path) -> str:
     """Lista archivos Excel disponibles y devuelve el nombre seleccionado."""
     excel_files = sorted([p for p in base_dir.glob('*.xlsx') if not p.name.startswith('~$')])
     brand_color_cache: Dict[str, Tuple[int, int, int]] = {}
+    def warn_if_excel_in_use(file_path: Path) -> None:
+        """Avisa si el workbook parece estar abierto en Excel."""
+        lock_path = file_path.with_name(f"~${file_path.name}")
+        if lock_path.exists():
+            print_colored(
+                (
+                    f"Advertencia: el archivo '{file_path.name}' parece estar en uso "
+                    "(detectado archivo temporal de bloqueo). "
+                    "Si tienes cambios sin guardar, no se veran reflejados hasta guardar/cerrar el Excel."
+                ),
+                COLOR_YELLOW
+            )
     def metadata_for(file_path: Path) -> str:
         try:
             if file_path.stem.lower() == 'plantilla_entrada_5w1h':
@@ -2559,6 +2637,7 @@ def select_excel_file(base_dir: Path) -> str:
         meta_color = COLOR_RED if meta == 'Metadata no disponible' else COLOR_YELLOW
         archivo_coloreado = colorize_filename_brand(excel_files[0].name, brand_color_cache)
         print_colored(f"Archivo encontrado: {archivo_coloreado} {colorize('[' + meta + ']', meta_color)}", COLOR_BLUE)
+        warn_if_excel_in_use(excel_files[0])
         return excel_files[0].name
     print_colored('Archivos Excel disponibles:', COLOR_QUESTION)
     max_name_len = max(len(archivo.name) for archivo in excel_files)
@@ -2574,13 +2653,18 @@ def select_excel_file(base_dir: Path) -> str:
     while True:
         choice = input(prompt).strip()
         if not choice:
+            warn_if_excel_in_use(excel_files[0])
             return excel_files[0].name
         if choice.isdigit():
             idx = int(choice)
             if 1 <= idx <= len(excel_files):
-                return excel_files[idx - 1].name
+                selected_file = excel_files[idx - 1]
+                warn_if_excel_in_use(selected_file)
+                return selected_file.name
         matching = [archivo.name for archivo in excel_files if archivo.name.lower() == choice.lower()]
         if matching:
+            selected_file = base_dir / matching[0]
+            warn_if_excel_in_use(selected_file)
             return matching[0]
         print_colored('Entrada invalida. Intente nuevamente.', COLOR_RED)
 def configure_cover_slide(presentation, lang):
@@ -5299,7 +5383,15 @@ output_foldername = "-".join([
 output_folder = base_dir / output_foldername
 output_folder.mkdir(parents=True, exist_ok=True)
 output_path = output_folder / output_filename
-ppt.save(str(output_path))
+total_elapsed_seconds = (chart_generation_end - chart_generation_start).total_seconds()
+if is_locked_for_write(output_path):
+    print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
+    sys.exit(1)
+try:
+    ppt.save(str(output_path))
+except PermissionError:
+    print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
+    sys.exit(1)
 print_colored(f'Presentacion guardada en: {output_path}', COLOR_GREEN)
 chart_elapsed = int((chart_generation_end - chart_generation_start).total_seconds())
 print_colored(
