@@ -1288,6 +1288,22 @@ def line_graf(
     start_idx = max(0, min(p, data_len - 1))
     x_positions = np.arange(data_len)
     colunas = list(aux.columns[1:])
+    def _is_sales_series(label: str) -> bool:
+        normalized = str(label).strip().lower()
+        if not normalized:
+            return False
+        if normalized.endswith(('.v', '_v', '-v')):
+            return True
+        return 'venta' in normalized or 'sell-in' in normalized or 'sellin' in normalized
+    def _is_purchase_series(label: str) -> bool:
+        normalized = str(label).strip().lower()
+        if not normalized:
+            return False
+        if normalized.endswith(('.c', '_c', '-c')):
+            return True
+        return 'compra' in normalized or 'sell-out' in normalized or 'sellout' in normalized
+    has_sales_markers = any(_is_sales_series(col) for col in colunas)
+    has_purchase_markers = any(_is_purchase_series(col) for col in colunas)
     palette_values = TREND_COLOR_SEQUENCE or [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
     color_mapping: dict[str, str] = {}
     color_key_lookup: dict[str, str] = {}
@@ -1332,8 +1348,22 @@ def line_graf(
         numeric_series = pd.to_numeric(aux[col], errors='coerce')
         numeric_series_list.append(numeric_series)
         y = numeric_series.values
-        x_slice = x_positions[start_idx:]
-        y_slice = y[start_idx:]
+        if start_idx > 0:
+            if has_sales_markers:
+                apply_pipeline_shift = _is_sales_series(col)
+            else:
+                # Si no hay marcadores mixtos, asumimos grafico de ventas/sell-in.
+                apply_pipeline_shift = not has_purchase_markers
+        else:
+            apply_pipeline_shift = False
+        if apply_pipeline_shift:
+            if data_len <= start_idx:
+                continue
+            x_slice = x_positions[start_idx:]
+            y_slice = y[:data_len - start_idx]
+        else:
+            x_slice = x_positions[start_idx:]
+            y_slice = y[start_idx:]
         valid_points = [(x_idx, y_val) for x_idx, y_val in zip(x_slice, y_slice) if pd.notna(y_val)]
         if not valid_points:
             continue
@@ -4876,7 +4906,28 @@ for w in W:
             df_full = series_configs[0].data.copy()
             for extra in series_configs[1:]:
                 df_full = pd.concat([df_full, extra.data.iloc[:,1:]], axis=1)
-            pipeline_combined = max((cfg.pipeline for cfg in series_configs), default=0)
+            ventas_pipelines = []
+            for cfg in series_configs:
+                if str(getattr(cfg, "display_tipo", "")).strip().lower() != "ventas":
+                    continue
+                try:
+                    current_pipeline = int(getattr(cfg, "pipeline", 0))
+                except (TypeError, ValueError):
+                    continue
+                if current_pipeline >= 0:
+                    ventas_pipelines.append(current_pipeline)
+            if ventas_pipelines:
+                pipeline_combined = max(ventas_pipelines)
+            else:
+                fallback_pipelines = []
+                for cfg in series_configs:
+                    try:
+                        fallback_pipeline = int(getattr(cfg, "pipeline", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if fallback_pipeline >= 0:
+                        fallback_pipelines.append(fallback_pipeline)
+                pipeline_combined = max(fallback_pipelines) if fallback_pipelines else 0
             c_fig+=1
             left_margin = Inches(0.33)
             right_margin = Inches(0.33)
