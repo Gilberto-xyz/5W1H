@@ -1937,23 +1937,30 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
             "value": final,
             "change": calculate_percentage_change(inicial, final)
         }
+    segment2_metric_candidates = {
+        # Compatibilidad entre hojas legacy (R_VOL/VO1/PM1) y nuevas hojas en unidades (UNITS/VOPK/PMPK).
+        "volumen": ["Weighted R_VOL1", "Weighted R_VOL2", "Weighted UNITS", "Weighted VOL1_P", "Weighted VOL2_P", "Weighted VOLSU"],
+        "precio": ["Weighted PM1_LC", "Weighted PMSU_LC", "Weighted PM2_LC", "Weighted PMPK_LC"],
+        "volumen_prom": ["Weighted VO1_BUY", "Weighted VOSU_BUY", "Weighted VO2_BUY", "Weighted VOPK_BUY"],
+        "volumen_viaje": ["Weighted VO1_DAY", "Weighted VOSU_DAY", "Weighted VO2_DAY", "Weighted VOPK_DAY"],
+    }
     metrics_calculated = {
         etiquetas["valor"]: build_entry(etiquetas["valor"], 'Weighted VAL_LC'),
         etiquetas["volumen"]: build_entry(
             etiquetas["volumen"],
-            ["Weighted R_VOL1", "Weighted R_VOL2", "Weighted VOL1_P", "Weighted VOL2_P", "Weighted VOLSU"],
+            segment2_metric_candidates["volumen"],
             lambda v, _: v * factor
         ),
         etiquetas["precio"]: build_entry(
             etiquetas["precio"],
-            ["Weighted PM1_LC", "Weighted PMSU_LC", "Weighted PM2_LC"],
+            segment2_metric_candidates["precio"],
             lambda v, _: v / factor
         ),
         etiquetas["gasto"]: build_entry(etiquetas["gasto"], 'Weighted VALC_BUY'),
         etiquetas["compradores"]: build_entry(etiquetas["compradores"], 'Weighted BUYERS'),
         etiquetas["volumen_prom"]: build_entry(
             etiquetas["volumen_prom"],
-            ["Weighted VO1_BUY", "Weighted VOSU_BUY", "Weighted VO2_BUY"],
+            segment2_metric_candidates["volumen_prom"],
             lambda v, _: v * factor_volumen_prom
         ),
         etiquetas["penetracion"]: build_entry(etiquetas["penetracion"], 'Weighted PENET'),
@@ -1961,7 +1968,7 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         etiquetas["frecuencia"]: build_entry(etiquetas["frecuencia"], 'Weighted FREQ'),
         etiquetas["volumen_viaje"]: build_entry(
             etiquetas["volumen_viaje"],
-            ["Weighted VO1_DAY", "Weighted VOSU_DAY", "Weighted VO2_DAY"],
+            segment2_metric_candidates["volumen_viaje"],
             lambda v, _: v * factor_volumen_viaje
         ),
         etiquetas["ticket"]: build_entry(etiquetas["ticket"], 'Weighted VALC_DAY'),
