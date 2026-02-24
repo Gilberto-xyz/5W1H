@@ -2468,6 +2468,98 @@ def reorder_apo_entries_by_compras(apo_entries: List[dict]) -> None:
         reordered_df.attrs = dict(getattr(apo_df, 'attrs', {}))
         entry["apo"] = reordered_df
 
+def _build_share_rank_from_compras(share_chart_entries: List[dict]) -> list[str]:
+    """Construye ranking de encabezados para share usando Compras (periodo mas reciente)."""
+    compras_entry = None
+    for entry in share_chart_entries:
+        display_tipo = str(entry.get("display_tipo", "")).strip().lower()
+        periods = entry.get("periods") or []
+        if display_tipo == 'compras' and periods:
+            compras_entry = entry
+            break
+    if compras_entry is None:
+        return []
+    periods = compras_entry.get("periods") or []
+    latest_shares = periods[-1][1] if periods else {}
+    if not isinstance(latest_shares, dict) or not latest_shares:
+        return []
+    rank_candidates = []
+    for idx, (column_name, value) in enumerate(latest_shares.items()):
+        norm_name = _normalize_sort_header(column_name)
+        if not norm_name:
+            continue
+        score = _parse_percent_cell(value)
+        if score is None:
+            score = float('-inf')
+        rank_candidates.append((norm_name, score, idx))
+    rank_candidates.sort(key=lambda item: (item[1], -item[2]), reverse=True)
+    rank: list[str] = []
+    seen: set[str] = set()
+    for norm_name, _, _ in rank_candidates:
+        if norm_name in seen:
+            continue
+        seen.add(norm_name)
+        rank.append(norm_name)
+    return rank
+
+def _reorder_labels_by_rank(labels: List[str], compras_rank: List[str]) -> List[str]:
+    """Reordena etiquetas manteniendo no-coincidentes al final en su orden original."""
+    if not labels or not compras_rank:
+        return labels
+    compras_rank_set = set(compras_rank)
+    norm_to_labels: dict[str, list[str]] = {}
+    for label in labels:
+        norm_name = _normalize_sort_header(label)
+        if not norm_name:
+            continue
+        norm_to_labels.setdefault(norm_name, []).append(label)
+    shared_headers = compras_rank_set.intersection(norm_to_labels.keys())
+    if not shared_headers:
+        return labels
+    ordered_labels = []
+    used = set()
+    for norm_name in compras_rank:
+        for label in norm_to_labels.get(norm_name, []):
+            if label in used:
+                continue
+            ordered_labels.append(label)
+            used.add(label)
+    for label in labels:
+        if label in used:
+            continue
+        ordered_labels.append(label)
+        used.add(label)
+    return ordered_labels
+
+def _reorder_shares_by_rank(shares: dict, compras_rank: List[str]) -> OrderedDict:
+    """Reordena un diccionario de shares usando el ranking de Compras."""
+    if not isinstance(shares, dict):
+        return OrderedDict()
+    ordered_labels = _reorder_labels_by_rank(list(shares.keys()), compras_rank)
+    if ordered_labels == list(shares.keys()):
+        return OrderedDict(shares.items())
+    reordered = OrderedDict()
+    for label in ordered_labels:
+        reordered[label] = shares[label]
+    return reordered
+
+def reorder_share_entries_by_compras(share_chart_entries: List[dict]) -> None:
+    """Aplica a share 100% la misma regla de orden: coincidencias se ordenan por Compras."""
+    if not share_chart_entries:
+        return
+    compras_rank = _build_share_rank_from_compras(share_chart_entries)
+    if not compras_rank:
+        return
+    for entry in share_chart_entries:
+        columns = entry.get("columns") or []
+        if isinstance(columns, list) and columns:
+            entry["columns"] = _reorder_labels_by_rank(columns, compras_rank)
+        periods = entry.get("periods") or []
+        reordered_periods = []
+        for period_label, shares in periods:
+            reordered_periods.append((period_label, _reorder_shares_by_rank(shares, compras_rank)))
+        entry["periods"] = reordered_periods
+
 # Funcion que crea el grafico de la tabla de aporte
 def graf_apo(apo, c_fig, column_color_mapping=None):
     """Renderiza la tabla de aporte como imagen PNG."""
@@ -5282,6 +5374,7 @@ for w in W:
                         }
                     )
             if share_chart_entries:
+                reorder_share_entries_by_compras(share_chart_entries)
                 max_sections = 2
                 share_chart_entries = share_chart_entries[:max_sections]
                 palette_values = TREND_COLOR_SEQUENCE or [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
