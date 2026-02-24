@@ -5426,11 +5426,10 @@ font.name, font.size, font.bold = 'Arial', Inches(0.32), True
 font.color.rgb = RGBColor(255, 255, 255)
 output_filename = "-".join([
     simplify_name_segment(land, 30),
-    simplify_name_segment(client, 30),
-    simplify_name_segment(cat, 6),
-    simplify_name_segment(brand, 8),
-    '5W1H',
-    simplify_name_segment(ref, 5)
+    simplify_name_segment(cat, 40),
+    simplify_name_segment(client, 40),
+    'informe',
+    '5W1H'
 ]) + '.pptx'
 output_foldername = "-".join([
     simplify_folder_segment(land, 30),
@@ -5445,6 +5444,12 @@ total_elapsed_seconds = (chart_generation_end - chart_generation_start).total_se
 if is_locked_for_write(output_path):
     print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
     sys.exit(1)
+if output_path.exists():
+    try:
+        output_path.unlink()
+    except PermissionError:
+        print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
+        sys.exit(1)
 try:
     ppt.save(str(output_path))
 except PermissionError:
