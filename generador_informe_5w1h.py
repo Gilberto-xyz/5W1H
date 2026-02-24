@@ -2349,6 +2349,125 @@ def aporte(df,p,lang,tipo):
         #Formato de la variacion y el aporte
         apo.iloc[2:, 1:] = apo.iloc[2:, 1:].applymap(lambda x: f"{round(x * 100, 2)}%")
         return apo
+
+def _parse_percent_cell(value) -> Optional[float]:
+    """Convierte celdas tipo '12.3%' o numericas a float comparable."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float, np.number)):
+        numeric = float(value)
+        return numeric if np.isfinite(numeric) else None
+    text_value = str(value).strip().replace('%', '').replace(',', '.')
+    if not text_value:
+        return None
+    try:
+        numeric = float(text_value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if np.isfinite(numeric) else None
+
+def _normalize_sort_header(value) -> str:
+    """Normaliza encabezados para comparar Compras vs Ventas ignorando sufijos .C/.V."""
+    normalized = normalize_color_text(value)
+    if not normalized:
+        return ''
+    return strip_color_suffixes(normalized)
+
+def _build_compras_sort_rank(apo_df: pd.DataFrame) -> list[str]:
+    """Devuelve el ranking de encabezados segun Compras (de mayor a menor)."""
+    if apo_df is None or apo_df.empty or apo_df.shape[1] <= 1:
+        return []
+    total_col = next(
+        (col for col in apo_df.columns[1:] if str(col).strip().lower() == 'total'),
+        None
+    )
+    vol_rows = [
+        idx for idx, label in enumerate(apo_df.iloc[:, 0])
+        if str(label).strip().lower().startswith('vol')
+    ]
+    # Preferir Vol MAT actual (ultima fila Vol disponible).
+    reference_row = vol_rows[-1] if vol_rows else 0
+    rank_candidates = []
+    for col_idx in range(1, len(apo_df.columns)):
+        col_name = apo_df.columns[col_idx]
+        if total_col is not None and col_name == total_col:
+            continue
+        norm_name = _normalize_sort_header(col_name)
+        if not norm_name:
+            continue
+        score = _parse_percent_cell(apo_df.iloc[reference_row, col_idx])
+        if score is None:
+            score = float('-inf')
+        rank_candidates.append((norm_name, score, col_idx))
+    rank_candidates.sort(key=lambda item: (item[1], -item[2]), reverse=True)
+    rank = []
+    seen = set()
+    for norm_name, _, _ in rank_candidates:
+        if norm_name in seen:
+            continue
+        seen.add(norm_name)
+        rank.append(norm_name)
+    return rank
+
+def reorder_apo_entries_by_compras(apo_entries: List[dict]) -> None:
+    """
+    Reordena encabezados de tablas de aportes usando Compras como referencia.
+    Solo aplica cuando hay coincidencia de encabezados normalizados.
+    """
+    if not apo_entries:
+        return
+    compras_entry = None
+    for entry in apo_entries:
+        display_tipo = str(entry.get("display_tipo", "")).strip().lower()
+        apo_df = entry.get("apo")
+        if display_tipo == 'compras' and isinstance(apo_df, pd.DataFrame):
+            compras_entry = entry
+            break
+    if compras_entry is None:
+        return
+    compras_df = compras_entry.get("apo")
+    if not isinstance(compras_df, pd.DataFrame):
+        return
+    compras_rank = _build_compras_sort_rank(compras_df)
+    if not compras_rank:
+        return
+    compras_rank_set = set(compras_rank)
+    for entry in apo_entries:
+        apo_df = entry.get("apo")
+        if not isinstance(apo_df, pd.DataFrame) or apo_df.empty or apo_df.shape[1] <= 1:
+            continue
+        first_col = apo_df.columns[0]
+        total_cols = [col for col in apo_df.columns[1:] if str(col).strip().lower() == 'total']
+        value_cols = [col for col in apo_df.columns[1:] if str(col).strip().lower() != 'total']
+        norm_to_cols: dict[str, list] = {}
+        for col in value_cols:
+            norm_name = _normalize_sort_header(col)
+            if not norm_name:
+                continue
+            norm_to_cols.setdefault(norm_name, []).append(col)
+        shared_headers = compras_rank_set.intersection(norm_to_cols.keys())
+        if not shared_headers:
+            continue
+        reordered_value_cols = []
+        used_cols = set()
+        for norm_name in compras_rank:
+            for col in norm_to_cols.get(norm_name, []):
+                if col in used_cols:
+                    continue
+                reordered_value_cols.append(col)
+                used_cols.add(col)
+        for col in value_cols:
+            if col in used_cols:
+                continue
+            reordered_value_cols.append(col)
+            used_cols.add(col)
+        reordered_cols = [first_col] + reordered_value_cols + total_cols
+        if list(apo_df.columns) == reordered_cols:
+            continue
+        reordered_df = apo_df.loc[:, reordered_cols].copy()
+        reordered_df.attrs = dict(getattr(apo_df, 'attrs', {}))
+        entry["apo"] = reordered_df
+
 # Funcion que crea el grafico de la tabla de aporte
 def graf_apo(apo, c_fig, column_color_mapping=None):
     """Renderiza la tabla de aporte como imagen PNG."""
@@ -4857,6 +4976,7 @@ for w in W:
                             ],
                         }
                     )
+        reorder_apo_entries_by_compras(apo_entries)
         #Cuadro de texto que indica los encabezados eliminados
         unique_removed_headers = [header for header in dict.fromkeys(removed_headers) if header]
         if unique_removed_headers:
