@@ -1081,8 +1081,26 @@ def render_ppt8_table(
         (bbox_width, bbox_height),
     )
 
-pd.set_option('future.no_silent_downcasting', True)
-pd.set_option('mode.chained_assignment', None)
+def _set_pandas_option_compat(option_name: str, value) -> None:
+    """Configura opciones de pandas sin fallar cuando no existen o estan deprecadas."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            pd.set_option(option_name, value)
+    except Exception:
+        # Mantiene compatibilidad entre versiones con diferencias de opciones.
+        pass
+
+def _df_map_compat(df: pd.DataFrame, formatter) -> pd.DataFrame:
+    """Aplica una funcion a cada celda con compatibilidad entre versiones de pandas."""
+    if hasattr(df, "map"):
+        return df.map(formatter)
+    if hasattr(df, "applymap"):
+        return df.applymap(formatter)
+    return df.apply(lambda col: col.map(formatter))
+
+_set_pandas_option_compat('future.no_silent_downcasting', True)
+_set_pandas_option_compat('mode.chained_assignment', None)
 warnings.filterwarnings('ignore')
 # Segmento 1: utilidades para el grafico MAT (cuando).
 # Funcion que prepara los datos para la creacion del grafico MAT
@@ -2344,10 +2362,14 @@ def aporte(df,p,lang,tipo):
                 if np.isfinite(value)
             }
         apo.attrs["share_mat_values"] = share_mat_values
+        # En pandas nuevos, asignar strings sobre columnas float via iloc produce error.
+        # Forzamos estas columnas a object para mantener compatibilidad con 2.3.3 y 3.x.
+        for column_name in apo.columns[1:]:
+            apo[column_name] = apo[column_name].astype(object)
         #Formato del volumen
-        apo.iloc[:2, 1:] = apo.iloc[:2, 1:].applymap(lambda x: f"{round(x * 100, 1)}%")
+        apo.iloc[:2, 1:] = _df_map_compat(apo.iloc[:2, 1:], lambda x: f"{round(x * 100, 1)}%")
         #Formato de la variacion y el aporte
-        apo.iloc[2:, 1:] = apo.iloc[2:, 1:].applymap(lambda x: f"{round(x * 100, 2)}%")
+        apo.iloc[2:, 1:] = _df_map_compat(apo.iloc[2:, 1:], lambda x: f"{round(x * 100, 2)}%")
         return apo
 
 def _parse_percent_cell(value) -> Optional[float]:
