@@ -4313,6 +4313,241 @@ def prepare_series_configs(df_list, lang, p_ventas, sheet_name: Optional[str] = 
         pipeline = 0 if is_compras else p_ventas
         configs.append(SeriesConfig(df_local, raw_tipo, display_tipo, pipeline))
     return configs
+SIZE_GROUP_MAX_ELEMENTS = 10
+SIZE_GROUP_WINDOW_MONTHS = 12
+SIZE_GROUP_SUFFIXES = ('.C', '.V', '_C', '_V', '-C', '-V', '.c', '.v', '_c', '_v', '-c', '-v')
+def is_segment3_size_sheet(sheet_name: str) -> bool:
+    """Indica si la hoja corresponde al segmento 3-1 (Tamaños)."""
+    normalized = str(sheet_name).strip()
+    return bool(normalized) and normalized[0] == '3' and normalized[-1] == '1'
+def _is_total_like_series(label) -> bool:
+    """Detecta encabezados de total ignorando sufijos de compras/ventas."""
+    normalized = strip_color_suffixes(normalize_color_text(label))
+    return normalized == 'total'
+def _count_size_candidates_in_range(df: pd.DataFrame, start_col: int, end_col: int) -> int:
+    """Cuenta columnas graficables de tamaños dentro de un rango de columnas."""
+    if df is None or df.empty:
+        return 0
+    if start_col >= end_col:
+        return 0
+    upper_bound = min(end_col, df.shape[1])
+    count = 0
+    for idx in range(max(1, start_col), upper_bound):
+        column_name = df.columns[idx]
+        if _is_separator_column(column_name):
+            continue
+        if _is_total_like_series(column_name):
+            continue
+        numeric_series = pd.to_numeric(df.iloc[:, idx], errors='coerce')
+        if numeric_series.dropna().empty:
+            continue
+        if numeric_series.replace(0, np.nan).dropna().empty:
+            continue
+        count += 1
+    return count
+def _find_ventas_header_index(columns: pd.Index) -> Optional[int]:
+    """Devuelve el indice de la columna de Ventas si existe."""
+    for idx, col in enumerate(columns):
+        if idx == 0:
+            continue
+        if isinstance(col, str) and 'ventas' in col.lower():
+            return idx
+    return None
+def quick_scan_segment3_size_max_elements(excel_file: pd.ExcelFile, sheet_names: list[str]) -> int:
+    """Escaneo rapido para encontrar el maximo de elementos graficables en tamaños."""
+    max_elements = 0
+    for sheet_name in sheet_names:
+        try:
+            parsed_df = parse_sheet_with_compras_header(excel_file, sheet_name)
+        except Exception:
+            continue
+        if parsed_df is None or parsed_df.empty or parsed_df.shape[1] <= 1:
+            continue
+        ventas_idx = _find_ventas_header_index(parsed_df.columns)
+        if ventas_idx is None:
+            sheet_count = _count_size_candidates_in_range(parsed_df, 1, parsed_df.shape[1])
+        else:
+            compras_count = _count_size_candidates_in_range(parsed_df, 1, ventas_idx)
+            ventas_count = _count_size_candidates_in_range(parsed_df, ventas_idx + 1, parsed_df.shape[1])
+            sheet_count = max(compras_count, ventas_count)
+        if sheet_count > max_elements:
+            max_elements = sheet_count
+    return max_elements
+def _parse_threshold_percent(raw_value: str) -> Optional[float]:
+    """Parsea una entrada de porcentaje (admite coma y simbolo %)."""
+    if raw_value is None:
+        return None
+    cleaned = str(raw_value).strip().replace('%', '').replace(',', '.')
+    if not cleaned:
+        return None
+    try:
+        numeric = float(cleaned)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(numeric):
+        return None
+    return numeric
+def format_threshold_percent(value: float) -> str:
+    """Formatea porcentaje evitando decimales innecesarios."""
+    rounded = round(float(value), 2)
+    if float(rounded).is_integer():
+        return str(int(rounded))
+    return f"{rounded:.2f}".rstrip('0').rstrip('.')
+def prompt_size_grouping_threshold(max_elements: int) -> Optional[float]:
+    """Solicita umbral para agrupar elementos de tamaños cuando hay demasiadas series."""
+    print_colored(
+        f"Se detectaron {max_elements} elementos en Tamaños (segmento 3-1).",
+        COLOR_YELLOW
+    )
+    prompt = (
+        colorize(
+            'Se detectaron demasiados elementos en el tamaño. '
+            'Desea agrupar por umbral minimo? ',
+            COLOR_QUESTION
+        )
+        + colorize('Ingrese porcentaje (ej: 2). Enter para no agrupar: ', COLOR_YELLOW)
+    )
+    while True:
+        choice = input(prompt).strip()
+        if not choice:
+            return None
+        threshold = _parse_threshold_percent(choice)
+        if threshold is None or threshold <= 0:
+            print_colored('Entrada invalida. Ingrese un porcentaje numerico mayor a 0.', COLOR_RED)
+            continue
+        print_colored(
+            f"Se agruparan categorias por debajo de {format_threshold_percent(threshold)}%.",
+            COLOR_YELLOW
+        )
+        return threshold
+def _detect_series_suffix(df: pd.DataFrame, column_indexes: list[int]) -> str:
+    """Detecta sufijo de serie (.C/.V) para mantener etiquetas consistentes."""
+    for idx in column_indexes:
+        if idx < 0 or idx >= df.shape[1]:
+            continue
+        text = str(df.columns[idx]).strip()
+        for suffix in SIZE_GROUP_SUFFIXES:
+            if text.endswith(suffix):
+                return suffix
+    return ''
+def _build_others_label(df: pd.DataFrame, threshold_pct: float, column_indexes: list[int]) -> str:
+    """Construye etiqueta de agrupacion por umbral y evita colisiones."""
+    threshold_text = format_threshold_percent(threshold_pct)
+    base_label = f"Agrupado menores a {threshold_text}%"
+    suffix = _detect_series_suffix(df, column_indexes)
+    candidate = base_label
+    existing = {str(col).strip() for col in df.columns if str(col).strip()}
+    if candidate not in existing:
+        return candidate
+    suffix_lower = str(suffix).lower()
+    origin_label = ''
+    if suffix_lower.endswith('c'):
+        origin_label = 'Compras'
+    elif suffix_lower.endswith('v'):
+        origin_label = 'Ventas'
+    if origin_label:
+        candidate_with_origin = f"{base_label} ({origin_label})"
+        if candidate_with_origin not in existing:
+            return candidate_with_origin
+    counter = 2
+    while f"{candidate}_{counter}" in existing:
+        counter += 1
+    return f"{candidate}_{counter}"
+def group_size_elements_by_threshold(
+    df: pd.DataFrame,
+    pipeline_offset: int,
+    threshold_pct: float
+) -> tuple[pd.DataFrame, bool]:
+    """
+    Agrupa columnas por debajo del umbral de share MAT actual.
+    Se aplica solo cuando hay mas de SIZE_GROUP_MAX_ELEMENTS series graficables.
+    """
+    if df is None or df.empty or df.shape[1] <= 2:
+        return df, False
+    try:
+        pipeline = int(pipeline_offset) if pipeline_offset is not None else 0
+    except (TypeError, ValueError):
+        pipeline = 0
+    pipeline = max(0, pipeline)
+    end_idx = len(df) - pipeline if pipeline > 0 else len(df)
+    start_idx = end_idx - SIZE_GROUP_WINDOW_MONTHS
+    if start_idx < 0 or end_idx <= start_idx:
+        return df, False
+    numeric_by_index: dict[int, pd.Series] = {}
+    candidate_indexes: list[int] = []
+    total_indexes: list[int] = []
+    for idx in range(1, df.shape[1]):
+        column_name = df.columns[idx]
+        if _is_separator_column(column_name):
+            continue
+        numeric_series = pd.to_numeric(df.iloc[:, idx], errors='coerce')
+        if numeric_series.dropna().empty:
+            continue
+        numeric_by_index[idx] = numeric_series
+        if _is_total_like_series(column_name):
+            total_indexes.append(idx)
+            continue
+        if numeric_series.replace(0, np.nan).dropna().empty:
+            continue
+        candidate_indexes.append(idx)
+    if len(candidate_indexes) <= SIZE_GROUP_MAX_ELEMENTS:
+        return df, False
+    column_window_sums: dict[int, float] = {}
+    total_window_sum = 0.0
+    for idx in candidate_indexes:
+        window_sum = float(numeric_by_index[idx].iloc[start_idx:end_idx].sum(skipna=True))
+        if not np.isfinite(window_sum):
+            window_sum = 0.0
+        window_sum = max(window_sum, 0.0)
+        column_window_sums[idx] = window_sum
+        total_window_sum += window_sum
+    if total_window_sum <= 0:
+        return df, False
+    keep_indexes: list[int] = []
+    grouped_indexes: list[int] = []
+    for idx in candidate_indexes:
+        share_pct = (column_window_sums[idx] / total_window_sum) * 100.0
+        if share_pct >= threshold_pct:
+            keep_indexes.append(idx)
+        else:
+            grouped_indexes.append(idx)
+    if not grouped_indexes:
+        return df, False
+    others_label = _build_others_label(df, threshold_pct, candidate_indexes)
+    grouped_columns_labels = [
+        str(df.columns[idx]).strip()
+        for idx in grouped_indexes
+        if str(df.columns[idx]).strip()
+    ]
+    grouped_sum_series = pd.DataFrame(
+        {idx: numeric_by_index[idx] for idx in grouped_indexes}
+    ).sum(axis=1, min_count=1)
+    grouped_df = pd.DataFrame({df.columns[0]: df.iloc[:, 0]})
+    keep_set = set(keep_indexes)
+    grouped_set = set(grouped_indexes)
+    total_set = set(total_indexes)
+    inserted_group = False
+    for idx in range(1, df.shape[1]):
+        column_name = df.columns[idx]
+        if _is_separator_column(column_name):
+            continue
+        if idx in keep_set:
+            grouped_df[column_name] = numeric_by_index[idx]
+            continue
+        if idx in grouped_set:
+            if not inserted_group:
+                grouped_df[others_label] = grouped_sum_series
+                inserted_group = True
+            continue
+        if idx in total_set:
+            grouped_df[column_name] = numeric_by_index[idx]
+            continue
+        grouped_df[column_name] = df.iloc[:, idx]
+    if not inserted_group:
+        grouped_df[others_label] = grouped_sum_series
+    grouped_df.attrs["size_grouped_columns"] = grouped_columns_labels
+    grouped_df.attrs["size_grouped_label"] = others_label
+    return grouped_df, True
 def format_origin_label(display_tipo: Optional[str], lang: str) -> str:
     """
     Normaliza la etiqueta de origen de datos (Compras/Ventas) para textos como 'Corte a:'.
@@ -4629,6 +4864,12 @@ def _try_parse_reference_date(value):
 
 c_fig=0
 plot=plot_ven()
+size_grouping_threshold_pct = None
+segment3_size_sheets = [sheet_name for sheet_name in W if is_segment3_size_sheet(sheet_name)]
+if segment3_size_sheets:
+    max_size_elements = quick_scan_segment3_size_max_elements(file, segment3_size_sheets)
+    if max_size_elements > SIZE_GROUP_MAX_ELEMENTS:
+        size_grouping_threshold_pct = prompt_size_grouping_threshold(max_size_elements)
 last_reference_source = None
 last_reference_origin = None
 last_tree_period_dt = None
@@ -5000,6 +5241,30 @@ for w in W:
         except ValueError as exc:
             print_colored(str(exc), COLOR_RED)
             continue
+        if (
+            size_grouping_threshold_pct is not None
+            and is_segment3_size_sheet(w)
+            and series_configs
+        ):
+            grouped_series_configs: list[SeriesConfig] = []
+            for serie in series_configs:
+                grouped_df, grouped_applied = group_size_elements_by_threshold(
+                    serie.data,
+                    serie.pipeline,
+                    size_grouping_threshold_pct
+                )
+                if grouped_applied:
+                    grouped_series_configs.append(
+                        SeriesConfig(
+                            grouped_df,
+                            serie.raw_tipo,
+                            serie.display_tipo,
+                            serie.pipeline
+                        )
+                    )
+                else:
+                    grouped_series_configs.append(serie)
+            series_configs = grouped_series_configs
         last_reference_source = series_configs[0].data if series_configs else df_start
         last_reference_origin = series_configs[0].display_tipo if series_configs else None
         #Cria o slide
@@ -5053,6 +5318,8 @@ for w in W:
         stacked_share_sources = []
         should_collect_share = False
         apo_entries = []
+        grouped_footer_headers = []
+        grouped_footer_label = ''
         chart_color_mappings = {}
         chart_top_emu = int(Inches(CHART_TOP_INCH))
         chart_height_emu = int(Cm(10))
@@ -5067,6 +5334,15 @@ for w in W:
             elif first_char == '5' and last_char == '2':
                 should_collect_share = True
         for idx, serie in enumerate(series_configs):
+            grouped_columns = serie.data.attrs.get("size_grouped_columns", []) if hasattr(serie.data, "attrs") else []
+            if grouped_columns:
+                grouped_footer_headers.extend(
+                    [str(header).strip() for header in grouped_columns if str(header).strip()]
+                )
+                if not grouped_footer_label:
+                    grouped_label_candidate = str(serie.data.attrs.get("size_grouped_label", "")).strip()
+                    if grouped_label_candidate:
+                        grouped_footer_label = grouped_label_candidate
             apo = aporte(serie.data.copy(), serie.pipeline, lang, serie.raw_tipo)
             apo_entries.append({
                 "apo": apo,
@@ -5091,26 +5367,41 @@ for w in W:
                         }
                     )
         reorder_apo_entries_by_compras(apo_entries)
-        #Cuadro de texto que indica los encabezados eliminados
+        # Cuadro de texto para columnas eliminadas y/o agrupadas por umbral
         unique_removed_headers = [header for header in dict.fromkeys(removed_headers) if header]
+        unique_grouped_headers = [header for header in dict.fromkeys(grouped_footer_headers) if header]
+        footer_messages = []
         if unique_removed_headers:
+            footer_messages.append(
+                "Se eliminaron los encabezados sin información: " + ", ".join(unique_removed_headers)
+            )
+        if unique_grouped_headers:
+            grouped_msg = "Se agruparon las siguientes lineas: " + ", ".join(unique_grouped_headers)
+            if grouped_footer_label:
+                grouped_msg = f"{grouped_msg} -> {grouped_footer_label}"
+            footer_messages.append(grouped_msg)
+        if footer_messages:
             footer_left = Cm(4.6)
             footer_right_margin = Cm(1.2)
             footer_width = ppt.slide_width - footer_left - footer_right_margin
             if footer_width < Cm(2):
                 footer_width = Cm(2)
-            footer_top = ppt.slide_height - bottom_margin + Cm(0.1)
-            footer_height = Cm(0.9)
+            estimated_lines = sum(max(1, math.ceil(len(message) / 95)) for message in footer_messages)
+            footer_height_cm = min(2.6, max(0.8, 0.18 + 0.28 * estimated_lines))
+            footer_height = Cm(footer_height_cm)
+            footer_bottom_gap = Cm(0.25)
+            footer_top = ppt.slide_height - footer_bottom_gap - footer_height
             footer_box = slide.shapes.add_textbox(footer_left, footer_top, footer_width, footer_height)
             footer_tf = footer_box.text_frame
             footer_tf.clear()
             footer_tf.word_wrap = True
-            footer_tf.text = "Se eliminaron los encabezados sin información: " + ", ".join(unique_removed_headers)
-            footer_run = footer_tf.paragraphs[0].runs[0]
-            footer_font = footer_run.font
-            footer_font.name = 'Arial'
-            footer_font.size = Pt(10)
-            footer_font.color.rgb = RGBColor(120, 120, 120)
+            footer_tf.text = "\n".join(footer_messages)
+            for paragraph in footer_tf.paragraphs:
+                for run in paragraph.runs:
+                    footer_font = run.font
+                    footer_font.name = 'Arial'
+                    footer_font.size = Pt(10)
+                    footer_font.color.rgb = RGBColor(120, 120, 120)
         compras_top10 = []
         if series_share_lookup:
             compras_items = []
