@@ -19,6 +19,7 @@ import unicodedata
 import hashlib
 import colorsys
 import threading
+from itertools import cycle
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
@@ -145,6 +146,9 @@ COLOR_GREEN = '\033[92m'
 COLOR_RED = '\033[91m'
 COLOR_RESET = '\033[0m'
 COLOR_QUESTION = '\033[38;5;37m'
+LOADING_PREFIX_COLOR = '\033[96m'
+LOADING_SPINNER_FRAMES = ('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+LOADING_SPINNER = cycle(LOADING_SPINNER_FRAMES)
 MIN_READABLE_LUMINANCE = 170.0
 PREVIEW_COPY_SUFFIX_RE = re.compile(r'^(?P<brand>.+?)(?P<suffix>(?:[\s_-]+(?:copia|copy|preview))*)$', re.IGNORECASE)
 HEADER_COLOR_PRIMARY = '#286B72'
@@ -317,18 +321,23 @@ def print_colored(text: str, color: str = COLOR_BLUE) -> None:
     """Imprime texto coloreado en la terminal."""
     print(colorize(text, color))
 
+def print_loading_message(text: str, color: str = COLOR_QUESTION) -> None:
+    """Imprime un prefijo animado y conserva el historial de mensajes."""
+    frame = next(LOADING_SPINNER)
+    prefix = f"{LOADING_PREFIX_COLOR}{frame}{COLOR_RESET}"
+    print(f"{prefix} {colorize(text, color)}")
+
 def _format_elapsed_hms(seconds: float) -> str:
-    """Convierte segundos a H:MM:SS para mensajes en terminal."""
+    """Convierte segundos a H:MM:SS.mmm para mensajes en terminal."""
     try:
-        total = int(round(float(seconds)))
+        total = float(seconds)
     except Exception:
         return "-"
-    if total < 0:
-        total = 0
-    h = total // 3600
-    m = (total % 3600) // 60
-    s = total % 60
-    return f"{h}:{m:02d}:{s:02d}"
+    total = max(0.0, total)
+    h = int(total // 3600)
+    m = int((total % 3600) // 60)
+    s = total - (h * 3600) - (m * 60)
+    return f"{h}:{m:02d}:{s:06.3f}"
 
 def print_file_locked_error(path_str: str, *, elapsed_seconds: Optional[float] = None) -> None:
     """Muestra un mensaje estilo CoverageLab cuando el archivo esta en uso/bloqueado."""
@@ -5021,7 +5030,7 @@ for w in W:
     sheet_clean = str(w).strip()
     progress_message = build_terminal_progress_message(w, lang, cat)
     if progress_message and not sheet_clean.startswith('8'):
-        print_colored(progress_message, COLOR_QUESTION)
+        print_loading_message(progress_message, COLOR_QUESTION)
     distribution_match = DISTRIBUTION_SHEET_PATTERN.match(w.strip())
     # Segmento 7: distribuciones (regiones/NSE/otros cortes) desde hojas 7_*_*.
     if distribution_match:
@@ -5135,7 +5144,7 @@ for w in W:
             suffix=f"- [{volume_metric_used}]",
         )
         if progress_message:
-            print_colored(progress_message, COLOR_QUESTION)
+            print_loading_message(progress_message, COLOR_QUESTION)
         mat_base_label, mat_curr_label = ppt8_find_mat_labels(raw_df)
         ppt_rows, ppt_errors = ppt8_compute_rows(monthly_blocks, agg_blocks)
         for err in ppt_errors:
@@ -6123,10 +6132,10 @@ except PermissionError:
     print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
     sys.exit(1)
 print_colored(f'Presentacion guardada en: {output_path}', COLOR_GREEN)
-chart_elapsed = int((chart_generation_end - chart_generation_start).total_seconds())
+chart_elapsed = (chart_generation_end - chart_generation_start).total_seconds()
 print_colored(
-    f'Tiempo de generacion de graficos : {chart_elapsed//60} min {chart_elapsed%60} s'
+    f'Tiempo de generacion de graficos : {int(chart_elapsed // 60)} min {chart_elapsed % 60:.3f} s'
     if chart_elapsed >= 60
-    else f'Tiempo de generacion de graficos : {chart_elapsed} s',
+    else f'Tiempo de generacion de graficos : {chart_elapsed:.3f} s',
     COLOR_BLUE
 )
