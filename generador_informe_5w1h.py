@@ -1,12 +1,11 @@
 ﻿# -*- coding: utf-8 -*-
+from __future__ import annotations
 """Genera informes 5W1H en PowerPoint a partir de datos Excel.
 
 Incluye tablas y graficos para multiples segmentos y comparativos.
 """
 # Bibliotecas necesarias
 #---------------------------------------------------------------------------------------------------------------------
-import pandas as pd
-import numpy as np
 import warnings
 from datetime import datetime as dt
 import os
@@ -19,22 +18,105 @@ import re
 import unicodedata
 import hashlib
 import colorsys
-import matplotlib
-matplotlib.use("Agg")
-from matplotlib import pyplot as plt
-from matplotlib.ticker import FuncFormatter
-from matplotlib import colors as mcolors
-import matplotlib.patches as mpatches
-from matplotlib.patches import Rectangle
-from matplotlib.font_manager import FontProperties
+import threading
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
-from pptx import Presentation 
-from pptx.util import Inches, Cm, Pt
-from pptx.dml.color import RGBColor
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 from pathlib import Path
 from collections import OrderedDict
+
+# Modulos pesados: se cargan en background para reducir el tiempo al primer prompt.
+pd = None
+np = None
+matplotlib = None
+plt = None
+FuncFormatter = None
+mcolors = None
+mpatches = None
+Rectangle = None
+FontProperties = None
+Presentation = None
+Inches = None
+Cm = None
+Pt = None
+RGBColor = None
+
+_HEAVY_LOADER_THREAD: Optional[threading.Thread] = None
+_HEAVY_MODULES_READY = threading.Event()
+_HEAVY_MODULES_ERROR: Optional[Exception] = None
+_HEAVY_LOAD_LOCK = threading.Lock()
+
+def _load_heavy_modules() -> None:
+    """Importa modulos pesados y los deja disponibles en globals."""
+    global pd, np, matplotlib, plt, FuncFormatter, mcolors, mpatches, Rectangle, FontProperties
+    global Presentation, Inches, Cm, Pt, RGBColor, _HEAVY_MODULES_ERROR
+    if _HEAVY_MODULES_READY.is_set():
+        return
+    try:
+        import pandas as _pd
+        import numpy as _np
+        import matplotlib as _matplotlib
+        _matplotlib.use("Agg")
+        from matplotlib import pyplot as _plt
+        from matplotlib.ticker import FuncFormatter as _FuncFormatter
+        from matplotlib import colors as _mcolors
+        import matplotlib.patches as _mpatches
+        from matplotlib.patches import Rectangle as _Rectangle
+        from matplotlib.font_manager import FontProperties as _FontProperties
+        from pptx import Presentation as _Presentation
+        from pptx.util import Inches as _Inches, Cm as _Cm, Pt as _Pt
+        from pptx.dml.color import RGBColor as _RGBColor
+
+        pd = _pd
+        np = _np
+        matplotlib = _matplotlib
+        plt = _plt
+        FuncFormatter = _FuncFormatter
+        mcolors = _mcolors
+        mpatches = _mpatches
+        Rectangle = _Rectangle
+        FontProperties = _FontProperties
+        Presentation = _Presentation
+        Inches = _Inches
+        Cm = _Cm
+        Pt = _Pt
+        RGBColor = _RGBColor
+        _HEAVY_MODULES_ERROR = None
+    except Exception as exc:
+        _HEAVY_MODULES_ERROR = exc
+    finally:
+        _HEAVY_MODULES_READY.set()
+
+def start_heavy_module_loader() -> None:
+    """Inicia carga en segundo plano de modulos pesados."""
+    global _HEAVY_LOADER_THREAD
+    if _HEAVY_MODULES_READY.is_set():
+        return
+    with _HEAVY_LOAD_LOCK:
+        if _HEAVY_MODULES_READY.is_set():
+            return
+        if _HEAVY_LOADER_THREAD is not None and _HEAVY_LOADER_THREAD.is_alive():
+            return
+        _HEAVY_LOADER_THREAD = threading.Thread(
+            target=_load_heavy_modules,
+            name="heavy-module-loader",
+            daemon=True,
+        )
+        _HEAVY_LOADER_THREAD.start()
+
+def ensure_heavy_modules_loaded() -> None:
+    """Bloquea hasta completar imports pesados y valida error de carga."""
+    if _HEAVY_MODULES_READY.is_set():
+        if _HEAVY_MODULES_ERROR is not None:
+            raise RuntimeError("No se pudieron cargar los modulos pesados.") from _HEAVY_MODULES_ERROR
+        return
+    if _HEAVY_LOADER_THREAD is not None and _HEAVY_LOADER_THREAD.is_alive():
+        _HEAVY_MODULES_READY.wait()
+    else:
+        _load_heavy_modules()
+    if _HEAVY_MODULES_ERROR is not None:
+        raise RuntimeError("No se pudieron cargar los modulos pesados.") from _HEAVY_MODULES_ERROR
+
 try:
     from rich.console import Console
     from rich.panel import Panel
@@ -380,8 +462,12 @@ def format_value_with_suffix(value: float, divisor: float, suffix: str) -> str:
     if '.' in formatted:
         formatted = formatted.rstrip('0').rstrip('.')
     return f"{formatted}{suffix}"
-def available_width(presentation, left=Inches(0), right=Inches(0)):
+def available_width(presentation, left=None, right=None):
     """Calcula el ancho disponible en la diapositiva."""
+    if left is None:
+        left = Inches(0)
+    if right is None:
+        right = Inches(0)
     return presentation.slide_width - int(left) - int(right)
 def constrain_picture_width(picture, max_width):
     """Limita el ancho de una imagen preservando la relacion de aspecto."""
@@ -3349,7 +3435,10 @@ CLIENT_NAME_SUFFIX_PATTERN = re.compile(r'[\s_-]*5w1h$', re.IGNORECASE)
 #obtém o país,categoria,cesta e fabricante para template e ppt
 base_dir = Path(__file__).resolve().parent
 os.chdir(base_dir)
+# Inicia imports pesados mientras el usuario elige archivo.
+start_heavy_module_loader()
 excel = select_excel_file(base_dir)
+ensure_heavy_modules_loaded()
 file = pd.ExcelFile(str(base_dir / excel))
 all_sheet_names = file.sheet_names
 W = [sheet for sheet in all_sheet_names if str(sheet).strip().lower() != 'readme']
