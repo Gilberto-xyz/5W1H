@@ -147,7 +147,7 @@ COLOR_RED = '\033[91m'
 COLOR_RESET = '\033[0m'
 COLOR_QUESTION = '\033[38;5;37m'
 LOADING_PREFIX_COLOR = '\033[96m'
-LOADING_SPINNER_FRAMES = ('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+LOADING_SPINNER_FRAMES = ('-', '\\', '|', '/')
 LOADING_SPINNER = cycle(LOADING_SPINNER_FRAMES)
 MIN_READABLE_LUMINANCE = 170.0
 PREVIEW_COPY_SUFFIX_RE = re.compile(r'^(?P<brand>.+?)(?P<suffix>(?:[\s_-]+(?:copia|copy|preview))*)$', re.IGNORECASE)
@@ -326,6 +326,11 @@ def print_loading_message(text: str, color: str = COLOR_QUESTION) -> None:
     frame = next(LOADING_SPINNER)
     prefix = f"{LOADING_PREFIX_COLOR}{frame}{COLOR_RESET}"
     print(f"{prefix} {colorize(text, color)}")
+
+def print_loading_done(text: str = "Generacion completada", color: str = COLOR_GREEN) -> None:
+    """Imprime una paloma de finalizacion para cerrar el loader."""
+    checkmark = colorize("✓", COLOR_GREEN)
+    print(f"{checkmark} {colorize(text, color)}")
 
 def _format_elapsed_hms(seconds: float) -> str:
     """Convierte segundos a H:MM:SS.mmm para mensajes en terminal."""
@@ -6131,6 +6136,7 @@ try:
 except PermissionError:
     print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
     sys.exit(1)
+print_loading_done("Generacion de slides completada")
 print_colored(f'Presentacion guardada en: {output_path}', COLOR_GREEN)
 chart_elapsed = (chart_generation_end - chart_generation_start).total_seconds()
 print_colored(
