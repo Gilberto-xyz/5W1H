@@ -12,6 +12,7 @@ from datetime import datetime as dt
 import os
 import sys
 import io
+import csv
 import math
 import textwrap
 import re
@@ -416,6 +417,7 @@ LINE_CHART_MULTI_X_MARGIN = 0.16
 DEFAULT_EXPORT_DPI = 110
 TABLE_EXPORT_DPI = 220
 EXPORT_PAD_INCHES = 0.08
+PNG_COMPRESS_LEVEL = 1
 CHART_TOP_INCH = 0.72
 def emu_to_inches(value: int) -> float:
     """Convierte unidades EMU a pulgadas."""
@@ -446,14 +448,21 @@ def figure_to_stream(
     Replica el flujo rapido usado en coverage_studio (guardar en BytesIO y cerrar).
     """
     buf = io.BytesIO()
-    fig.savefig(
-        buf,
-        format="png",
-        dpi=dpi,
-        bbox_inches=bbox_inches,
-        pad_inches=pad_inches,
-        transparent=transparent,
-    )
+    savefig_kwargs = {
+        "format": "png",
+        "dpi": dpi,
+        "bbox_inches": bbox_inches,
+        "pad_inches": pad_inches,
+        "transparent": transparent,
+    }
+    if isinstance(PNG_COMPRESS_LEVEL, int) and 0 <= PNG_COMPRESS_LEVEL <= 9:
+        savefig_kwargs["pil_kwargs"] = {"compress_level": PNG_COMPRESS_LEVEL}
+    try:
+        fig.savefig(buf, **savefig_kwargs)
+    except TypeError:
+        # Compatibilidad con versiones antiguas de matplotlib sin soporte de pil_kwargs.
+        savefig_kwargs.pop("pil_kwargs", None)
+        fig.savefig(buf, **savefig_kwargs)
     buf.seek(0)
     if close:
         try:
@@ -1713,7 +1722,9 @@ def line_graf(
         color_collector.clear()
         for col, line in zip(plotted_columns, lns):
             color_collector[col] = line.get_color()
-    return figure_to_stream(fig)
+    # En tendencias dejamos recorte "tight" para incluir etiquetas externas
+    # (por ejemplo, anotaciones al lado derecho) y evitar textos cortados.
+    return figure_to_stream(fig, bbox_inches='tight', pad_inches=0.02)
 #Normaliza etiquetas de periodo eliminando prefijos genericos
 def normalize_period_label(label) -> str:
     """Normaliza etiquetas de periodo eliminando prefijos genericos."""
@@ -1837,7 +1848,7 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
         spine.set_visible(False)
     fig.subplots_adjust(left=0.05, right=0.92, top=0.995, bottom=0.02)
     fig_size = fig.get_size_inches()
-    return figure_to_stream(fig), fig_size
+    return figure_to_stream(fig, bbox_inches=None, pad_inches=0), fig_size
 # Segmento 2: helpers para arbol de medidas (por que).
 def _limpiar_tabla_excel(df):
     """Detecta la fila de encabezados (MAT ...) tolerando filas adicionales al inicio."""
@@ -2582,7 +2593,6 @@ def reorder_share_entries_by_compras(share_chart_entries: List[dict]) -> None:
             reordered_periods.append((period_label, _reorder_shares_by_rank(shares, compras_rank)))
         entry["periods"] = reordered_periods
 
-# Funcion que crea el grafico de la tabla de aporte
 def graf_apo(apo, c_fig, column_color_mapping=None):
     """Renderiza la tabla de aporte como imagen PNG."""
     fig, ax = plt.subplots(num=c_fig, dpi=DEFAULT_EXPORT_DPI)
@@ -2607,9 +2617,16 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
     )
     for i, _ in enumerate(apo.columns):
         table.auto_set_column_width(i)
+    total_column_name = next((col for col in apo.columns if str(col).strip().lower() == 'total'), None)
     table.scale(1, 1.2)
     table.auto_set_font_size(False)
     table.set_fontsize(10)
+    header_line_count = max((len(str(label).splitlines()) for label in display_col_labels), default=1)
+    if header_line_count > 1:
+        header_height_factor = min(2.0, 1.0 + 0.45 * (header_line_count - 1))
+        for col_idx in range(n_cols):
+            header_cell = table[(0, col_idx)]
+            header_cell.set_height(header_cell.get_height() * header_height_factor)
     header_main = HEADER_COLOR_PRIMARY
     header_secondary = HEADER_COLOR_SECONDARY
     total_fill = HEADER_TOTAL_FILL
@@ -2655,7 +2672,6 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
                 if color_value:
                     return color_value
         return None
-    total_column_name = next((col for col in apo.columns if str(col).strip().lower() == 'total'), None)
     data_columns = [
         idx
         for idx in range(1, n_cols)
@@ -2827,7 +2843,7 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
             fig.canvas.draw()
             renderer = fig.canvas.get_renderer()
             table_bbox = table.get_tightbbox(renderer).transformed(fig.dpi_scale_trans.inverted())
-    return figure_to_stream(fig, dpi=TABLE_EXPORT_DPI, bbox_inches=table_bbox, pad_inches=0)
+    return figure_to_stream(fig, dpi=TABLE_EXPORT_DPI, bbox_inches=table_bbox, pad_inches=0.01)
 def simplify_name_segment(value: str, max_len: int) -> str:
     """
     Reduce una cadena a un segmento seguro para archivos.
@@ -2894,9 +2910,8 @@ def select_excel_file(base_dir: Path) -> str:
             parts = file_path.stem.split('_')
             country_code = int(parts[0]) if parts else None
             category_code = parts[1].strip().upper() if len(parts) > 1 else None
-            pais_name = pais.loc[pais['cod'] == country_code, 'pais'].iloc[0] if country_code is not None else 'Pais N/D'
-            cesta = categ.loc[categ['cod'] == category_code, 'cest'].iloc[0] if category_code else 'Cesta N/D'
-            categoria = categ.loc[categ['cod'] == category_code, 'cat'].iloc[0] if category_code else 'Categoria N/D'
+            pais_name = lookup_country_name(country_code)
+            cesta, categoria = lookup_category_info(category_code)
             return f"{pais_name} | {cesta} | {categoria}"
         except Exception:
             return 'Metadata no disponible'
@@ -2990,12 +3005,31 @@ def plot_ven():
                 return valor
         print_colored('Entrada invalida. Intente nuevamente.', COLOR_RED)
 #Codigos paises
-pais = pd.DataFrame(
-    {'cod': [10, 54, 91, 55, 12, 56, 57, 93, 52, 51, 66, 63, 62, 64, 65, 67, 69],
-     'pais': ['LatAm', 'Argentina', 'Bolivia', 'Brasil', 'CAM', 'Chile', 'Colombia', 'Ecuador', 'Mexico', 'Peru', 
-              'Costa Rica', 'El Salvador', 'Guatemala', 'Honduras', 'Nicaragua', 'Panama', 'Republica Dominicana']
-    }
-)
+COUNTRY_LOOKUP = {
+    10: 'LatAm',
+    54: 'Argentina',
+    91: 'Bolivia',
+    55: 'Brasil',
+    12: 'CAM',
+    56: 'Chile',
+    57: 'Colombia',
+    93: 'Ecuador',
+    52: 'Mexico',
+    51: 'Peru',
+    66: 'Costa Rica',
+    63: 'El Salvador',
+    62: 'Guatemala',
+    64: 'Honduras',
+    65: 'Nicaragua',
+    67: 'Panama',
+    69: 'Republica Dominicana',
+}
+
+def lookup_country_name(code: Optional[int]) -> str:
+    """Resuelve el pais desde codigo numerico."""
+    if code is None:
+        return 'Pais N/D'
+    return COUNTRY_LOOKUP.get(int(code), 'Pais N/D')
 #Codigos categorias
 CATEG_CSV_DATA = """
 cod,cest,cat
@@ -3290,8 +3324,27 @@ PCHK,Diversos,Pantry Check
 STCK,Diversos,Inventario
 MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Liquida Blanca
 FLWT,Alimentos,Agua Saborizada"""
-categ = pd.read_csv(io.StringIO(CATEG_CSV_DATA), dtype={'cod': str, 'cest': str, 'cat': str})
-categ['cod'] = categ['cod'].str.strip().str.upper()
+def _build_category_lookup(csv_data: str) -> dict[str, tuple[str, str]]:
+    """Construye lookup cod -> (cesta, categoria) preservando la primera ocurrencia."""
+    lookup: dict[str, tuple[str, str]] = {}
+    reader = csv.DictReader(io.StringIO(csv_data.lstrip()))
+    for row in reader:
+        raw_code = (row.get('cod') or '').strip().upper()
+        if not raw_code or raw_code in lookup:
+            continue
+        cesta = (row.get('cest') or '').strip() or 'Cesta N/D'
+        categoria = (row.get('cat') or '').strip() or 'Categoria N/D'
+        lookup[raw_code] = (cesta, categoria)
+    return lookup
+
+CATEGORY_LOOKUP = _build_category_lookup(CATEG_CSV_DATA)
+
+def lookup_category_info(code: Optional[str]) -> tuple[str, str]:
+    """Devuelve (cesta, categoria) para el codigo indicado."""
+    normalized = str(code).strip().upper() if code is not None else ''
+    if not normalized:
+        return 'Cesta N/D', 'Categoria N/D'
+    return CATEGORY_LOOKUP.get(normalized, ('Cesta N/D', 'Categoria N/D'))
 CLIENT_NAME_SUFFIX_PATTERN = re.compile(r'[\s_-]*5w1h$', re.IGNORECASE)
 #obtém o país,categoria,cesta e fabricante para template e ppt
 base_dir = Path(__file__).resolve().parent
@@ -3307,10 +3360,9 @@ if not W:
     raise ValueError("El archivo no contiene hojas 5W1H validas para procesar (solo README u hojas vacias).")
 #Obtém o pais cesta categoria fabricante marca e idioma para o qual se fará o estudo
 excel_parts = excel.split('_')
-land = pais.loc[pais.cod==int(excel_parts[0]),'pais'].iloc[0]
+land = lookup_country_name(int(excel_parts[0]))
 category_code = excel_parts[1].strip().upper()
-cesta = categ.loc[categ.cod==category_code,'cest'].iloc[0]
-cat = categ.loc[categ.cod==category_code,'cat'].iloc[0]
+cesta, cat = lookup_category_info(category_code)
 raw_client = excel_parts[2].rsplit('.', 1)[0]
 sanitized_client = CLIENT_NAME_SUFFIX_PATTERN.sub('', raw_client).strip()
 client = sanitized_client if sanitized_client else raw_client.strip()
@@ -3949,7 +4001,7 @@ def plot_distribution_chart(
         fig, ax = plt.subplots(num=c_fig)
         ax.axis('off')
         fig_size = fig.get_size_inches()
-        return figure_to_stream(fig), (float(fig_size[0]), float(fig_size[1]))
+        return figure_to_stream(fig, bbox_inches=None, pad_inches=0), (float(fig_size[0]), float(fig_size[1]))
     categories = df['Categoria'].tolist()
     series_names = [col for col in df.columns if col != 'Categoria']
     filtered_series: list[tuple[str, pd.Series]] = []
@@ -3965,7 +4017,7 @@ def plot_distribution_chart(
         fig, ax = plt.subplots(num=c_fig, figsize=(8, 4), dpi=DEFAULT_EXPORT_DPI)
         ax.axis('off')
         fig_size = fig.get_size_inches()
-        return figure_to_stream(fig), (float(fig_size[0]), float(fig_size[1]))
+        return figure_to_stream(fig, bbox_inches=None, pad_inches=0), (float(fig_size[0]), float(fig_size[1]))
     # Descarta categorias cuyo valor sea ~100 para todas las series (evita barras "planas" de referencia)
     keep_mask = []
     tol_100 = 0.1  # tolerancia para considerar un valor como 100
@@ -3992,7 +4044,7 @@ def plot_distribution_chart(
         fig, ax = plt.subplots(num=c_fig, figsize=(8, 4), dpi=DEFAULT_EXPORT_DPI)
         ax.axis('off')
         fig_size = fig.get_size_inches()
-        return figure_to_stream(fig), (float(fig_size[0]), float(fig_size[1]))
+        return figure_to_stream(fig, bbox_inches=None, pad_inches=0), (float(fig_size[0]), float(fig_size[1]))
     keep_indices = [idx for idx, keep in enumerate(keep_mask) if keep]
     categories = [categories[idx] for idx in keep_indices]
     filtered_series = [
@@ -4195,7 +4247,7 @@ def plot_distribution_chart(
         fig.tight_layout(rect=[0.05, bottom_margin + 0.01, 0.97, top_margin - 0.01])
     except Exception:
         pass
-    return figure_to_stream(fig), (fig_width, fig_height)
+    return figure_to_stream(fig, bbox_inches=None, pad_inches=0), (fig_width, fig_height)
 
 def split_compras_ventas(df: pd.DataFrame, sheet_name: Optional[str] = None) -> tuple[list[pd.DataFrame], int]:
     """Divide la hoja en bloques de compras/ventas y detecta pipeline."""
