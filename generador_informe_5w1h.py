@@ -1254,8 +1254,20 @@ def graf_mat(mat, c_fig, p):
         edgecolor=BAR_EDGE_COLOR,
         label='Var % Numerator ' + labels[(lang, 'Var MAT')],
     )
+    ax.set_axisbelow(True)
+    ax.grid(axis='y', linestyle='--', alpha=0.28, color='#D9D9D9', linewidth=0.9)
     ax.set_xticks(np.arange(len(ran)))
     ax.set_xticklabels(ran, rotation=30)
+    if len(ran) > 12:
+        for idx in range(len(ran) - 13, -1, -12):
+            ax.axvline(
+                x=idx,
+                color="#B0B0B0",
+                linestyle="--",
+                linewidth=1.1,
+                alpha=0.35,
+                zorder=0,
+            )
     ax2.tick_params(
         left=False,
         labelleft=False,
@@ -1533,9 +1545,21 @@ def line_graf(
         )
         ax.tick_params(axis='x', pad=xtick_pad)
         ax.set_xlim(x_positions[start_idx], x_positions[-1])
+        if data_len - start_idx > 12:
+            for idx in range(data_len - 13, start_idx - 1, -12):
+                ax.axvline(
+                    x=idx,
+                    color="#B0B0B0",
+                    linestyle="--",
+                    linewidth=1.1,
+                    alpha=0.35,
+                    zorder=0,
+                )
     else:
         ax.set_xticks([])
         ax.set_xticklabels([])
+    ax.set_axisbelow(True)
+    ax.grid(axis='y', linestyle='--', alpha=0.28, color='#D9D9D9', linewidth=0.9)
     y_tick_size = max(8, int(10 * scale))
     ax.tick_params(axis='y', labelsize=y_tick_size)
     axis_percent = bool(y_axis_percent)
