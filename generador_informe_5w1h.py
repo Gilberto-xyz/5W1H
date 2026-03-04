@@ -16,8 +16,6 @@ import math
 import textwrap
 import re
 import unicodedata
-import hashlib
-import colorsys
 import threading
 from itertools import cycle
 from dataclasses import dataclass
@@ -150,6 +148,20 @@ LOADING_PREFIX_COLOR = '\033[96m'
 LOADING_SPINNER_FRAMES = ('-', '\\', '|', '/')
 LOADING_SPINNER = cycle(LOADING_SPINNER_FRAMES)
 MIN_READABLE_LUMINANCE = 170.0
+TERMINAL_BRAND_COLOR_SEQUENCE = (
+    (31, 119, 180),   # Azul
+    (214, 39, 40),    # Rojo
+    (44, 160, 44),    # Verde
+    (255, 127, 14),   # Naranja
+    (148, 103, 189),  # Morado
+    (23, 190, 207),   # Cian
+    (140, 86, 75),    # Marron
+    (227, 119, 194),  # Rosa
+    (188, 189, 34),   # Oliva
+    (63, 81, 181),    # Indigo
+    (0, 173, 181),    # Turquesa
+    (255, 64, 129),   # Magenta
+)
 PREVIEW_COPY_SUFFIX_RE = re.compile(r'^(?P<brand>.+?)(?P<suffix>(?:[\s_-]+(?:copia|copy|preview))*)$', re.IGNORECASE)
 HEADER_COLOR_PRIMARY = '#286B72'
 HEADER_COLOR_SECONDARY = '#3EBBC7'
@@ -429,22 +441,23 @@ def ansi_truecolor(text: str, rgb: Tuple[int, int, int]) -> str:
     return f"\033[38;2;{r};{g};{b}m{text}{COLOR_RESET}"
 
 def brand_color_rgb(brand: str, color_cache: Dict[str, Tuple[int, int, int]]) -> Tuple[int, int, int]:
-    """Asigna un color estable por marca usando hash + HSV."""
+    """Asigna un color estable y distinguible por marca para listados en terminal."""
     key = normalize_brand_key(brand)
     if not key:
         return (255, 235, 59)
     cached = color_cache.get(key)
     if cached:
         return cached
-    digest = hashlib.sha1(key.encode("utf-8")).digest()
-    hue = int.from_bytes(digest[:2], "big") / 65535.0
-    saturation = 0.38 + (digest[2] / 255.0) * 0.27
-    value = 0.88 + (digest[3] / 255.0) * 0.10
-    r_f, g_f, b_f = colorsys.hsv_to_rgb(hue, saturation, value)
-    rgb = (int(r_f * 255), int(g_f * 255), int(b_f * 255))
-    rgb = lift_color_to_min_luminance(rgb)
-    color_cache[key] = rgb
-    return rgb
+    used_colors = set(color_cache.values())
+    for candidate in TERMINAL_BRAND_COLOR_SEQUENCE:
+        readable_candidate = lift_color_to_min_luminance(candidate)
+        if readable_candidate not in used_colors:
+            color_cache[key] = readable_candidate
+            return readable_candidate
+    fallback = TERMINAL_BRAND_COLOR_SEQUENCE[len(color_cache) % len(TERMINAL_BRAND_COLOR_SEQUENCE)]
+    fallback = lift_color_to_min_luminance(fallback)
+    color_cache[key] = fallback
+    return fallback
 
 def colorize_filename_brand(filename: str, color_cache: Dict[str, Tuple[int, int, int]]) -> str:
     """Colorea solo la marca dentro del nombre del archivo .xlsx."""
