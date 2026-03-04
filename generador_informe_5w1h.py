@@ -3783,6 +3783,7 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     first_char = sheet_clean[0]
     suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
     brand_label = ''
+    step_label: Optional[str] = None
     cw_key = None
     # Distribución (segmento 7) via patrón 7_*_* (ej.: R, NSE, WIFEAGE, FAMILY_SIZE)
     if distribution_match:
@@ -3821,7 +3822,8 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     elif first_char in {'2', '1'}:
         cw_key = first_char
         brand_label = sheet_clean[2:].strip()
-    step_label = c_w.get((lang, cw_key), step_label if cw_key is None else cw_key if cw_key else step_label)
+    if cw_key:
+        step_label = c_w.get((lang, cw_key), step_label if step_label else cw_key)
     if not step_label:
         return None
     # Para mantener el estilo corto en terminal, eliminamos el " - " del texto base
@@ -5082,7 +5084,17 @@ players_share_context = {}
 chart_generation_start = dt.now()
 for w in W:
     sheet_clean = str(w).strip()
-    progress_message = build_terminal_progress_message(w, lang, cat)
+    progress_label = build_terminal_label(w, lang, cat)
+    if not progress_label:
+        print_colored(
+            (
+                f"Se omite la hoja '{w}': formato de nombre no reconocido. "
+                "Formatos esperados: 1_, 2_, 3_, 4_, 5_, 6_, 6-1_, 7_<segmento>_<corte>, 8_."
+            ),
+            COLOR_YELLOW
+        )
+        continue
+    progress_message = f"Generando {progress_label} (hoja {w})"
     if progress_message and not sheet_clean.startswith('8'):
         print_loading_message(progress_message, COLOR_QUESTION)
     distribution_match = DISTRIBUTION_SHEET_PATTERN.match(w.strip())
