@@ -161,6 +161,18 @@ TERMINAL_BRAND_COLOR_SEQUENCE = (
     (63, 81, 181),    # Indigo
     (0, 173, 181),    # Turquesa
     (255, 64, 129),   # Magenta
+    (57, 59, 121),    # Azul oscuro
+    (82, 84, 163),    # Azul violeta
+    (107, 110, 207),  # Lavanda intensa
+    (99, 121, 57),    # Verde musgo
+    (140, 162, 82),   # Verde oliva claro
+    (140, 109, 49),   # Cafe
+    (189, 158, 57),   # Mostaza
+    (132, 60, 57),    # Rojo ladrillo
+    (173, 73, 74),    # Coral oscuro
+    (123, 65, 115),   # Purpura profundo
+    (165, 81, 148),   # Fucsia oscuro
+    (230, 85, 13),    # Naranja quemado
 )
 PREVIEW_COPY_SUFFIX_RE = re.compile(r'^(?P<brand>.+?)(?P<suffix>(?:[\s_-]+(?:copia|copy|preview))*)$', re.IGNORECASE)
 HEADER_COLOR_PRIMARY = '#286B72'
