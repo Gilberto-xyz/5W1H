@@ -2153,6 +2153,8 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
     figure_height = min(7.0, figure_height)
     figure_width = 4.6
     fig, ax = plt.subplots(num=c_fig, figsize=(figure_width, figure_height), dpi=DEFAULT_EXPORT_DPI)
+    fig.patch.set_alpha(0.0)
+    ax.set_facecolor('none')
     bottom = 0.0
     bar_width = 0.65
     label_infos = []
@@ -2173,6 +2175,7 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
             }
         )
         bottom += value
+    max_text_len = 0
     if label_infos:
         label_infos.sort(key=lambda info: info["center_y"])
         min_gap = max(0.035, min(0.12, 0.95 / max(segments, 1)))
@@ -2214,10 +2217,12 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
                 va='center',
                 color=info["color"],
                 fontsize=label_font_size,
-                fontweight='bold'
+                fontweight='bold',
+                clip_on=False,
             )
     ax.set_ylim(0, 1)
-    axis_right = label_x + 1.0 if label_infos else (bar_width / 2 + 1.4)
+    label_padding = max(1.0, min(3.2, 0.072 * max_text_len)) if label_infos else 1.4
+    axis_right = label_x + label_padding if label_infos else (bar_width / 2 + label_padding)
     ax.set_xlim(-0.75, axis_right)
     ax.set_xticks([])
     ax.set_ylabel('')
@@ -2228,9 +2233,19 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
     ax.grid(axis='y', linestyle='--', alpha=0.25)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    fig.subplots_adjust(left=0.05, right=0.92, top=0.995, bottom=0.02)
+    fig.subplots_adjust(left=0.06, right=0.98, top=0.985, bottom=0.025)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    tight_bbox = fig.get_tightbbox(renderer)
+    if not tight_bbox or tight_bbox.width <= 0 or tight_bbox.height <= 0:
+        tight_bbox = None
     fig_size = fig.get_size_inches()
-    return figure_to_stream(fig, bbox_inches=None, pad_inches=0), fig_size
+    bbox_width = float(tight_bbox.width) if (tight_bbox is not None and tight_bbox.width) else float(fig_size[0])
+    bbox_height = float(tight_bbox.height) if (tight_bbox is not None and tight_bbox.height) else float(fig_size[1])
+    return (
+        figure_to_stream(fig, bbox_inches=tight_bbox, pad_inches=0.02, transparent=True),
+        (bbox_width, bbox_height),
+    )
 # Segmento 2: helpers para arbol de medidas (por que).
 def _limpiar_tabla_excel(df):
     """Detecta la fila de encabezados (MAT ...) tolerando filas adicionales al inicio."""
@@ -4093,11 +4108,21 @@ def _extract_pipeline(col_name: str) -> int:
     """Extrae el numero de pipeline desde el encabezado."""
     if not isinstance(col_name, str):
         return 0
-    parts = [part for part in col_name.split('_') if part.isdigit()]
-    if parts:
-        return int(parts[0])
-    digits = ''.join(ch for ch in col_name if ch.isdigit())
-    return int(digits) if digits else 0
+    text = str(col_name).strip()
+    if not text:
+        return 0
+    max_pipeline = 12
+    normalized = _normalize_header_text(text)
+    explicit_match = re.search(r"(?:pipeline|pipe|p)\s*[:=_-]?\s*(\d{1,2})\b", normalized, re.IGNORECASE)
+    if explicit_match:
+        value = int(explicit_match.group(1))
+        return value if 0 <= value <= max_pipeline else 0
+    for token in re.split(r"[_\s\-]+", text):
+        if token.isdigit():
+            value = int(token)
+            if 0 <= value <= max_pipeline:
+                return value
+    return 0
 def _is_separator_column(col) -> bool:
     """Detecta columnas separadoras vacias o 'Unnamed'."""
     if col is None:
@@ -5675,10 +5700,28 @@ for w in W:
         p = _detect_ventas_pipeline(sheet_df.columns)
         #Cria a base
         mat=df_mat(sheet_df,p)
+        #Elimina linhas com divisão com zero devido ao pipeline
+        if not mat.empty and mat.shape[1] > 3:
+            mat=mat[~np.isinf(mat.iloc[:, 3])]
+        if mat.empty and p != 0:
+            mat_fallback = df_mat(sheet_df, 0)
+            if not mat_fallback.empty and mat_fallback.shape[1] > 3:
+                mat_fallback = mat_fallback[~np.isinf(mat_fallback.iloc[:, 3])]
+            if not mat_fallback.empty:
+                print_colored(
+                    f"Segmento 1 ({w}): pipeline {p} sin datos graficables; se usa pipeline 0.",
+                    COLOR_YELLOW
+                )
+                p = 0
+                mat = mat_fallback
+        if mat.empty:
+            print_colored(
+                f"Segmento 1 ({w}): no hay datos suficientes para construir MAT.",
+                COLOR_RED
+            )
+            continue
         last_reference_source = mat
         last_reference_origin = None
-        #Elimina linhas com divisão com zero devido ao pipeline
-        mat=mat[~np.isinf(mat.iloc[:, 3])]
         #Incrementa contador do gráfico
         c_fig+=1
         #Insere o gráfico do MAT
