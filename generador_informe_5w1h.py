@@ -6341,6 +6341,13 @@ for w in W:
             if not valid_items:
                 continue
 
+            # Cuando hay 2 paneles (tipico Compras/Ventas), reducir el corrimiento
+            # hacia la derecha para que el conjunto quede mas centrado.
+            if len(valid_items) == 2:
+                layout_shift_right_effective_in = -0.18
+            else:
+                layout_shift_right_effective_in = layout_shift_right_in
+
             prepared_charts = []
             slot_width_in = (
                 chart_area_width_in - horizontal_gap_in * max(0, len(valid_items) - 1)
@@ -6390,9 +6397,21 @@ for w in W:
                 sum(entry["target_width_in"] for entry in prepared_charts)
                 + horizontal_gap_in * max(0, len(prepared_charts) - 1)
             )
-            start_left_in = chart_area_left_in + max(0.0, (chart_area_width_in - total_charts_width_in) / 2.0)
-            max_start_left_in = max(chart_area_left_in, chart_area_right_in - total_charts_width_in)
-            start_left_in = min(start_left_in + layout_shift_right_in, max_start_left_in)
+            if len(prepared_charts) == 2 and delta_needed:
+                # En Compras + Compras actual con caja de crecimiento, centra
+                # el bloque completo (2 gráficos + gap + caja delta).
+                total_group_width_in = total_charts_width_in + delta_box_gap_in + delta_shift_right_in + delta_box_width_in
+                centered_start_in = (slide_width_in - total_group_width_in) / 2.0
+                max_start_left_in = max(0.2, slide_width_in - total_group_width_in - 0.2)
+                start_left_in = min(max(0.2, centered_start_in), max_start_left_in)
+            elif len(prepared_charts) == 2 and not delta_needed:
+                # En Compras/Ventas, centra con márgenes simétricos respecto al slide completo.
+                start_left_in = max(0.2, (slide_width_in - total_charts_width_in) / 2.0)
+            else:
+                start_left_in = chart_area_left_in + max(0.0, (chart_area_width_in - total_charts_width_in) / 2.0)
+                max_start_left_in = max(chart_area_left_in, chart_area_right_in - total_charts_width_in)
+                start_left_in = min(start_left_in + layout_shift_right_effective_in, max_start_left_in)
+                start_left_in = max(chart_area_left_in, start_left_in)
             current_left_in = start_left_in
 
             for idx_chart, entry in enumerate(prepared_charts):
@@ -6417,6 +6436,31 @@ for w in W:
                 caption_left = chart_shape.left
                 caption_width = target_width
                 caption_top = chart_top + target_height + caption_gap
+                if idx_chart == 0:
+                    # Fondo blanco para mejorar legibilidad de "Corte a ..."
+                    # sobre logos del template.
+                    caption_bg_left = Inches(0.28)
+                    # Lo extendemos hacia arriba para cubrir mas area del logo,
+                    # y hasta abajo en la zona de caption.
+                    caption_bg_top = chart_top + target_height - Inches(0.30)
+                    caption_bg_bottom = caption_top + caption_height + Inches(0.02)
+                    caption_bg_height = max(Inches(0.58), caption_bg_bottom - caption_bg_top)
+                    caption_bg_right = min(caption_left + caption_width, caption_left + Inches(3.05))
+                    caption_bg_width = max(Inches(2.60), caption_bg_right - caption_bg_left)
+                    caption_bg = share_slide.shapes.add_textbox(
+                        caption_bg_left,
+                        caption_bg_top,
+                        caption_bg_width,
+                        caption_bg_height
+                    )
+                    caption_bg.text_frame.clear()
+                    caption_bg.fill.solid()
+                    caption_bg.fill.fore_color.rgb = RGBColor(255, 255, 255)
+                    caption_bg.line.fill.background()
+                    # Enviar al fondo para que quede detras de los graficos/textos.
+                    sp_tree = share_slide.shapes._spTree
+                    sp_tree.remove(caption_bg._element)
+                    sp_tree.insert(2, caption_bg._element)
                 caption_box = share_slide.shapes.add_textbox(caption_left, caption_top, caption_width, caption_height)
                 caption_tf = caption_box.text_frame
                 caption_tf.clear()
