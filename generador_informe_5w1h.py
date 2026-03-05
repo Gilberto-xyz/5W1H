@@ -2147,10 +2147,9 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
         item[1] = item[1] / total
     normalized_items = [item for item in normalized_items if item[1] > 0]
     segments = len(normalized_items)
-    base_height = 6.2
-    incremental_height = 0.6
-    figure_height = max(base_height, 4.5 + segments * incremental_height)
-    figure_height = min(7.0, figure_height)
+    # Altura fija para mantener consistencia visual entre gráficos
+    # con diferente cantidad de elementos.
+    figure_height = 7.0
     figure_width = 4.6
     fig, ax = plt.subplots(num=c_fig, figsize=(figure_width, figure_height), dpi=DEFAULT_EXPORT_DPI)
     fig.patch.set_alpha(0.0)
@@ -2227,7 +2226,9 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
     ax.set_xticks([])
     ax.set_ylabel('')
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x * 100:.0f}%"))
-    ax.set_title(title or period_label, fontsize=15, pad=24, fontweight='bold')
+    chart_title = period_label if title is None else str(title).strip()
+    if chart_title:
+        ax.set_title(chart_title, fontsize=15, pad=24, fontweight='bold')
     ax.set_yticks(np.linspace(0, 1, 5))
     ax.yaxis.tick_left()
     ax.grid(axis='y', linestyle='--', alpha=0.25)
@@ -2240,11 +2241,11 @@ def stacked_share_chart(period_label, share_values, color_mapping, c_fig, title=
     if not tight_bbox or tight_bbox.width <= 0 or tight_bbox.height <= 0:
         tight_bbox = None
     fig_size = fig.get_size_inches()
-    bbox_width = float(tight_bbox.width) if (tight_bbox is not None and tight_bbox.width) else float(fig_size[0])
-    bbox_height = float(tight_bbox.height) if (tight_bbox is not None and tight_bbox.height) else float(fig_size[1])
+    fixed_width = float(fig_size[0])
+    fixed_height = float(fig_size[1])
     return (
         figure_to_stream(fig, bbox_inches=tight_bbox, pad_inches=0.02, transparent=True),
-        (bbox_width, bbox_height),
+        (fixed_width, fixed_height),
     )
 # Segmento 2: helpers para arbol de medidas (por que).
 def _limpiar_tabla_excel(df):
@@ -6303,50 +6304,105 @@ for w in W:
             comment_paragraph.font.size = Inches(0.25)
             chart_top = Inches(0.55)
             multiple_sections = len(render_share_items) > 1
-            left_start = Inches(1.25) if multiple_sections else Inches(2.0)
-            right_margin = Inches(0.6)
-            horizontal_gap = Inches(0.4) if multiple_sections else Inches(0.5)
+            left_boundary_in = 1.70 if multiple_sections else 2.00
+            right_margin_in = 0.35
+            horizontal_gap_in = 0.08 if multiple_sections else 0.30
+            layout_shift_right_in = 0.35 if multiple_sections else 0.25
             caption_gap = Inches(0.12)
             caption_height = Inches(0.35)
-            current_left = left_start
             reference_label = 'Corte em' if lang == 'P' else 'Corte a'
-            for idx_chart, item in enumerate(render_share_items):
+            delta_box_width_in = 2.6
+            delta_box_gap_in = 0.2
+            delta_shift_right_in = 0.18
+            delta_needed = any(
+                item.get("show_delta") and item.get("previous_shares") is not None
+                for item in render_share_items
+            )
+            reserved_delta_in = (delta_box_width_in + delta_box_gap_in) if delta_needed else 0.0
+            slide_height_in = emu_to_inches(ppt.slide_height)
+            slide_width_in = emu_to_inches(ppt.slide_width)
+            chart_top_in = emu_to_inches(chart_top)
+            caption_gap_in = emu_to_inches(caption_gap)
+            caption_height_in = emu_to_inches(caption_height)
+            available_height_in = max(3.0, slide_height_in - chart_top_in - caption_gap_in - caption_height_in - 0.2)
+            chart_area_left_in = left_boundary_in
+            chart_area_right_in = slide_width_in - right_margin_in - reserved_delta_in
+            if chart_area_right_in <= chart_area_left_in:
+                chart_area_right_in = slide_width_in - right_margin_in
+            chart_area_width_in = max(3.5, chart_area_right_in - chart_area_left_in)
+
+            valid_items = []
+            for item in render_share_items:
                 shares = item["shares"]
                 total_share = sum(max(value, 0) for value in shares.values())
                 if total_share <= 0:
                     continue
+                valid_items.append(item)
+            if not valid_items:
+                continue
+
+            prepared_charts = []
+            slot_width_in = (
+                chart_area_width_in - horizontal_gap_in * max(0, len(valid_items) - 1)
+            ) / max(1, len(valid_items))
+            slot_width_in = max(2.4, slot_width_in)
+            max_chart_width_in = max(2.4, slot_width_in)
+
+            for item in valid_items:
+                shares = item["shares"]
                 c_fig += 1
                 chart_stream, fig_size = stacked_share_chart(
                     item["period_label"],
                     shares,
                     item["color_mapping"],
                     c_fig,
-                    title=f"{item['display_tipo']} - {item['period_label']}"
+                    title=""
                 )
                 fig_width_in, fig_height_in = fig_size
                 if fig_height_in <= 0:
                     continue
                 aspect_ratio = fig_width_in / fig_height_in if fig_height_in else 1.0
-                target_height_in = max(6.0, fig_height_in * 1.05)
-                slide_height_in = emu_to_inches(ppt.slide_height)
-                chart_top_in = emu_to_inches(chart_top)
-                caption_gap_in = emu_to_inches(caption_gap)
-                caption_height_in = emu_to_inches(caption_height)
-                available_height_in = max(3.0, slide_height_in - chart_top_in - caption_gap_in - caption_height_in - 0.2)
-                target_height_in = min(available_height_in, target_height_in)
-                target_width_in = max(3.8, target_height_in * aspect_ratio)
-                slide_width_in = emu_to_inches(ppt.slide_width)
-                available_width_in = slide_width_in - emu_to_inches(current_left) - emu_to_inches(right_margin)
-                if available_width_in <= 0:
-                    continue
-                if target_width_in > available_width_in:
-                    target_width_in = available_width_in
-                    target_height_in = target_width_in / aspect_ratio if aspect_ratio else target_height_in
-                target_height = Inches(target_height_in)
-                target_width = Inches(target_width_in)
+                prepared_charts.append(
+                    {
+                        "item": item,
+                        "stream": chart_stream,
+                        "aspect_ratio": max(0.1, aspect_ratio),
+                    }
+                )
+            if not prepared_charts:
+                continue
+
+            # Fija una altura uniforme para todos los gráficos del slide.
+            desired_height_in = min(available_height_in, 6.2)
+            uniform_height_in = desired_height_in
+            for entry in prepared_charts:
+                aspect_ratio = entry["aspect_ratio"]
+                max_height_by_width = max_chart_width_in / aspect_ratio if aspect_ratio > 0 else desired_height_in
+                uniform_height_in = min(uniform_height_in, max_height_by_width)
+            uniform_height_in = max(3.2, uniform_height_in)
+
+            for entry in prepared_charts:
+                aspect_ratio = entry["aspect_ratio"]
+                entry["target_height_in"] = uniform_height_in
+                entry["target_width_in"] = min(max_chart_width_in, uniform_height_in * aspect_ratio)
+
+            total_charts_width_in = (
+                sum(entry["target_width_in"] for entry in prepared_charts)
+                + horizontal_gap_in * max(0, len(prepared_charts) - 1)
+            )
+            start_left_in = chart_area_left_in + max(0.0, (chart_area_width_in - total_charts_width_in) / 2.0)
+            max_start_left_in = max(chart_area_left_in, chart_area_right_in - total_charts_width_in)
+            start_left_in = min(start_left_in + layout_shift_right_in, max_start_left_in)
+            current_left_in = start_left_in
+
+            for idx_chart, entry in enumerate(prepared_charts):
+                item = entry["item"]
+                shares = item["shares"]
+                target_height = Inches(entry["target_height_in"])
+                target_width = Inches(entry["target_width_in"])
                 chart_shape = share_slide.shapes.add_picture(
-                    chart_stream,
-                    current_left,
+                    entry["stream"],
+                    Inches(current_left_in),
                     chart_top,
                     width=target_width,
                     height=target_height
@@ -6364,15 +6420,21 @@ for w in W:
                 caption_paragraph.font.size = Pt(11)
                 caption_paragraph.font.bold = True
                 caption_paragraph.font.color.rgb = RGBColor(80, 80, 80)
-                should_show_delta = item["show_delta"] and item["previous_shares"] is not None and idx_chart == len(render_share_items) - 1
+                should_show_delta = (
+                    item["show_delta"]
+                    and item["previous_shares"] is not None
+                    and idx_chart == len(prepared_charts) - 1
+                )
                 if should_show_delta:
-                    delta_box_width = Inches(2.6)
-                    delta_box_left = chart_shape.left + chart_shape.width + Inches(0.2)
-                    slide_right_limit = ppt.slide_width - Inches(0.2)
-                    if delta_box_left + delta_box_width > slide_right_limit:
-                        delta_box_left = slide_right_limit - delta_box_width
+                    delta_box_width = Inches(delta_box_width_in)
+                    proposed_left_in = current_left_in + entry["target_width_in"] + delta_box_gap_in + delta_shift_right_in
+                    max_left_in = max(0.2, slide_width_in - delta_box_width_in - 0.2)
+                    delta_box_left_in = min(proposed_left_in, max_left_in)
+                    min_gap_left_in = current_left_in + entry["target_width_in"] + 0.05
+                    if delta_box_left_in < min_gap_left_in:
+                        delta_box_left_in = min(min_gap_left_in, max_left_in)
                     delta_box = share_slide.shapes.add_textbox(
-                        delta_box_left,
+                        Inches(delta_box_left_in),
                         chart_top,
                         delta_box_width,
                         chart_shape.height + caption_gap + caption_height
@@ -6408,7 +6470,7 @@ for w in W:
                             para.font.color.rgb = RGBColor(*color_rgb)
                         else:
                             para.font.color.rgb = RGBColor(90, 90, 90)
-                current_left += target_width + horizontal_gap
+                current_left_in += entry["target_width_in"] + horizontal_gap_in
                 plt.clf()
         # Mensaje final omitido para evitar ruido en consola
 chart_generation_end = dt.now()
