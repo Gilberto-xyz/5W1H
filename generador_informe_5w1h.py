@@ -606,18 +606,23 @@ PPT8_Z_SCORE_ERROR = 1.96
 @dataclass
 class Ppt8MonthlyBlock:
     brand: str
-    rows: pd.DataFrame  # columnas: 0=date, 1=Weighted PENET, 2=BUYERS
+    rows: pd.DataFrame  # columnas: 0=date, 1=Weighted PENET, 2=BUYERS, 3=ventas_pipeline (opcional)
+    pipeline: int = 0
 
 
 @dataclass
 class Ppt8AggBlock:
     brand: str
-    block: pd.DataFrame  # columnas: 4=label, 5=MAT base, 6=MAT actual
+    block: pd.DataFrame  # columnas variables: label, MAT base, MAT actual
+    label_col: int = 4
+    base_col: int = 5
+    current_col: int = 6
 
 
 @dataclass
 class Ppt8Row:
     marca: str
+    var_fabricante: float
     mat_sep25: float
     lim_inf: float
     lim_sup: float
@@ -684,15 +689,17 @@ def ppt8_is_monthly_header_row(row: pd.Series) -> bool:
     return has_penet and has_buyers and (has_table or bool(col1 and col2))
 
 
-def ppt8_is_agg_header_row(row: pd.Series) -> bool:
+def ppt8_is_agg_header_row(row: pd.Series, label_col: int, base_col: int, current_col: int) -> bool:
     """Detecta encabezados MAT del bloque agregado derecho."""
-    if len(row) < 7:
+    if len(row) <= max(label_col, base_col, current_col):
         return False
-    col4 = _ppt8_normalize_text(row.iloc[4]) if pd.notna(row.iloc[4]) else ""
-    col5 = _ppt8_normalize_text(row.iloc[5]) if pd.notna(row.iloc[5]) else ""
-    col6 = _ppt8_normalize_text(row.iloc[6]) if pd.notna(row.iloc[6]) else ""
-    has_table = "table" in col4
-    has_mat = ("mat" in col5) or ("mat" in col6)
+    col_label = _ppt8_normalize_text(row.iloc[label_col]) if pd.notna(row.iloc[label_col]) else ""
+    col_base = _ppt8_normalize_text(row.iloc[base_col]) if pd.notna(row.iloc[base_col]) else ""
+    col_curr = _ppt8_normalize_text(row.iloc[current_col]) if pd.notna(row.iloc[current_col]) else ""
+    has_table = "table" in col_label
+    has_mat = ("mat" in col_base) or ("mat" in col_curr)
+    if not has_mat:
+        has_mat = bool(re.search(r"y\d{4}", col_base)) and bool(re.search(r"y\d{4}", col_curr))
     return has_table and has_mat
 
 
@@ -731,16 +738,47 @@ def _ppt8_resolve_block_label(
     return ppt8_clean_dimension_label(fallback) or fallback or f"Bloque {header_idx + 1}"
 
 
-def ppt8_block_has_numeric(block: pd.DataFrame) -> bool:
-    """Verifica si el bloque tiene valores numericos en las columnas 5/6."""
+def ppt8_block_has_numeric(block: pd.DataFrame, base_col: int = 5, current_col: int = 6) -> bool:
+    """Verifica si el bloque tiene valores numericos en las columnas de MAT."""
     if block.empty:
         return False
-    for col in (5, 6):
+    for col in (base_col, current_col):
         if block.shape[1] > col:
             numeric = pd.to_numeric(block.iloc[:, col], errors="coerce")
             if numeric.notna().any():
                 return True
     return False
+
+
+def ppt8_detect_agg_columns(df: pd.DataFrame) -> Tuple[int, int, int]:
+    """Detecta columnas (label, MAT base, MAT actual) para formato viejo/nuevo."""
+    if df is None or df.empty:
+        return 4, 5, 6
+    if df.shape[1] <= 6:
+        return max(0, df.shape[1] - 3), max(0, df.shape[1] - 2), max(0, df.shape[1] - 1)
+    last_start = max(0, df.shape[1] - 3)
+    best_triplet = (4, 5, 6)
+    best_score = -1
+    for label_col in range(3, last_start + 1):
+        base_col = label_col + 1
+        current_col = label_col + 2
+        labels = df.iloc[:, label_col].fillna("").astype(str)
+        base_numeric = pd.to_numeric(df.iloc[:, base_col], errors="coerce").notna()
+        curr_numeric = pd.to_numeric(df.iloc[:, current_col], errors="coerce").notna()
+        numeric_mask = base_numeric | curr_numeric
+        metric_like = labels.str.contains(
+            r"weighted|r_vol|vol|penet|freq|hholds?|buyers?",
+            case=False,
+            regex=True,
+            na=False,
+        )
+        score = int((metric_like & numeric_mask).sum())
+        if score > best_score:
+            best_score = score
+            best_triplet = (label_col, base_col, current_col)
+    if best_score < 1 and df.shape[1] > 6:
+        return 4, 5, 6
+    return best_triplet
 
 
 def ppt8_filter_agg_blocks(
@@ -755,7 +793,7 @@ def ppt8_filter_agg_blocks(
         brand_label = block.brand
         norm = ppt8_normalize_label(brand_label)
         header_like = ppt8_is_header_label(brand_label)
-        has_numeric = ppt8_block_has_numeric(block.block)
+        has_numeric = ppt8_block_has_numeric(block.block, block.base_col, block.current_col)
         if header_like and not has_numeric:
             dropped.append(brand_label)
             continue
@@ -782,7 +820,10 @@ def ppt8_parse_monthly_blocks(df: pd.DataFrame) -> List[Ppt8MonthlyBlock]:
             brand_label = _ppt8_resolve_block_label(df, header_idx, 0, 1, 2)
             if not brand_label or ppt8_is_header_label(brand_label):
                 continue
-            header_blocks.append(Ppt8MonthlyBlock(brand=brand_label, rows=data))
+            pipeline = 0
+            if df.shape[1] > 3:
+                pipeline = _extract_pipeline(df.iloc[header_idx, 3])
+            header_blocks.append(Ppt8MonthlyBlock(brand=brand_label, rows=data, pipeline=pipeline))
 
     first_col = df.iloc[:, 0]
     brand_rows = df[(first_col.notna()) & df.iloc[:, 1].isna() & df.iloc[:, 2].isna()].index.tolist()
@@ -796,7 +837,11 @@ def ppt8_parse_monthly_blocks(df: pd.DataFrame) -> List[Ppt8MonthlyBlock]:
         data = data[pd.to_numeric(data.iloc[:, 1], errors="coerce").notna()]
         if data.empty:
             continue
-        fallback_blocks.append(Ppt8MonthlyBlock(brand=brand_label, rows=data))
+        pipeline = 0
+        header_idx = start + 1
+        if df.shape[1] > 3 and header_idx < len(df.index):
+            pipeline = _extract_pipeline(df.iloc[header_idx, 3])
+        fallback_blocks.append(Ppt8MonthlyBlock(brand=brand_label, rows=data, pipeline=pipeline))
     if header_blocks and len(header_blocks) >= len(fallback_blocks):
         return header_blocks
     return fallback_blocks
@@ -806,46 +851,71 @@ def ppt8_parse_agg_blocks(df: pd.DataFrame) -> List[Ppt8AggBlock]:
     """Encuentra bloques agregados por marca en columnas 4-6."""
     if df.shape[1] < 7:
         return []
+    label_col, base_col, current_col = ppt8_detect_agg_columns(df)
     header_blocks: List[Ppt8AggBlock] = []
-    header_rows = [idx for idx, row in df.iterrows() if ppt8_is_agg_header_row(row)]
+    header_rows = [
+        idx for idx, row in df.iterrows()
+        if ppt8_is_agg_header_row(row, label_col, base_col, current_col)
+    ]
     if header_rows:
         for i, header_idx in enumerate(header_rows):
             end = header_rows[i + 1] if i + 1 < len(header_rows) else len(df)
             block = df.loc[header_idx + 1 : end - 1]
-            block = block[block.iloc[:, 4].notna()]
+            block = block[block.iloc[:, label_col].notna()]
             if block.empty:
                 continue
-            brand_label = _ppt8_resolve_block_label(df, header_idx, 4, 5, 6)
+            brand_label = _ppt8_resolve_block_label(df, header_idx, label_col, base_col, current_col)
             if not brand_label or ppt8_is_header_label(brand_label):
                 continue
-            header_blocks.append(Ppt8AggBlock(brand=brand_label, block=block))
+            header_blocks.append(
+                Ppt8AggBlock(
+                    brand=brand_label,
+                    block=block,
+                    label_col=label_col,
+                    base_col=base_col,
+                    current_col=current_col,
+                )
+            )
 
-    label_col = df.iloc[:, 4]
+    label_series = df.iloc[:, label_col]
     agg_brand_rows = df[
-        label_col.notna()
-        & (~label_col.astype(str).str.contains("Weighted", case=False, na=False))
-        & (~label_col.astype(str).str.contains("table", case=False, na=False))
-        & (~label_col.astype(str).str.contains("categ", case=False, na=False))
-        & df.iloc[:, 5].isna()
-        & df.iloc[:, 6].isna()
+        label_series.notna()
+        & (~label_series.astype(str).str.contains("Weighted", case=False, na=False))
+        & (~label_series.astype(str).str.contains("table", case=False, na=False))
+        & (~label_series.astype(str).str.contains("categ", case=False, na=False))
+        & df.iloc[:, base_col].isna()
+        & df.iloc[:, current_col].isna()
     ].index.tolist()
     fallback_blocks: List[Ppt8AggBlock] = []
     for i, start in enumerate(agg_brand_rows):
         end = agg_brand_rows[i + 1] if i + 1 < len(agg_brand_rows) else len(df)
         block = df.loc[start + 1 : end - 1]
-        block = block[block.iloc[:, 4].notna()]
+        block = block[block.iloc[:, label_col].notna()]
         if block.empty:
             continue
-        brand_label = ppt8_clean_dimension_label(df.iloc[start, 4])
+        brand_label = ppt8_clean_dimension_label(df.iloc[start, label_col])
         if ppt8_is_header_label(brand_label):
             continue
-        fallback_blocks.append(Ppt8AggBlock(brand=brand_label, block=block))
+        fallback_blocks.append(
+            Ppt8AggBlock(
+                brand=brand_label,
+                block=block,
+                label_col=label_col,
+                base_col=base_col,
+                current_col=current_col,
+            )
+        )
     if header_blocks and len(header_blocks) >= len(fallback_blocks):
         return header_blocks
     return fallback_blocks
 
 
-def ppt8_extract_metrics(block: pd.DataFrame) -> Tuple[Dict[str, Tuple[float, float]], Dict[str, str]]:
+def ppt8_extract_metrics(
+    block: pd.DataFrame,
+    label_col: int = 4,
+    base_col: int = 5,
+    current_col: int = 6,
+) -> Tuple[Dict[str, Tuple[float, float]], Dict[str, str]]:
     """Mapea etiqueta -> (MAT base, MAT actual) y registra la fuente detectada."""
 
     volume_metric_priority = {
@@ -888,12 +958,14 @@ def ppt8_extract_metrics(block: pd.DataFrame) -> Tuple[Dict[str, Tuple[float, fl
     metric_priority: Dict[str, int] = {}
     metric_source: Dict[str, str] = {}
     for _, row in block.iterrows():
-        canonical, source_compact, priority = canonical_metric(row.iloc[4])
+        if len(row) <= max(label_col, base_col, current_col):
+            continue
+        canonical, source_compact, priority = canonical_metric(row.iloc[label_col])
         if not canonical:
             continue
         try:
-            base_val = float(row.iloc[5])
-            act_val = float(row.iloc[6])
+            base_val = float(row.iloc[base_col])
+            act_val = float(row.iloc[current_col])
         except (TypeError, ValueError):
             continue
         # Si solo uno de los dos valores es numerico, replica para no perder la medida
@@ -940,7 +1012,12 @@ def ppt8_detect_volume_metric(agg_blocks: Iterable[Ppt8AggBlock]) -> Optional[st
         "UNIDADES": "UNIDADES",
     }
     for block in agg_blocks:
-        _, metric_sources = ppt8_extract_metrics(block.block)
+        _, metric_sources = ppt8_extract_metrics(
+            block.block,
+            block.label_col,
+            block.base_col,
+            block.current_col,
+        )
         source = metric_sources.get("R_VOL1")
         if source:
             source_counts[source] = source_counts.get(source, 0) + 1
@@ -953,9 +1030,14 @@ def ppt8_detect_volume_metric(agg_blocks: Iterable[Ppt8AggBlock]) -> Optional[st
     return source_display.get(selected_source, selected_source)
 
 
-def ppt8_extract_metrics_values(block: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
+def ppt8_extract_metrics_values(
+    block: pd.DataFrame,
+    label_col: int = 4,
+    base_col: int = 5,
+    current_col: int = 6,
+) -> Dict[str, Tuple[float, float]]:
     """Compatibilidad: devuelve solo valores de metricas agregadas."""
-    metrics, _ = ppt8_extract_metrics(block)
+    metrics, _ = ppt8_extract_metrics(block, label_col, base_col, current_col)
     return metrics
 
 
@@ -991,6 +1073,31 @@ def ppt8_classify_penetration(p: float) -> str:
     return "Fuera de rango"
 
 
+def compute_mat_variation_percent(values: pd.Series, pipeline_offset: int = 0) -> float:
+    """Calcula variacion MAT % usando desplazamiento por pipeline."""
+    if values is None:
+        return np.nan
+    try:
+        p = int(pipeline_offset) if pipeline_offset is not None else 0
+    except (TypeError, ValueError):
+        p = 0
+    p = max(0, p)
+    series = pd.to_numeric(values, errors="coerce")
+    total = len(series)
+    if total < (24 + p):
+        return np.nan
+    current_end = total - p if p > 0 else total
+    current_start = current_end - 12
+    previous_start = current_start - 12
+    if previous_start < 0 or current_start <= previous_start:
+        return np.nan
+    previous_sum = series.iloc[previous_start:current_start].sum(min_count=1)
+    current_sum = series.iloc[current_start:current_end].sum(min_count=1)
+    if not np.isfinite(previous_sum) or not np.isfinite(current_sum) or previous_sum == 0:
+        return np.nan
+    return ((current_sum / previous_sum) - 1.0) * 100.0
+
+
 def ppt8_compute_rows(
     monthly_blocks: Iterable[Ppt8MonthlyBlock], agg_blocks: Iterable[Ppt8AggBlock]
 ) -> Tuple[List[Ppt8Row], List[str]]:
@@ -1017,7 +1124,12 @@ def ppt8_compute_rows(
             pen_avg = float(last12_pen.mean())
             buyers_avg = float(last12_buy.mean())
 
-            metrics = ppt8_extract_metrics_values(ablock.block)
+            metrics = ppt8_extract_metrics_values(
+                ablock.block,
+                ablock.label_col,
+                ablock.base_col,
+                ablock.current_col,
+            )
             missing = [m for m in required_metrics if m not in metrics]
             if missing:
                 raise ValueError(f"{mblock.brand}: faltan metricas {', '.join(missing)}")
@@ -1069,10 +1181,14 @@ def ppt8_compute_rows(
             else:
                 err = PPT8_Z_SCORE_ERROR * math.sqrt((p_ratio * (1 - p_ratio)) / hh) / p_ratio
             nivel = ppt8_classify_penetration(p_ratio)
+            var_fabricante = np.nan
+            if monthly.shape[1] > 3:
+                var_fabricante = compute_mat_variation_percent(monthly.iloc[:, 3], mblock.pipeline)
 
             rows.append(
                 Ppt8Row(
                     marca=mblock.brand,
+                    var_fabricante=var_fabricante,
                     mat_sep25=evol,
                     lim_inf=lim_evol_minus,
                     lim_sup=lim_evol_plus,
@@ -1091,11 +1207,11 @@ def render_ppt8_table(
     rows: List[Ppt8Row],
     figure_id: int,
     brand_color_lookup: Dict[str, str],
-    mat_label_current: str,
+    manufacturer_name: str,
 ) -> Tuple[io.BytesIO, Tuple[float, float]]:
     """Renderiza la tabla PPT del segmento 8 y devuelve un stream PNG."""
     COLOR_HEADER = "#1F4E78"
-    COLOR_B = "#DCE6F1"
+    COLOR_VAR_BG = "#C9CED6"
     COLOR_C = "#F2DCDB"
     COLOR_D = "#E2EFDA"
     COLOR_G = "#DCE6F1"
@@ -1132,9 +1248,21 @@ def render_ppt8_table(
             return "#FFFFFF"
         return "#1F1F1F"
 
+    def _metric_text_color(value: float) -> str:
+        if value is None or not np.isfinite(value):
+            return "#1F1F1F"
+        if value > 0:
+            return TABLE_POSITIVE_COLOR
+        if value < 0:
+            return TABLE_NEGATIVE_COLOR
+        return "#1F1F1F"
+
+    fabricante_col_name = manufacturer_name.strip() if isinstance(manufacturer_name, str) else ""
+    fabricante_col_name = fabricante_col_name or "Fabricante"
     header_bottom = [
         "Marca",
-        f"% VAR {mat_label_current}" if mat_label_current else "% VAR MAT",
+        f"% VAR {fabricante_col_name}",
+        "% VAR MAT Actual (WP by Numerator)",
         "% VAR LIM INFERIOR",
         "% VAR LIM SUPERIOR",
         "Nivel de penetracion",
@@ -1144,6 +1272,7 @@ def render_ppt8_table(
     data = [
         [
             r.marca,
+            f"{r.var_fabricante:.1f}" if np.isfinite(r.var_fabricante) else "-",
             f"{r.mat_sep25:.1f}" if np.isfinite(r.mat_sep25) else "-",
             f"{r.lim_inf:.1f}" if np.isfinite(r.lim_inf) else "-",
             f"{r.lim_sup:.1f}" if np.isfinite(r.lim_sup) else "-",
@@ -1168,7 +1297,7 @@ def render_ppt8_table(
     table.set_fontsize(13)
     table.scale(1.0, 1.25)
 
-    widths = [0.24, 0.14, 0.14, 0.14, 0.24, 0.14]
+    widths = [0.20, 0.15, 0.16, 0.13, 0.13, 0.15, 0.08]
     for i, w in enumerate(widths):
         table.auto_set_column_width(i)
         table._cells[(0, i)].set_width(w)
@@ -1184,14 +1313,20 @@ def render_ppt8_table(
 
     start_body = 1
     for r_idx in range(start_body, len(data) + start_body):
-        table[r_idx, 1].set_facecolor(COLOR_B)
-        table[r_idx, 2].set_facecolor(COLOR_C)
-        table[r_idx, 3].set_facecolor(COLOR_D)
-        table[r_idx, 4].set_facecolor(COLOR_G)
+        row_model = rows[r_idx - start_body]
+        table[r_idx, 1].set_facecolor(COLOR_VAR_BG)
+        table[r_idx, 1].set_text_props(color=_metric_text_color(row_model.var_fabricante), weight="bold")
+        table[r_idx, 2].set_facecolor(COLOR_VAR_BG)
+        table[r_idx, 2].set_text_props(color=_metric_text_color(row_model.mat_sep25), weight="bold")
+        table[r_idx, 3].set_facecolor(COLOR_C)
+        table[r_idx, 3].set_text_props(color=_metric_text_color(row_model.lim_inf), weight="bold")
+        table[r_idx, 4].set_facecolor(COLOR_D)
+        table[r_idx, 4].set_text_props(color=_metric_text_color(row_model.lim_sup), weight="bold")
+        table[r_idx, 5].set_facecolor(COLOR_G)
         err_val = rows[r_idx - start_body].error_muestral
         err_color = _error_cell_color(err_val)
-        table[r_idx, 5].set_facecolor(err_color)
-        table[r_idx, 5].set_text_props(color=_text_color_for_bg(err_color))
+        table[r_idx, 6].set_facecolor(err_color)
+        table[r_idx, 6].set_text_props(color=_text_color_for_bg(err_color))
         brand_label = rows[r_idx - start_body].marca
         brand_color = assign_brand_palette_color(brand_label, brand_color_lookup, TREND_COLOR_SEQUENCE)
         if brand_color:
@@ -1219,7 +1354,7 @@ def add_ppt8_table_to_slide(
     slide,
     rows: List[Ppt8Row],
     brand_color_lookup: Dict[str, str],
-    mat_label_current: str,
+    manufacturer_name: str,
     left,
     top,
     width_emu,
@@ -1229,7 +1364,7 @@ def add_ppt8_table_to_slide(
     from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
     COLOR_HEADER = "#1F4E78"
-    COLOR_B = "#DCE6F1"
+    COLOR_VAR_BG = "#C9CED6"
     COLOR_C = "#F2DCDB"
     COLOR_D = "#E2EFDA"
     COLOR_G = "#DCE6F1"
@@ -1307,8 +1442,15 @@ def add_ppt8_table_to_slide(
         tf = cell.text_frame
         tf.clear()
         tf.word_wrap = True
+        tf.margin_top = 0
+        tf.margin_bottom = 0
+        tf.margin_left = Pt(3)
+        tf.margin_right = Pt(3)
         paragraph = tf.paragraphs[0]
         paragraph.alignment = align
+        paragraph.space_before = Pt(0)
+        paragraph.space_after = Pt(0)
+        paragraph.line_spacing = 1.0
         run = paragraph.add_run()
         run.text = str(text)
         font = run.font
@@ -1321,20 +1463,23 @@ def add_ppt8_table_to_slide(
         cell.vertical_anchor = MSO_ANCHOR.MIDDLE
 
     total_rows = len(rows) + 1
-    total_cols = 6
+    total_cols = 7
     if total_rows <= 1:
         return None
 
+    fabricante_col_name = manufacturer_name.strip() if isinstance(manufacturer_name, str) else ""
+    fabricante_col_name = fabricante_col_name or "Fabricante"
     header_bottom = [
         "Marca",
-        f"% VAR {mat_label_current}" if mat_label_current else "% VAR MAT",
+        f"% VAR {fabricante_col_name}",
+        "% VAR MAT Actual (WP by Numerator)",
         "% VAR LIM INFERIOR",
         "% VAR LIM SUPERIOR",
         "Nivel de penetracion",
         "Error muestral",
     ]
 
-    estimated_height_in = 0.55 + 0.33 * total_rows
+    estimated_height_in = 0.42 + 0.27 * total_rows
     table_height_in = max(2.0, estimated_height_in)
     if max_height_in:
         table_height_in = min(table_height_in, max_height_in)
@@ -1349,7 +1494,7 @@ def add_ppt8_table_to_slide(
     table = table_shape.table
 
     width_emu_int = int(width_emu)
-    col_width_ratios = [0.24, 0.14, 0.14, 0.14, 0.24, 0.10]
+    col_width_ratios = [0.20, 0.14, 0.16, 0.13, 0.13, 0.16, 0.08]
     consumed = 0
     for col_idx, ratio in enumerate(col_width_ratios):
         if col_idx == len(col_width_ratios) - 1:
@@ -1371,8 +1516,10 @@ def add_ppt8_table_to_slide(
 
     body_font = 10
     if len(rows) >= 12:
-        body_font = 8
+        body_font = 7
     elif len(rows) >= 8:
+        body_font = 8
+    else:
         body_font = 9
 
     for col_idx, title in enumerate(header_bottom):
@@ -1382,7 +1529,7 @@ def add_ppt8_table_to_slide(
             fill_hex=COLOR_HEADER,
             font_hex=HEADER_FONT_COLOR,
             bold=True,
-            font_size_pt=10,
+            font_size_pt=9,
         )
 
     for row_idx, row in enumerate(rows, start=1):
@@ -1390,6 +1537,7 @@ def add_ppt8_table_to_slide(
         brand_color = assign_brand_palette_color(row.marca, brand_color_lookup, TREND_COLOR_SEQUENCE) or COLOR_TEXT_DEFAULT
         err_color = _error_cell_color(row.error_muestral)
         err_text_color = _text_color_for_bg(err_color)
+        fab_text = f"{row.var_fabricante:.1f}" if np.isfinite(row.var_fabricante) else "-"
         val_text = f"{row.mat_sep25:.1f}" if np.isfinite(row.mat_sep25) else "-"
         lim_inf_text = f"{row.lim_inf:.1f}" if np.isfinite(row.lim_inf) else "-"
         lim_sup_text = f"{row.lim_sup:.1f}" if np.isfinite(row.lim_sup) else "-"
@@ -1406,14 +1554,22 @@ def add_ppt8_table_to_slide(
         )
         _set_cell(
             table.cell(row_idx, 1),
-            val_text,
-            fill_hex=COLOR_B,
-            font_hex=_metric_text_color(row.mat_sep25),
+            fab_text,
+            fill_hex=COLOR_VAR_BG,
+            font_hex=_metric_text_color(row.var_fabricante),
             bold=True,
             font_size_pt=body_font,
         )
         _set_cell(
             table.cell(row_idx, 2),
+            val_text,
+            fill_hex=COLOR_VAR_BG,
+            font_hex=_metric_text_color(row.mat_sep25),
+            bold=True,
+            font_size_pt=body_font,
+        )
+        _set_cell(
+            table.cell(row_idx, 3),
             lim_inf_text,
             fill_hex=COLOR_C,
             font_hex=_metric_text_color(row.lim_inf),
@@ -1421,7 +1577,7 @@ def add_ppt8_table_to_slide(
             font_size_pt=body_font,
         )
         _set_cell(
-            table.cell(row_idx, 3),
+            table.cell(row_idx, 4),
             lim_sup_text,
             fill_hex=COLOR_D,
             font_hex=_metric_text_color(row.lim_sup),
@@ -1429,7 +1585,7 @@ def add_ppt8_table_to_slide(
             font_size_pt=body_font,
         )
         _set_cell(
-            table.cell(row_idx, 4),
+            table.cell(row_idx, 5),
             row.nivel_pen,
             fill_hex=row_band_fill,
             font_hex=_penetration_level_color(row.nivel_pen),
@@ -1438,7 +1594,7 @@ def add_ppt8_table_to_slide(
             font_size_pt=body_font,
         )
         _set_cell(
-            table.cell(row_idx, 5),
+            table.cell(row_idx, 6),
             err_text,
             fill_hex=err_color,
             font_hex=err_text_color,
@@ -5470,7 +5626,6 @@ for w in W:
         )
         if progress_message:
             print_loading_message(progress_message, COLOR_QUESTION)
-        mat_base_label, mat_curr_label = ppt8_find_mat_labels(raw_df)
         ppt_rows, ppt_errors = ppt8_compute_rows(monthly_blocks, agg_blocks)
         for err in ppt_errors:
             print_colored(err, COLOR_YELLOW)
@@ -5509,7 +5664,7 @@ for w in W:
                 slide,
                 ppt_rows,
                 ppt8_brand_color_lookup,
-                mat_curr_label,
+                client,
                 left=left_margin,
                 top=Inches(CHART_TOP_INCH),
                 width_emu=available_width_emu,
@@ -5521,7 +5676,7 @@ for w in W:
                 COLOR_YELLOW
             )
             c_fig += 1
-            table_stream, fig_size = render_ppt8_table(ppt_rows, c_fig, ppt8_brand_color_lookup, mat_curr_label)
+            table_stream, fig_size = render_ppt8_table(ppt_rows, c_fig, ppt8_brand_color_lookup, client)
             fig_width_in, fig_height_in = fig_size
             target_height_in = fig_height_in
             if fig_width_in and fig_width_in > 0 and available_width_in and available_width_in > 0:
