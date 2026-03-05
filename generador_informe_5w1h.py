@@ -6302,7 +6302,7 @@ for w in W:
             comment_paragraph = comment_tf.paragraphs[0]
             comment_paragraph.text = "Comentario"
             comment_paragraph.font.size = Inches(0.25)
-            chart_top = Inches(0.55)
+            chart_top = Inches(0.72)
             multiple_sections = len(render_share_items) > 1
             left_boundary_in = 1.70 if multiple_sections else 2.00
             right_margin_in = 0.35
@@ -6407,6 +6407,13 @@ for w in W:
                     width=target_width,
                     height=target_height
                 )
+                display_tipo_share = _normalize_simple(item.get("display_tipo") or "")
+                if ("venta" in display_tipo_share) or ("venda" in display_tipo_share):
+                    border_rgb = hex_to_rgb_color(LINE_COLOR_NUMERATOR) or RGBColor(212, 172, 13)
+                    chart_shape.line.fill.solid()
+                    chart_shape.line.fill.fore_color.rgb = border_rgb
+                    chart_shape.line.color.rgb = border_rgb
+                    chart_shape.line.width = Pt(2.25)
                 caption_left = chart_shape.left
                 caption_width = target_width
                 caption_top = chart_top + target_height + caption_gap
