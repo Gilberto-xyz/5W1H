@@ -17,6 +17,10 @@ import textwrap
 import re
 import unicodedata
 import threading
+import tempfile
+import uuid
+import zipfile
+import xml.etree.ElementTree as ET
 from itertools import cycle
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
@@ -175,6 +179,12 @@ TERMINAL_BRAND_COLOR_SEQUENCE = (
     (230, 85, 13),    # Naranja quemado
 )
 PREVIEW_COPY_SUFFIX_RE = re.compile(r'^(?P<brand>.+?)(?P<suffix>(?:[\s_-]+(?:copia|copy|preview))*)$', re.IGNORECASE)
+PPTX_PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+PPTX_DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+PPTX_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PPTX_PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+PPTX_SECTION_NS = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+PPTX_SECTION_EXT_URI = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"
 HEADER_COLOR_PRIMARY = '#286B72'
 HEADER_COLOR_SECONDARY = '#3EBBC7'
 HEADER_FONT_COLOR = '#FFFFFF'
@@ -405,7 +415,17 @@ def print_file_locked_error(path_str: str, *, elapsed_seconds: Optional[float] =
 
 def normalize_brand_key(brand: str) -> str:
     """Normaliza fabricante para mapearlo siempre al mismo color."""
-    normalized = unicodedata.normalize("NFKD", str(brand or ""))
+    normalized = str(brand or "").strip()
+    normalized = re.sub(
+        r'(?:[._\-\s](?:k|m|g|kg|grs?|gr|l|lt|lts|ml))+$',
+        '',
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(r'\s*-\s*share\s*100%\s*apilado\s*$', '', normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r'\s*-\s*share\s*100%\s*stacked\s*$', '', normalized, flags=re.IGNORECASE)
+    normalized = normalized.replace('.', ' ').replace('_', ' ')
+    normalized = unicodedata.normalize("NFKD", normalized)
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     normalized = re.sub(r"\s+", " ", normalized).strip().lower()
     return normalized
@@ -4175,6 +4195,215 @@ def colorize_brand_for_terminal(
         return colorize(label, ansi_color)
     return label
 
+def normalize_section_title(value: Optional[str]) -> str:
+    """Limpia una etiqueta para usarla como nombre de seccion en PowerPoint."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        raw = strip_color_suffixes(raw)
+    except Exception:
+        pass
+    raw = raw.replace('.', ' ').replace('_', ' ')
+    raw = re.sub(r'\s*-\s*share\s*100%\s*apilado\s*$', '', raw, flags=re.IGNORECASE)
+    raw = re.sub(r'\s*-\s*share\s*100%\s*stacked\s*$', '', raw, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", raw).strip()
+
+def extract_sheet_group_label(sheet_name: str, category_name: str) -> str:
+    """Devuelve la etiqueta principal (marca/categoria) asociada a una hoja."""
+    if not sheet_name:
+        return ""
+    sheet_clean = str(sheet_name).strip()
+    if not sheet_clean:
+        return ""
+    distribution_match = DISTRIBUTION_SHEET_PATTERN.match(sheet_clean)
+    first_char = sheet_clean[0]
+    suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
+    brand_label = ''
+    if distribution_match:
+        brand_label = distribution_match.group(1).replace('.', ' ').strip()
+    elif sheet_clean.startswith('6-1') or sheet_clean.startswith('6_1'):
+        brand_label = category_name
+    elif first_char == '6':
+        brand_label = category_name
+    elif first_char == '8':
+        brand_label = sheet_clean[2:].replace('_', ' ').strip()
+    elif first_char == '5':
+        brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else ''
+    elif first_char == '4':
+        brand_label = sheet_clean[2:].strip()
+    elif first_char == '3':
+        brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else sheet_clean[2:].strip()
+    elif first_char in {'2', '1'}:
+        brand_label = sheet_clean[2:].strip()
+    return normalize_section_title(brand_label)
+
+def get_cover_section_title(lang: str) -> str:
+    """Nombre de la seccion para la portada."""
+    return 'Capa' if lang == 'P' else 'Portada'
+
+def register_section_slides(
+    section_slides: OrderedDict[str, list[int]],
+    section_title: Optional[str],
+    start_idx: int,
+    end_idx: int,
+) -> None:
+    """Registra los indices de slides producidos para una seccion."""
+    if end_idx <= start_idx:
+        return
+    title = normalize_section_title(section_title)
+    if not title:
+        return
+    bucket = section_slides.setdefault(title, [])
+    seen = set(bucket)
+    for slide_idx in range(start_idx, end_idx):
+        if slide_idx not in seen:
+            bucket.append(slide_idx)
+            seen.add(slide_idx)
+
+def apply_powerpoint_sections(pptx_path: Path, section_slides: OrderedDict[str, list[int]]) -> None:
+    """Inyecta la lista de secciones en presentation.xml del .pptx final."""
+    if not pptx_path or not section_slides:
+        return
+    ET.register_namespace('a', PPTX_DRAWING_NS)
+    ET.register_namespace('r', PPTX_REL_NS)
+    ET.register_namespace('p', PPTX_PRESENTATION_NS)
+    ET.register_namespace('p14', PPTX_SECTION_NS)
+    with zipfile.ZipFile(pptx_path, 'r') as src_zip:
+        presentation_xml = src_zip.read('ppt/presentation.xml')
+    root = ET.fromstring(presentation_xml)
+    sld_id_list = root.find(f'{{{PPTX_PRESENTATION_NS}}}sldIdLst')
+    if sld_id_list is None:
+        return
+    slide_ids = [
+        int(node.attrib['id'])
+        for node in sld_id_list.findall(f'{{{PPTX_PRESENTATION_NS}}}sldId')
+        if node.attrib.get('id')
+    ]
+    valid_sections: list[tuple[str, list[int]]] = []
+    for title, slide_indexes in section_slides.items():
+        slide_id_values: list[int] = []
+        seen_slide_ids: set[int] = set()
+        for slide_idx in slide_indexes:
+            if 0 <= slide_idx < len(slide_ids):
+                slide_id = slide_ids[slide_idx]
+                if slide_id not in seen_slide_ids:
+                    slide_id_values.append(slide_id)
+                    seen_slide_ids.add(slide_id)
+        if slide_id_values:
+            valid_sections.append((title, slide_id_values))
+    if not valid_sections:
+        return
+    ext_lst = root.find(f'{{{PPTX_PRESENTATION_NS}}}extLst')
+    if ext_lst is None:
+        ext_lst = ET.SubElement(root, f'{{{PPTX_PRESENTATION_NS}}}extLst')
+    for ext in list(ext_lst.findall(f'{{{PPTX_PRESENTATION_NS}}}ext')):
+        if ext.attrib.get('uri') == PPTX_SECTION_EXT_URI:
+            ext_lst.remove(ext)
+    sections_ext = ET.SubElement(
+        ext_lst,
+        f'{{{PPTX_PRESENTATION_NS}}}ext',
+        {'uri': PPTX_SECTION_EXT_URI},
+    )
+    section_lst = ET.SubElement(sections_ext, f'{{{PPTX_SECTION_NS}}}sectionLst')
+    for title, slide_id_values in valid_sections:
+        section = ET.SubElement(
+            section_lst,
+            f'{{{PPTX_SECTION_NS}}}section',
+            {
+                'name': title,
+                'id': '{' + str(uuid.uuid4()).upper() + '}',
+            },
+        )
+        section_slide_list = ET.SubElement(section, f'{{{PPTX_SECTION_NS}}}sldIdLst')
+        for slide_id in slide_id_values:
+            ET.SubElement(
+                section_slide_list,
+                f'{{{PPTX_SECTION_NS}}}sldId',
+                {'id': str(slide_id)},
+            )
+    updated_xml = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx', dir=str(pptx_path.parent)) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+        with zipfile.ZipFile(pptx_path, 'r') as read_zip, zipfile.ZipFile(tmp_path, 'w') as write_zip:
+            for entry in read_zip.infolist():
+                payload = updated_xml if entry.filename == 'ppt/presentation.xml' else read_zip.read(entry.filename)
+                write_zip.writestr(entry, payload)
+        os.replace(tmp_path, pptx_path)
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+def _extract_top_slide_text_from_xml(slide_xml: bytes) -> str:
+    """Lee el titulo del slide directamente desde su XML."""
+    slide_root = ET.fromstring(slide_xml)
+    text_candidates: list[tuple[int, int, str]] = []
+    for shape in slide_root.findall(f'.//{{{PPTX_PRESENTATION_NS}}}sp'):
+        texts = [node.text or '' for node in shape.findall(f'.//{{{PPTX_DRAWING_NS}}}t')]
+        combined_text = ''.join(texts).strip()
+        if not combined_text or normalize_section_title(combined_text).lower() == 'comentario':
+            continue
+        off = shape.find(f'./{{{PPTX_PRESENTATION_NS}}}spPr/{{{PPTX_DRAWING_NS}}}xfrm/{{{PPTX_DRAWING_NS}}}off')
+        top = int(off.attrib.get('y', '0')) if off is not None else 0
+        left = int(off.attrib.get('x', '0')) if off is not None else 0
+        text_candidates.append((top, left, combined_text))
+    if not text_candidates:
+        return ""
+    text_candidates.sort(key=lambda item: (item[0], item[1]))
+    return text_candidates[0][2]
+
+def _derive_section_title_from_slide_text(title_text: str, previous_title: str, lang: str) -> str:
+    """Infere el nombre de seccion a partir del titulo visible del slide."""
+    if title_text:
+        if '|' in title_text:
+            _, right_part = title_text.split('|', 1)
+            parsed_title = normalize_section_title(right_part)
+            if parsed_title:
+                return parsed_title
+        parsed_title = normalize_section_title(title_text)
+        if parsed_title:
+            return parsed_title
+    if previous_title:
+        return previous_title
+    return 'Geral' if lang == 'P' else 'General'
+
+def build_section_slides_from_presentation(pptx_path: Path, lang: str) -> OrderedDict[str, list[int]]:
+    """Reconstruye el mapa de secciones leyendo los titulos del .pptx ya generado."""
+    section_slides: OrderedDict[str, list[int]] = OrderedDict()
+    with zipfile.ZipFile(pptx_path, 'r') as pptx_zip:
+        presentation_root = ET.fromstring(pptx_zip.read('ppt/presentation.xml'))
+        rels_root = ET.fromstring(pptx_zip.read('ppt/_rels/presentation.xml.rels'))
+        slide_rel_targets: dict[str, str] = {}
+        for rel in rels_root.findall(f'{{{PPTX_PACKAGE_REL_NS}}}Relationship'):
+            rel_id = rel.attrib.get('Id')
+            target = rel.attrib.get('Target')
+            if rel_id and target:
+                slide_rel_targets[rel_id] = target.lstrip('/')
+        slide_order: list[str] = []
+        sld_id_list = presentation_root.find(f'{{{PPTX_PRESENTATION_NS}}}sldIdLst')
+        if sld_id_list is not None:
+            for slide_node in sld_id_list.findall(f'{{{PPTX_PRESENTATION_NS}}}sldId'):
+                rel_id = slide_node.attrib.get(f'{{{PPTX_REL_NS}}}id')
+                target = slide_rel_targets.get(rel_id or '')
+                if target:
+                    slide_order.append(f'ppt/{target}')
+        if not slide_order:
+            return section_slides
+        cover_title = get_cover_section_title(lang)
+        register_section_slides(section_slides, cover_title, 0, 1)
+        previous_title = cover_title
+        for slide_idx, slide_name in enumerate(slide_order[1:], start=1):
+            title_text = _extract_top_slide_text_from_xml(pptx_zip.read(slide_name))
+            section_title = _derive_section_title_from_slide_text(title_text, previous_title, lang)
+            register_section_slides(section_slides, section_title, slide_idx, slide_idx + 1)
+            previous_title = section_title or previous_title
+    return section_slides
+
 def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Optional[str]:
     """
     Devuelve un label corto y legible (ej: '3W Marcas - X').
@@ -4187,7 +4416,7 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     distribution_match = DISTRIBUTION_SHEET_PATTERN.match(sheet_clean)
     first_char = sheet_clean[0]
     suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
-    brand_label = ''
+    brand_label = extract_sheet_group_label(sheet_clean, category_name)
     step_label: Optional[str] = None
     cw_key = None
     # Distribución (segmento 7) via patrón 7_*_* (ej.: R, NSE, WIFEAGE, FAMILY_SIZE)
@@ -4204,29 +4433,20 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
             step_label = '7W Distribución NSE'
         else:
             step_label = f'7W Distribución {pretty_dist or dist_kind}'
-        brand_label = distribution_match.group(1).replace('.', ' ').strip()
-        brand_label = distribution_match.group(1).replace('.', ' ').strip()
     elif sheet_clean.startswith('6-1') or sheet_clean.startswith('6_1'):
         cw_key = '6-1'
-        brand_label = category_name
     elif first_char == '6':
         cw_key = '6'
-        brand_label = category_name
     elif first_char == '8':
         cw_key = '8'
-        brand_label = sheet_clean[2:].replace('_', ' ').strip()
     elif first_char == '5':
         cw_key = f"5-{suffix_char}" if suffix_char in {'1', '2'} else '5'
-        brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else ''
     elif first_char == '4':
         cw_key = '4'
-        brand_label = sheet_clean[2:].strip()
     elif first_char == '3':
         cw_key = f"3-{suffix_char}" if suffix_char in {'1', '2', '3'} else '3'
-        brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else sheet_clean[2:].strip()
     elif first_char in {'2', '1'}:
         cw_key = first_char
-        brand_label = sheet_clean[2:].strip()
     if cw_key:
         step_label = c_w.get((lang, cw_key), step_label if step_label else cw_key)
     if not step_label:
@@ -6756,6 +6976,12 @@ try:
     ppt.save(str(output_path))
 except PermissionError:
     print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
+    sys.exit(1)
+try:
+    section_slide_map = build_section_slides_from_presentation(output_path, lang)
+    apply_powerpoint_sections(output_path, section_slide_map)
+except Exception as exc:
+    print_colored(f"No se pudieron escribir las secciones de PowerPoint: {exc}", COLOR_RED)
     sys.exit(1)
 print_loading_done("Generacion de slides completada")
 print_colored(f'Presentacion guardada en: {output_path}', COLOR_GREEN)
