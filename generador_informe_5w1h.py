@@ -413,6 +413,129 @@ def print_file_locked_error(path_str: str, *, elapsed_seconds: Optional[float] =
     print_colored(path_disp, COLOR_RED)
     print_colored("", COLOR_RED)
 
+
+def build_locked_retry_panel(
+    path_str: str,
+    *,
+    action_label: str,
+    elapsed_seconds: Optional[float] = None,
+):
+    """Construye el panel de pausa para archivo bloqueado."""
+    path_disp = str(path_str or "").strip() or "-"
+    base = os.path.basename(path_disp) if path_disp not in {"-", ""} else "-"
+    hora_actual = dt.now().strftime("%I:%M:%S %p")
+    msg = (
+        "[bold yellow]Proceso en pausa por archivo en uso[/bold yellow]\n\n"
+        f"[bold red]Archivo afectado:[/bold red] [white]{base}[/white]\n"
+        f"[bold red]Accion pendiente:[/bold red] [white]{action_label}[/white]\n"
+        "[red]No se puede continuar mientras el archivo siga abierto o bloqueado.[/red]\n"
+        "[yellow]Cierra el archivo para habilitar el reintento.[/yellow]\n\n"
+        f"[yellow]Hora actual:[/yellow] [white]{hora_actual}[/white]"
+        + (f"\n[yellow]Tiempo acumulado:[/yellow] [white]{_format_elapsed_hms(elapsed_seconds)}[/white]" if elapsed_seconds is not None else "")
+        + f"\n\n[grey70]{path_disp}[/grey70]"
+    )
+    return Panel.fit(
+        msg,
+        border_style="yellow",
+        title="[bold yellow]Coverages Latam[/bold yellow]",
+    )
+
+
+def prompt_file_locked_retry(
+    path_str: str,
+    *,
+    action_label: str,
+    elapsed_seconds: Optional[float] = None,
+) -> Optional[bool]:
+    """Pausa el flujo para permitir cerrar el archivo y reintentar sin recomenzar."""
+    path_disp = str(path_str or "").strip() or "-"
+    base = os.path.basename(path_disp) if path_disp not in {"-", ""} else "-"
+    if Console is not None and Panel is not None:
+        try:
+            console = Console()
+            console.print()
+            console.print(build_locked_retry_panel(path_str, action_label=action_label, elapsed_seconds=elapsed_seconds))
+            console.print()
+        except Exception:
+            pass
+    else:
+        print_colored("", COLOR_YELLOW)
+        print_colored("[Coverages Latam] Proceso en pausa por archivo en uso", COLOR_YELLOW)
+        print_colored(f"Archivo afectado: {base}", COLOR_RED)
+        print_colored(f"Accion pendiente: {action_label}", COLOR_RED)
+        print_colored("No se puede continuar mientras el archivo siga abierto o bloqueado.", COLOR_RED)
+        print_colored("Cierra el archivo para habilitar el reintento.", COLOR_YELLOW)
+        if elapsed_seconds is not None:
+            print_colored(f"Tiempo acumulado: {_format_elapsed_hms(elapsed_seconds)}", COLOR_YELLOW)
+        print_colored(path_disp, COLOR_YELLOW)
+        print_colored("", COLOR_YELLOW)
+    try:
+        choice = input(colorize("Reintentar [Enter] / Cancelar [Q]: ", COLOR_QUESTION)).strip().lower()
+    except EOFError:
+        return None
+    if choice in {"q", "quit", "salir", "cancelar", "n", "no"}:
+        return None
+    return True
+
+
+def save_presentation_with_retry(
+    ppt,
+    output_path: Path,
+    lang: str,
+    *,
+    elapsed_seconds: Optional[float] = None,
+) -> Optional[bool]:
+    """Guarda la presentacion y escribe secciones, reintentando si el archivo esta bloqueado."""
+    while True:
+        if is_locked_for_write(output_path):
+            retry_choice = prompt_file_locked_retry(
+                str(output_path),
+                action_label="guardar y reemplazar la presentacion",
+                elapsed_seconds=elapsed_seconds,
+            )
+            if retry_choice is True:
+                continue
+            return None
+        if output_path.exists():
+            try:
+                output_path.unlink()
+            except PermissionError:
+                retry_choice = prompt_file_locked_retry(
+                    str(output_path),
+                    action_label="reemplazar la presentacion existente",
+                    elapsed_seconds=elapsed_seconds,
+                )
+                if retry_choice is True:
+                    continue
+                return None
+        try:
+            ppt.save(str(output_path))
+            break
+        except PermissionError:
+            retry_choice = prompt_file_locked_retry(
+                str(output_path),
+                action_label="guardar la presentacion",
+                elapsed_seconds=elapsed_seconds,
+            )
+            if retry_choice is True:
+                continue
+            return None
+
+    while True:
+        try:
+            section_slide_map = build_section_slides_from_presentation(output_path, lang)
+            apply_powerpoint_sections(output_path, section_slide_map)
+            return True
+        except PermissionError:
+            retry_choice = prompt_file_locked_retry(
+                str(output_path),
+                action_label="escribir las secciones de PowerPoint",
+                elapsed_seconds=elapsed_seconds,
+            )
+            if retry_choice is True:
+                continue
+            return None
+
 def normalize_brand_key(brand: str) -> str:
     """Normaliza fabricante para mapearlo siempre al mismo color."""
     normalized = str(brand or "").strip()
@@ -446,6 +569,28 @@ def parse_filename_brand(filename: str) -> Tuple[str, str, str, str]:
     brand = (match.group("brand") or "").strip()
     suffix = match.group("suffix") or ""
     return prefix, brand, suffix, ext
+
+
+def parse_standard_sheet_name(sheet_name: str) -> Optional[dict[str, str]]:
+    """Parsea hojas tipo '3_Marca_1 (ML)' sin depender de indices fijos."""
+    if not isinstance(sheet_name, str):
+        return None
+    match = re.match(
+        r'^(?P<segment>[1-8])[-_](?P<label>.+?)(?:_(?P<variant>\d+)(?:\s*\((?P<qualifier>[^)]*)\))?)?$',
+        sheet_name.strip(),
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    label = (match.group('label') or '').replace('_', ' ').strip()
+    if not label:
+        return None
+    return {
+        'segment': (match.group('segment') or '').strip(),
+        'label': label,
+        'variant': (match.group('variant') or '').strip(),
+        'qualifier': (match.group('qualifier') or '').strip(),
+    }
 
 def relative_luminance(rgb: Tuple[int, int, int]) -> float:
     """Calcula luminancia relativa para evitar colores oscuros."""
@@ -4218,7 +4363,7 @@ def extract_sheet_group_label(sheet_name: str, category_name: str) -> str:
         return ""
     distribution_match = DISTRIBUTION_SHEET_PATTERN.match(sheet_clean)
     first_char = sheet_clean[0]
-    suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
+    parsed_sheet = parse_standard_sheet_name(sheet_clean)
     brand_label = ''
     if distribution_match:
         brand_label = distribution_match.group(1).replace('.', ' ').strip()
@@ -4226,16 +4371,8 @@ def extract_sheet_group_label(sheet_name: str, category_name: str) -> str:
         brand_label = category_name
     elif first_char == '6':
         brand_label = category_name
-    elif first_char == '8':
-        brand_label = sheet_clean[2:].replace('_', ' ').strip()
-    elif first_char == '5':
-        brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else ''
-    elif first_char == '4':
-        brand_label = sheet_clean[2:].strip()
-    elif first_char == '3':
-        brand_label = sheet_clean[2:-2].strip() if len(sheet_clean) > 3 else sheet_clean[2:].strip()
-    elif first_char in {'2', '1'}:
-        brand_label = sheet_clean[2:].strip()
+    elif parsed_sheet:
+        brand_label = parsed_sheet['label']
     return normalize_section_title(brand_label)
 
 def get_cover_section_title(lang: str) -> str:
@@ -4415,7 +4552,8 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
         return None
     distribution_match = DISTRIBUTION_SHEET_PATTERN.match(sheet_clean)
     first_char = sheet_clean[0]
-    suffix_char = sheet_clean[-1] if len(sheet_clean) >= 1 else ''
+    parsed_sheet = parse_standard_sheet_name(sheet_clean)
+    variant = parsed_sheet['variant'] if parsed_sheet else ''
     brand_label = extract_sheet_group_label(sheet_clean, category_name)
     step_label: Optional[str] = None
     cw_key = None
@@ -4440,11 +4578,11 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     elif first_char == '8':
         cw_key = '8'
     elif first_char == '5':
-        cw_key = f"5-{suffix_char}" if suffix_char in {'1', '2'} else '5'
+        cw_key = f"5-{variant}" if variant in {'1', '2'} else '5'
     elif first_char == '4':
         cw_key = '4'
     elif first_char == '3':
-        cw_key = f"3-{suffix_char}" if suffix_char in {'1', '2', '3'} else '3'
+        cw_key = f"3-{variant}" if variant in {'1', '2', '3'} else '3'
     elif first_char in {'2', '1'}:
         cw_key = first_char
     if cw_key:
@@ -5159,8 +5297,8 @@ SIZE_GROUP_WINDOW_MONTHS = 12
 SIZE_GROUP_SUFFIXES = ('.C', '.V', '_C', '_V', '-C', '-V', '.c', '.v', '_c', '_v', '-c', '-v')
 def is_segment3_size_sheet(sheet_name: str) -> bool:
     """Indica si la hoja corresponde al segmento 3-1 (Tamaños)."""
-    normalized = str(sheet_name).strip()
-    return bool(normalized) and normalized[0] == '3' and normalized[-1] == '1'
+    parsed_sheet = parse_standard_sheet_name(str(sheet_name).strip())
+    return bool(parsed_sheet) and parsed_sheet['segment'] == '3' and parsed_sheet['variant'] == '1'
 def _is_total_like_series(label) -> bool:
     """Detecta encabezados de total ignorando sufijos de compras/ventas."""
     normalized = strip_color_suffixes(normalize_color_text(label))
@@ -6161,13 +6299,16 @@ for w in W:
         title_font_inches = 0.35
         title_color_lookup = BRAND_TITLE_COLOR_LOOKUP
         title_palette_sequence = None
-        if w[0] in ['3','5']:
-            title_prefix = c_w[(lang,w[0]+'-'+w[-1])]+' | '
-            title_brand_label = w[2:-2].strip()
+        parsed_sheet = parse_standard_sheet_name(w)
+        if w[0] in ['3','5'] and parsed_sheet:
+            step_variant = parsed_sheet['variant']
+            step_key = f"{parsed_sheet['segment']}-{step_variant}" if step_variant else parsed_sheet['segment']
+            title_prefix = c_w[(lang, step_key)]+' | '
+            title_brand_label = parsed_sheet['label']
             titulo = f"{title_prefix}{title_brand_label}"
-        elif w[0] == '4':
+        elif w[0] == '4' and parsed_sheet:
             title_prefix = c_w[(lang,w[0])] + ' | '
-            title_brand_label = w[2:].strip()
+            title_brand_label = parsed_sheet['label']
             titulo = f"{title_prefix}{title_brand_label}"
         elif w[0]=='6':
             title_prefix =  c_w[(lang,w[0])] + ' | ' + labels[(lang,'comp')]
@@ -6177,7 +6318,8 @@ for w in W:
             title_color_lookup = {}
             title_palette_sequence = COMPETITION_TITLE_PALETTE
         else:
-            title_prefix = c_w[(lang,w[0])]+' | '+ w[2:] 
+            fallback_label = parsed_sheet['label'] if parsed_sheet else w[2:]
+            title_prefix = c_w[(lang,w[0])]+' | '+ fallback_label
             titulo = title_prefix
         set_title_with_brand_color(tf, title_prefix, title_brand_label, '', title_font_inches, title_color_lookup, title_palette_sequence)
         #Insere caixa de texto para comentário do slide
@@ -6210,12 +6352,13 @@ for w in W:
         min_table_top = chart_top_emu + chart_height_emu + int(vertical_spacing)
         if w:
             first_char = w[0]
-            last_char = w[-1]
+            parsed_sheet = parse_standard_sheet_name(w)
+            step_variant = parsed_sheet['variant'] if parsed_sheet else ''
             if first_char == '6':
                 should_collect_share = True
-            elif first_char == '3' and last_char in {'1', '2'}:
+            elif first_char == '3' and step_variant in {'1', '2'}:
                 should_collect_share = True
-            elif first_char == '5' and last_char == '2':
+            elif first_char == '5' and step_variant == '2':
                 should_collect_share = True
         for idx, serie in enumerate(series_configs):
             grouped_columns = serie.data.attrs.get("size_grouped_columns", []) if hasattr(serie.data, "attrs") else []
@@ -6963,25 +7106,21 @@ output_folder = base_dir / output_foldername
 output_folder.mkdir(parents=True, exist_ok=True)
 output_path = output_folder / output_filename
 total_elapsed_seconds = (chart_generation_end - chart_generation_start).total_seconds()
-if is_locked_for_write(output_path):
-    print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
-    sys.exit(1)
-if output_path.exists():
-    try:
-        output_path.unlink()
-    except PermissionError:
-        print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
-        sys.exit(1)
 try:
-    ppt.save(str(output_path))
-except PermissionError:
-    print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
-    sys.exit(1)
-try:
-    section_slide_map = build_section_slides_from_presentation(output_path, lang)
-    apply_powerpoint_sections(output_path, section_slide_map)
+    saved_ok = save_presentation_with_retry(
+        ppt,
+        output_path,
+        lang,
+        elapsed_seconds=total_elapsed_seconds,
+    )
 except Exception as exc:
     print_colored(f"No se pudieron escribir las secciones de PowerPoint: {exc}", COLOR_RED)
+    sys.exit(1)
+if saved_ok is None:
+    print_colored("Guardado cancelado por el usuario.", COLOR_YELLOW)
+    sys.exit(1)
+if saved_ok is False:
+    print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
     sys.exit(1)
 print_loading_done("Generacion de slides completada")
 print_colored(f'Presentacion guardada en: {output_path}', COLOR_GREEN)
