@@ -2025,33 +2025,82 @@ def line_graf(
     palette_values = TREND_COLOR_SEQUENCE or [mcolors.to_hex(c) for c in plt.get_cmap('tab20').colors]
     color_mapping: dict[str, str] = {}
     color_key_lookup: dict[str, str] = {}
+    chart_color_owners: dict[str, set[str]] = {}
+    pending_reserved_labels: dict[str, Optional[str]] = {}
+    pending_reserved_counts: dict[str, int] = {}
     def _register_color_keys(label: str, color_value: str, key_list: Optional[list[str]] = None) -> None:
         keys = key_list if key_list is not None else generate_color_lookup_keys(label)
         for key in keys:
             if key and key not in color_key_lookup:
                 color_key_lookup[key] = color_value
+    def _find_preferred_color(label: str, key_list: Optional[list[str]] = None) -> Optional[str]:
+        existing_color = color_mapping.get(label)
+        if existing_color:
+            return existing_color
+        keys = key_list if key_list is not None else generate_color_lookup_keys(label)
+        for key in keys:
+            reused_color = color_key_lookup.get(key)
+            if reused_color:
+                return reused_color
+        return None
+    def _release_reserved_color(label: str) -> None:
+        reserved_color = pending_reserved_labels.pop(label, None)
+        if not reserved_color:
+            return
+        remaining = pending_reserved_counts.get(reserved_color, 0) - 1
+        if remaining > 0:
+            pending_reserved_counts[reserved_color] = remaining
+        else:
+            pending_reserved_counts.pop(reserved_color, None)
+    def _assign_chart_color(label: str, color_value: str, key_list: Optional[list[str]] = None) -> str:
+        color_mapping[label] = color_value
+        _register_color_keys(label, color_value, key_list)
+        owners = chart_color_owners.setdefault(color_value, set())
+        owners.add(label)
+        _release_reserved_color(label)
+        return color_value
+    def _color_is_available(color_value: str, label: str) -> bool:
+        owners = chart_color_owners.get(color_value)
+        return not owners or label in owners
     if color_overrides:
         for name, hex_color in color_overrides.items():
             color_mapping[name] = hex_color
             _register_color_keys(name, hex_color)
-    color_index = 0
-    def _resolve_or_assign_color(label: str) -> str:
-        nonlocal color_index
-        existing_color = color_mapping.get(label)
-        if existing_color:
-            return existing_color
+    for label in colunas:
         keys = generate_color_lookup_keys(label)
+        preferred_color = _find_preferred_color(label, keys)
+        pending_reserved_labels[label] = preferred_color
+        if preferred_color:
+            pending_reserved_counts[preferred_color] = pending_reserved_counts.get(preferred_color, 0) + 1
+    color_index = 0
+    def _next_palette_color() -> str:
+        nonlocal color_index
+        if not palette_values:
+            return '#1F77B4'
+        palette_len = len(palette_values)
+        attempts = 0
+        while attempts < palette_len:
+            candidate = palette_values[color_index % palette_len]
+            color_index += 1
+            attempts += 1
+            if candidate not in chart_color_owners:
+                if pending_reserved_counts.get(candidate, 0) > 0:
+                    continue
+                return candidate
+        candidate = palette_values[color_index % palette_len]
+        color_index += 1
+        return candidate
+    def _resolve_or_assign_color(label: str) -> str:
+        existing_color = color_mapping.get(label)
+        keys = generate_color_lookup_keys(label)
+        if existing_color and _color_is_available(existing_color, label):
+            return _assign_chart_color(label, existing_color, keys)
         for key in keys:
             reused_color = color_key_lookup.get(key)
-            if reused_color:
-                color_mapping[label] = reused_color
-                _register_color_keys(label, reused_color, keys)
-                return reused_color
-        assigned_color = palette_values[color_index % len(palette_values)]
-        color_index += 1
-        color_mapping[label] = assigned_color
-        _register_color_keys(label, assigned_color, keys)
-        return assigned_color
+            if reused_color and _color_is_available(reused_color, label):
+                return _assign_chart_color(label, reused_color, keys)
+        assigned_color = _next_palette_color()
+        return _assign_chart_color(label, assigned_color, keys)
     lns = []
     legend_labels = []
     numeric_series_list = []
