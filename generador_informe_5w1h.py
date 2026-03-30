@@ -29,6 +29,9 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 from pathlib import Path
 from collections import OrderedDict
 from openpyxl import load_workbook
+from openpyxl.chart import LineChart, Reference
+from openpyxl.chart.data_source import AxDataSource, NumDataSource, NumRef, StrRef
+from openpyxl.chart.series import Series, SeriesLabel
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -543,6 +546,8 @@ def save_presentation_with_retry(
 
 EXCEL_TABLE_START_OFFSET_COLUMNS = 2
 EXCEL_TABLE_GAP_COLUMNS = 1
+EXCEL_CHART_HORIZONTAL_GAP_COLUMNS = 2
+EXCEL_CHART_SECONDARY_SHIFT_COLUMNS = 1
 EXCEL_TABLE_HEADER_HEIGHT = 34.5
 EXCEL_TABLE_BODY_HEIGHT = 15.75
 EXCEL_TABLE_NUMBER_FORMAT = "0.00%"
@@ -598,6 +603,164 @@ def _set_excel_fill(cell, color_value: Optional[str]) -> None:
     cell.fill = PatternFill(fill_type="solid", fgColor=_hex_to_excel_argb(color_value))
 
 
+def _estimate_excel_chart_row_span(height_emu) -> int:
+    try:
+        height_in = emu_to_inches(height_emu) if height_emu is not None else emu_to_inches(Cm(10))
+    except Exception:
+        height_in = 4.0
+    return max(20, int(math.ceil(height_in * 6)) + 3)
+
+
+def _estimate_excel_chart_col_span(width_emu) -> int:
+    try:
+        width_in = emu_to_inches(width_emu) if width_emu is not None else 7.5
+    except Exception:
+        width_in = 7.5
+    return max(8, int(math.ceil(width_in * 1.55)))
+
+
+def _resolve_trend_source_columns(block: dict, source_labels: list[str]) -> list[int]:
+    lookup = _build_excel_block_column_lookup(block)
+    resolved_cols: list[int] = []
+    for label in source_labels:
+        normalized = strip_color_suffixes(normalize_color_text(label))
+        if not normalized:
+            continue
+        candidates = lookup.get(normalized) or []
+        if candidates:
+            resolved_cols.append(candidates.pop(0))
+    return resolved_cols
+
+
+def _quoted_sheet_ref(ws, col_idx: int, row_start: int, row_end: int) -> str:
+    return f"'{ws.title}'!${get_column_letter(col_idx)}${row_start}:${get_column_letter(col_idx)}${row_end}"
+
+
+def _write_chart_helper_column(
+    ws,
+    row_start: int,
+    row_end: int,
+    *,
+    values: Optional[list] = None,
+    formulas: Optional[list[str]] = None,
+    number_format: Optional[str] = None,
+) -> str:
+    if row_end < row_start:
+        raise ValueError("Invalid helper column range")
+    items = values if values is not None else formulas
+    if items is None:
+        raise ValueError("Helper column requires values or formulas")
+    if len(items) != (row_end - row_start + 1):
+        raise ValueError("Helper column length does not match row range")
+    helper_col = ws.max_column + 1
+    for offset, row_idx in enumerate(range(row_start, row_end + 1)):
+        cell = ws.cell(row_idx, helper_col)
+        cell.value = items[offset]
+        if number_format:
+            cell.number_format = number_format
+    ws.column_dimensions[get_column_letter(helper_col)].hidden = True
+    return _quoted_sheet_ref(ws, helper_col, row_start, row_end)
+
+
+def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[LineChart]:
+    chart_title = chart_spec.get("title") or "Tendencia"
+    chart = LineChart()
+    chart.title = chart_title
+    chart.style = 2
+    chart_height_emu = chart_spec.get("height_emu")
+    chart_width_emu = chart_spec.get("width_emu")
+    chart.height = emu_to_inches(chart_height_emu) if chart_height_emu is not None else 7.2
+    chart.width = emu_to_inches(chart_width_emu) if chart_width_emu is not None else 15
+    chart.legend.position = "b"
+    chart.y_axis.majorGridlines = None
+    chart.x_axis.title = ""
+    chart.y_axis.title = ""
+    chart.y_axis.crosses = "autoZero"
+    added_series = 0
+    added_series_specs = []
+    for series_spec in chart_spec.get("series", []):
+        block = blocks.get(series_spec.get("block_key"))
+        if block is None:
+            continue
+        source_cols = _resolve_trend_source_columns(block, series_spec.get("source_labels", []))
+        if not source_cols:
+            continue
+        start_idx = max(0, int(series_spec.get("start_idx", chart_spec.get("start_idx", 0)) or 0))
+        data_first_row = int(block["first_data_row"])
+        data_last_row = int(block["last_data_row"])
+        cat_first_row = data_first_row + start_idx
+        val_first_row = data_first_row if series_spec.get("shift_from_start") and start_idx > 0 else data_first_row + start_idx
+        val_last_row = data_last_row - start_idx if series_spec.get("shift_from_start") and start_idx > 0 else data_last_row
+        if cat_first_row > data_last_row or val_first_row > val_last_row:
+            continue
+        row_count = min(data_last_row - cat_first_row + 1, val_last_row - val_first_row + 1)
+        if row_count <= 0:
+            continue
+        cat_last_row = cat_first_row + row_count - 1
+        val_last_row = val_first_row + row_count - 1
+        category_labels = [
+            _safe_excel_period_label(ws.cell(row_idx, int(block["date_col"])).value)
+            for row_idx in range(cat_first_row, cat_last_row + 1)
+        ]
+        cat_ref = _write_chart_helper_column(
+            ws,
+            cat_first_row,
+            cat_last_row,
+            values=category_labels,
+        )
+        if len(source_cols) == 1:
+            val_ref = _quoted_sheet_ref(ws, source_cols[0], val_first_row, val_last_row)
+        else:
+            helper_formulas = []
+            for row_idx in range(val_first_row, val_last_row + 1):
+                row_refs = [f"{get_column_letter(col_idx)}{row_idx}" for col_idx in source_cols]
+                helper_formulas.append("=" + "+".join(row_refs))
+            val_ref = _write_chart_helper_column(
+                ws,
+                val_first_row,
+                val_last_row,
+                formulas=helper_formulas,
+            )
+        series_obj = Series(
+            cat=AxDataSource(strRef=StrRef(f=cat_ref)),
+            val=NumDataSource(numRef=NumRef(f=val_ref)),
+        )
+        series_obj.title = SeriesLabel(v=str(series_spec.get("label") or "Serie"))
+        chart.ser.append(series_obj)
+        added_series_specs.append(series_spec)
+        added_series += 1
+    if added_series == 0:
+        return None
+    for series_obj, series_spec in zip(chart.ser, added_series_specs):
+        color_value = series_spec.get("color")
+        if color_value:
+            series_obj.graphicalProperties.line.solidFill = _hex_to_excel_argb(color_value)[2:]
+            series_obj.graphicalProperties.solidFill = _hex_to_excel_argb(color_value)[2:]
+            series_obj.marker.graphicalProperties.line.solidFill = _hex_to_excel_argb(color_value)[2:]
+            series_obj.marker.graphicalProperties.solidFill = _hex_to_excel_argb(color_value)[2:]
+        series_obj.marker.symbol = "circle"
+        series_obj.marker.size = 6
+        if series_spec.get("dash"):
+            series_obj.graphicalProperties.line.dashStyle = "sysDash"
+    return chart
+
+
+def _add_native_trend_charts_to_sheet(ws, trend_charts: list[dict], blocks: dict, start_row: int, start_col: int = 1) -> None:
+    if not trend_charts:
+        return
+    current_row = max(1, start_row)
+    for chart_spec in trend_charts:
+        chart = _build_native_trend_chart(ws, chart_spec, blocks)
+        if chart is None:
+            continue
+        anchor_row = int(chart_spec.get("anchor_row") or current_row)
+        anchor_col = int(chart_spec.get("anchor_col") or start_col)
+        anchor_cell = f"{get_column_letter(anchor_col)}{anchor_row}"
+        ws.add_chart(chart, anchor_cell)
+        if "anchor_row" not in chart_spec:
+            current_row += _estimate_excel_chart_row_span(chart_spec.get("height_emu"))
+
+
 def save_workbook_with_retry(workbook, output_path: Path) -> bool:
     """Guarda un workbook evitando archivos temporales parciales."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -614,7 +777,10 @@ def save_workbook_with_retry(workbook, output_path: Path) -> bool:
         return False
     finally:
         if tmp_path and tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except PermissionError:
+                pass
 
 
 def _find_excel_header_row(ws) -> Optional[int]:
@@ -1121,14 +1287,22 @@ def _write_dynamic_formula_table_to_sheet(
 def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path, sheet_exports: list[dict]) -> bool:
     """Copia el Excel fuente y agrega tablas dinámicas con fórmulas editables."""
     workbook = load_workbook(source_excel_path)
+    try:
+        workbook.calculation.calcMode = "auto"
+        workbook.calculation.fullCalcOnLoad = True
+        workbook.calculation.forceFullCalc = True
+    except Exception:
+        pass
     for sheet_export in sheet_exports:
         sheet_name = sheet_export.get("sheet_name")
         if not sheet_name or sheet_name not in workbook.sheetnames:
             continue
         ws = workbook[sheet_name]
+        trend_charts = sheet_export.get("trend_charts", []) or []
         blocks = detect_excel_table_blocks(ws)
-        if not blocks:
-            continue
+        table_anchor_row = None
+        table_anchor_col = None
+        table_anchor_map: dict[str, int] = {}
         export_tables = [
             table_entry
             for table_entry in sheet_export.get("tables", [])
@@ -1136,35 +1310,86 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
             and not table_entry["apo"].empty
             and not table_entry["apo"].attrs.get("skip_table", False)
         ]
-        if not export_tables:
-            continue
-        last_block = blocks.get("ventas") or blocks.get("compras")
-        if last_block is None:
-            continue
-        anchor_row = max(int(last_block["header_row"]) + 1, int(last_block["last_data_row"]) - 4)
-        anchor_col = int(last_block["last_used_col"]) + EXCEL_TABLE_START_OFFSET_COLUMNS
-        for idx, table_entry in enumerate(export_tables):
-            display_tipo = str(table_entry.get("display_tipo", "")).strip().lower()
-            if "venta" in display_tipo:
-                block = blocks.get("ventas")
-            elif "compra" in display_tipo:
-                block = blocks.get("compras")
+        last_block = blocks.get("ventas") or blocks.get("compras") if blocks else None
+        if export_tables and last_block is not None:
+            anchor_row = max(int(last_block["header_row"]) + 1, int(last_block["last_data_row"]) - 4)
+            table_anchor_row = anchor_row
+            anchor_col = int(last_block["last_used_col"]) + EXCEL_TABLE_START_OFFSET_COLUMNS
+            table_anchor_col = anchor_col
+            for idx, table_entry in enumerate(export_tables):
+                display_tipo = str(table_entry.get("display_tipo", "")).strip().lower()
+                if "venta" in display_tipo:
+                    block = blocks.get("ventas")
+                elif "compra" in display_tipo:
+                    block = blocks.get("compras")
+                else:
+                    block = blocks.get("compras") or blocks.get("ventas")
+                if block is None:
+                    continue
+                if idx > 0:
+                    anchor_col += EXCEL_TABLE_GAP_COLUMNS
+                anchor_key = ""
+                if "venta" in display_tipo:
+                    anchor_key = "ventas"
+                elif "compra" in display_tipo:
+                    anchor_key = "compras"
+                if anchor_key and anchor_key not in table_anchor_map:
+                    table_anchor_map[anchor_key] = anchor_col
+                width_used = _write_dynamic_formula_table_to_sheet(
+                    ws,
+                    block,
+                    table_entry["apo"],
+                    anchor_row,
+                    anchor_col,
+                    column_color_mapping=table_entry.get("column_color_mapping"),
+                )
+                if width_used:
+                    anchor_col += width_used
+        if trend_charts:
+            if table_anchor_row is not None and last_block is not None:
+                chart_start_row = max(int(last_block["header_row"]) + 6, int(table_anchor_row) - 16)
+            elif last_block is not None:
+                chart_start_row = max(int(last_block["last_data_row"]) + 3, 55)
             else:
-                block = blocks.get("compras") or blocks.get("ventas")
-            if block is None:
-                continue
-            if idx > 0:
-                anchor_col += EXCEL_TABLE_GAP_COLUMNS
-            width_used = _write_dynamic_formula_table_to_sheet(
-                ws,
-                block,
-                table_entry["apo"],
-                anchor_row,
-                anchor_col,
-                column_color_mapping=table_entry.get("column_color_mapping"),
-            )
-            if width_used:
-                anchor_col += width_used
+                chart_start_row = max(ws.max_row + 3, 5)
+            if table_anchor_col is not None:
+                chart_start_col = int(table_anchor_col)
+            elif last_block is not None:
+                chart_start_col = int(last_block["last_used_col"]) + EXCEL_TABLE_START_OFFSET_COLUMNS
+            else:
+                chart_start_col = 1
+            if len(trend_charts) == 2:
+                def _chart_primary_key(chart_spec: dict) -> str:
+                    series_list = chart_spec.get("series") or []
+                    if series_list and isinstance(series_list[0], dict):
+                        block_key = str(series_list[0].get("block_key") or "").strip().lower()
+                        if block_key in {"compras", "ventas"}:
+                            return block_key
+                    block_key = str(chart_spec.get("category_block_key") or "").strip().lower()
+                    return block_key if block_key in {"compras", "ventas"} else ""
+
+                chart_specs_by_key = {
+                    _chart_primary_key(spec): spec
+                    for spec in trend_charts
+                    if _chart_primary_key(spec)
+                }
+                compras_spec = chart_specs_by_key.get("compras")
+                ventas_spec = chart_specs_by_key.get("ventas")
+                if compras_spec is not None:
+                    compras_col = table_anchor_map.get("compras", chart_start_col)
+                    compras_spec["anchor_row"] = chart_start_row
+                    compras_spec["anchor_col"] = compras_col
+                if compras_spec is not None and ventas_spec is not None:
+                    compras_col = int(compras_spec.get("anchor_col", chart_start_col))
+                    compras_span = _estimate_excel_chart_col_span(compras_spec.get("width_emu"))
+                    ventas_base_col = table_anchor_map.get("ventas", compras_col + compras_span)
+                    ventas_col = max(
+                        ventas_base_col + EXCEL_CHART_SECONDARY_SHIFT_COLUMNS,
+                        compras_col + compras_span + EXCEL_CHART_HORIZONTAL_GAP_COLUMNS,
+                    )
+                    ventas_spec["anchor_row"] = chart_start_row
+                    ventas_spec["anchor_col"] = ventas_col
+            _add_native_trend_charts_to_sheet(ws, trend_charts, blocks, chart_start_row, start_col=chart_start_col)
     return save_workbook_with_retry(workbook, output_path)
 
 
@@ -6225,6 +6450,43 @@ def format_origin_label(display_tipo: Optional[str], lang: str) -> str:
     if 'sell-in' in normalized:
         return 'Compras'
     return base
+
+
+def _trend_block_key_from_display_tipo(display_tipo: Optional[str]) -> str:
+    normalized = str(display_tipo or "").strip().lower()
+    if 'venta' in normalized or 'venda' in normalized:
+        return 'ventas'
+    return 'compras'
+
+
+def _build_excel_trend_series_specs(series_config: SeriesConfig, color_mapping: Optional[dict[str, str]], dashed: bool) -> list[dict]:
+    specs: list[dict] = []
+    grouped_label = ''
+    grouped_columns: list[str] = []
+    if hasattr(series_config.data, 'attrs'):
+        grouped_label = str(series_config.data.attrs.get("size_grouped_label", "")).strip()
+        grouped_columns = [
+            str(label).strip()
+            for label in series_config.data.attrs.get("size_grouped_columns", [])
+            if str(label).strip()
+        ]
+    for col in list(series_config.data.columns)[1:]:
+        label = str(col).strip()
+        if not label:
+            continue
+        source_labels = grouped_columns if grouped_label and label == grouped_label and grouped_columns else [label]
+        color_value = (color_mapping or {}).get(label)
+        specs.append(
+            {
+                "label": label,
+                "source_labels": source_labels,
+                "block_key": _trend_block_key_from_display_tipo(series_config.display_tipo),
+                "color": color_value,
+                "dash": dashed,
+                "shift_from_start": _trend_block_key_from_display_tipo(series_config.display_tipo) == 'ventas',
+            }
+        )
+    return specs
 def extract_players_base_key(sheet_name: str) -> Optional[str]:
     """Deriva la clave base para hojas de jugadores (segmento 6)."""
     if not isinstance(sheet_name, str):
@@ -7029,6 +7291,7 @@ for w in W:
         grouped_footer_headers = []
         grouped_footer_label = ''
         chart_color_mappings = {}
+        excel_trend_charts = []
         chart_top_emu = int(Inches(CHART_TOP_INCH))
         chart_height_emu = int(Cm(10))
         min_table_top = chart_top_emu + chart_height_emu + int(vertical_spacing)
@@ -7190,6 +7453,22 @@ for w in W:
             )
             if isinstance(chart_colors, dict):
                 chart_color_mappings.update(chart_colors)
+            combined_series_specs = []
+            for cfg in series_configs:
+                dashed = _trend_block_key_from_display_tipo(cfg.display_tipo) == 'compras'
+                combined_series_specs.extend(
+                    _build_excel_trend_series_specs(cfg, chart_colors, dashed=dashed)
+                )
+            excel_trend_charts.append(
+                {
+                    "title": titulo,
+                    "category_block_key": _trend_block_key_from_display_tipo(series_configs[0].display_tipo),
+                    "start_idx": pipeline_combined,
+                    "series": combined_series_specs,
+                    "height_emu": Cm(10),
+                    "width_emu": available_line_width,
+                }
+            )
             pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_line_width,height=Cm(10))
         elif plot=="2" and len(series_configs)>1:
             ven_param = max(len(series_configs)-1, 1)
@@ -7230,6 +7509,22 @@ for w in W:
                 )
                 if isinstance(chart_colors, dict):
                     chart_color_mappings.update(chart_colors)
+                block_key = _trend_block_key_from_display_tipo(serie.display_tipo)
+                plain_chart_title = f"{titulo} - {serie.display_tipo}"
+                excel_trend_charts.append(
+                    {
+                        "title": plain_chart_title,
+                        "category_block_key": block_key,
+                        "start_idx": serie.pipeline,
+                        "series": _build_excel_trend_series_specs(
+                            serie,
+                            chart_colors,
+                            dashed=block_key == 'compras',
+                        ),
+                        "height_emu": Cm(10),
+                        "width_emu": chart_width,
+                    }
+                )
                 pic=slide.shapes.add_picture(chart_stream, left_position, Inches(CHART_TOP_INCH),width=chart_width,height=Cm(10))
                 plt.clf()
         elif series_configs:
@@ -7253,6 +7548,21 @@ for w in W:
             )
             if isinstance(chart_colors, dict):
                 chart_color_mappings.update(chart_colors)
+            block_key = _trend_block_key_from_display_tipo(series_configs[0].display_tipo)
+            excel_trend_charts.append(
+                {
+                    "title": titulo,
+                    "category_block_key": block_key,
+                    "start_idx": series_configs[0].pipeline,
+                    "series": _build_excel_trend_series_specs(
+                        series_configs[0],
+                        chart_colors,
+                        dashed=False,
+                    ),
+                    "height_emu": Cm(10),
+                    "width_emu": available_single_width,
+                }
+            )
             pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_single_width,height=Cm(10))
             plt.clf()
         color_lookup_keys = build_color_lookup_dict(chart_color_mappings)
@@ -7283,6 +7593,7 @@ for w in W:
                         }
                         for entry in table_entries
                     ],
+                    "trend_charts": excel_trend_charts,
                 }
             )
             table_top = slide_height - target_table_height_emu - bottom_margin_emu
@@ -7353,6 +7664,14 @@ for w in W:
                     )
                     constrain_picture_width(pic, max_width)
                     plt.clf()
+        elif excel_trend_charts:
+            excel_sheet_exports.append(
+                {
+                    "sheet_name": w,
+                    "tables": [],
+                    "trend_charts": excel_trend_charts,
+                }
+            )
         render_share_items = []
         if should_collect_share and stacked_share_sources:
             preferred_order = ['compras', 'ventas']
