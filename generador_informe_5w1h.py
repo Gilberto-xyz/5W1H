@@ -11,6 +11,7 @@ from datetime import datetime as dt
 import os
 import sys
 import io
+from copy import copy
 import csv
 import math
 import textwrap
@@ -27,6 +28,9 @@ from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 from pathlib import Path
 from collections import OrderedDict
+from openpyxl import load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 # Modulos pesados: se cargan en background para reducir el tiempo al primer prompt.
 pd = None
@@ -535,6 +539,365 @@ def save_presentation_with_retry(
             if retry_choice is True:
                 continue
             return None
+
+
+EXCEL_TABLE_START_OFFSET_COLUMNS = 2
+EXCEL_TABLE_GAP_COLUMNS = 1
+EXCEL_TABLE_HEADER_HEIGHT = 34.5
+EXCEL_TABLE_BODY_HEIGHT = 15.75
+EXCEL_TABLE_NUMBER_FORMAT = "0.00%"
+EXCEL_TABLE_POSITIVE_FILL = "FFC6EFCE"
+EXCEL_TABLE_POSITIVE_FONT = "FF006100"
+EXCEL_TABLE_NEGATIVE_FILL = "FFFFC7CE"
+EXCEL_TABLE_NEGATIVE_FONT = "FF9C0006"
+EXCEL_TABLE_NEUTRAL_FONT = "FF000000"
+EXCEL_TABLE_BORDER = Border(
+    left=Side(style="medium", color="FF000000"),
+    right=Side(style="medium", color="FF000000"),
+    top=Side(style="medium", color="FF000000"),
+    bottom=Side(style="medium", color="FF000000"),
+)
+
+
+def save_workbook_with_retry(workbook, output_path: Path) -> bool:
+    """Guarda un workbook evitando archivos temporales parciales."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx", dir=str(output_path.parent)) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+        workbook.save(tmp_path)
+        if output_path.exists():
+            output_path.unlink()
+        os.replace(tmp_path, output_path)
+        return True
+    except PermissionError:
+        return False
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+
+def _find_excel_header_row(ws) -> Optional[int]:
+    compras_row = None
+    table_row = None
+    for row_idx in range(1, ws.max_row + 1):
+        for col_idx in range(1, ws.max_column + 1):
+            cell_value = ws.cell(row_idx, col_idx).value
+            if isinstance(cell_value, str) and 'compras' in _normalize_header_text(cell_value):
+                compras_row = row_idx
+                break
+            if isinstance(cell_value, str) and 'table' in _normalize_header_text(cell_value) and table_row is None:
+                table_row = row_idx
+        if compras_row is not None:
+            break
+    if compras_row is not None:
+        return compras_row
+    return table_row
+
+
+def _find_excel_last_data_row(ws, date_col: int, start_row: int) -> Optional[int]:
+    last_row = None
+    for row_idx in range(start_row, ws.max_row + 1):
+        if _try_parse_reference_date(ws.cell(row_idx, date_col).value) is not None:
+            last_row = row_idx
+    return last_row
+
+
+def _extract_excel_block_columns(ws, header_row: int, start_col: int, end_col: int) -> list[tuple[int, str]]:
+    columns: list[tuple[int, str]] = []
+    for col_idx in range(start_col, end_col + 1):
+        header_value = ws.cell(header_row, col_idx).value
+        if _is_separator_column(header_value):
+            continue
+        header_text = str(header_value).strip() if header_value is not None else ''
+        if not header_text:
+            continue
+        columns.append((col_idx, header_text))
+    return columns
+
+
+def detect_excel_table_blocks(ws) -> dict[str, dict]:
+    """Detecta los bloques fuente de Compras/Ventas directamente en la hoja."""
+    header_row = _find_excel_header_row(ws)
+    if header_row is None:
+        return {}
+    ventas_header_col = None
+    fallback_separator_col = None
+    for col_idx in range(2, ws.max_column + 1):
+        header_value = ws.cell(header_row, col_idx).value
+        normalized = _normalize_header_text(header_value) if header_value is not None else ''
+        if 'ventas' in normalized:
+            ventas_header_col = col_idx
+            break
+        if fallback_separator_col is None and _is_separator_column(header_value):
+            fallback_separator_col = col_idx
+    if ventas_header_col is None and fallback_separator_col is not None:
+        for candidate_col in range(fallback_separator_col + 1, ws.max_column + 1):
+            if not _is_separator_column(ws.cell(header_row, candidate_col).value):
+                ventas_header_col = candidate_col
+                break
+
+    blocks: dict[str, dict] = {}
+    first_data_row = header_row + 1
+    if ventas_header_col is not None:
+        compras_data_cols = _extract_excel_block_columns(ws, header_row, 2, max(1, ventas_header_col - 1))
+        if compras_data_cols:
+            last_row = _find_excel_last_data_row(ws, 1, first_data_row)
+            if last_row is not None:
+                blocks["compras"] = {
+                    "display_tipo": "Compras",
+                    "header_row": header_row,
+                    "date_col": 1,
+                    "data_cols": compras_data_cols,
+                    "first_data_row": first_data_row,
+                    "last_data_row": last_row,
+                    "last_used_col": compras_data_cols[-1][0],
+                }
+        ventas_data_cols = _extract_excel_block_columns(ws, header_row, ventas_header_col + 1, ws.max_column)
+        if ventas_data_cols:
+            last_row = _find_excel_last_data_row(ws, ventas_header_col, first_data_row)
+            if last_row is not None:
+                blocks["ventas"] = {
+                    "display_tipo": "Ventas",
+                    "header_row": header_row,
+                    "date_col": ventas_header_col,
+                    "data_cols": ventas_data_cols,
+                    "first_data_row": first_data_row,
+                    "last_data_row": last_row,
+                    "last_used_col": ventas_data_cols[-1][0],
+                    "pipeline": _extract_pipeline(ws.cell(header_row, ventas_header_col).value),
+                }
+    else:
+        compras_data_cols = _extract_excel_block_columns(ws, header_row, 2, ws.max_column)
+        if compras_data_cols:
+            last_row = _find_excel_last_data_row(ws, 1, first_data_row)
+            if last_row is not None:
+                blocks["compras"] = {
+                    "display_tipo": "Compras",
+                    "header_row": header_row,
+                    "date_col": 1,
+                    "data_cols": compras_data_cols,
+                    "first_data_row": first_data_row,
+                    "last_data_row": last_row,
+                    "last_used_col": compras_data_cols[-1][0],
+                }
+    return blocks
+
+
+def _build_excel_block_column_lookup(block: dict) -> dict[str, list[int]]:
+    lookup: dict[str, list[int]] = {}
+    for col_idx, label in block.get("data_cols", []):
+        normalized = strip_color_suffixes(normalize_color_text(label))
+        if not normalized:
+            continue
+        lookup.setdefault(normalized, []).append(col_idx)
+    return lookup
+
+
+def _resolve_excel_source_columns(block: dict, apo_df) -> list[tuple[str, Optional[int]]]:
+    lookup = _build_excel_block_column_lookup(block)
+    resolved: list[tuple[str, Optional[int]]] = []
+    for column_name in list(apo_df.columns)[1:]:
+        column_label = str(column_name).strip()
+        if not column_label:
+            continue
+        if column_label.lower() == "total":
+            resolved.append((column_label, None))
+            continue
+        normalized = strip_color_suffixes(normalize_color_text(column_label))
+        source_col = None
+        candidates = lookup.get(normalized) or []
+        if candidates:
+            source_col = candidates.pop(0)
+        resolved.append((column_label, source_col))
+    return resolved
+
+
+def _safe_excel_period_label(value) -> str:
+    parsed = _try_parse_reference_date(value)
+    if parsed is None:
+        return str(value).strip() if value is not None else ""
+    return parsed.strftime("%b-%y")
+
+
+def _excel_range_sum_formula(col_start: int, col_end: int, row_start: int, row_end: int) -> str:
+    return f"SUM({get_column_letter(col_start)}{row_start}:{get_column_letter(col_end)}{row_end})"
+
+
+def _excel_column_sum_formula(col_idx: int, row_start: int, row_end: int) -> str:
+    return f"SUM({get_column_letter(col_idx)}{row_start}:{get_column_letter(col_idx)}{row_end})"
+
+
+def _apply_excel_table_style(cell, *, is_header: bool = False, alignment: str = "center") -> None:
+    cell.border = copy(EXCEL_TABLE_BORDER)
+    cell.alignment = Alignment(horizontal=alignment, vertical="center", wrap_text=True)
+    cell.font = Font(name="Arial", bold=is_header, color=EXCEL_TABLE_NEUTRAL_FONT)
+    cell.fill = PatternFill(fill_type=None)
+
+
+def _apply_excel_metric_fill(cell, numeric_value: Optional[float]) -> None:
+    if numeric_value is None or not np.isfinite(numeric_value):
+        cell.fill = PatternFill(fill_type=None)
+        cell.font = Font(name="Arial", bold=False, color=EXCEL_TABLE_NEUTRAL_FONT)
+        return
+    if numeric_value > 0:
+        cell.fill = PatternFill(fill_type="solid", fgColor=EXCEL_TABLE_POSITIVE_FILL)
+        cell.font = Font(name="Arial", bold=False, color=EXCEL_TABLE_POSITIVE_FONT)
+        return
+    if numeric_value < 0:
+        cell.fill = PatternFill(fill_type="solid", fgColor=EXCEL_TABLE_NEGATIVE_FILL)
+        cell.font = Font(name="Arial", bold=False, color=EXCEL_TABLE_NEGATIVE_FONT)
+        return
+    cell.fill = PatternFill(fill_type=None)
+    cell.font = Font(name="Arial", bold=False, color=EXCEL_TABLE_NEUTRAL_FONT)
+
+
+def _write_dynamic_formula_table_to_sheet(ws, block: dict, apo_df, start_row: int, start_col: int) -> int:
+    """Inserta una tabla con fórmulas dinámicas al lado del bloque original."""
+    if apo_df is None or apo_df.empty or apo_df.shape[1] <= 1 or not block.get("data_cols"):
+        return 0
+    try:
+        pipeline = int(block.get("pipeline", 0))
+    except (TypeError, ValueError):
+        pipeline = 0
+    last_data_row = int(block["last_data_row"])
+    prev_start = last_data_row - 23 - pipeline
+    prev_end = last_data_row - 12 - pipeline
+    curr_start = last_data_row - 11 - pipeline
+    curr_end = last_data_row - pipeline
+    if (
+        prev_start < block["first_data_row"]
+        or prev_end < prev_start
+        or curr_start < block["first_data_row"]
+        or curr_end < curr_start
+    ):
+        return 0
+    resolved_columns = _resolve_excel_source_columns(block, apo_df)
+    if not resolved_columns:
+        return 0
+    first_source_col = block["data_cols"][0][0]
+    last_source_col = block["data_cols"][-1][0]
+    metric_labels = [
+        f"Vol {_safe_excel_period_label(ws.cell(prev_end, block['date_col']).value)}",
+        f"Vol {_safe_excel_period_label(ws.cell(curr_end, block['date_col']).value)}",
+        "Var %",
+        "Aporte",
+    ]
+    total_width = len(resolved_columns) + 1
+    header_row = start_row
+    body_start_row = start_row + 1
+    ws.row_dimensions[header_row].height = EXCEL_TABLE_HEADER_HEIGHT
+    for row_idx in range(body_start_row, body_start_row + 4):
+        ws.row_dimensions[row_idx].height = EXCEL_TABLE_BODY_HEIGHT
+
+    title_cell = ws.cell(header_row, start_col)
+    title_cell.value = block.get("display_tipo", "")
+    _apply_excel_table_style(title_cell, is_header=True, alignment="center")
+    for header_offset, (column_label, _) in enumerate(resolved_columns, start=1):
+        header_cell = ws.cell(header_row, start_col + header_offset)
+        header_cell.value = column_label
+        _apply_excel_table_style(header_cell, is_header=True, alignment="center")
+
+    for row_offset, metric_label in enumerate(metric_labels):
+        metric_cell = ws.cell(body_start_row + row_offset, start_col)
+        metric_cell.value = metric_label
+        _apply_excel_table_style(metric_cell, alignment="left")
+
+    prev_total_formula = _excel_range_sum_formula(first_source_col, last_source_col, prev_start, prev_end)
+    curr_total_formula = _excel_range_sum_formula(first_source_col, last_source_col, curr_start, curr_end)
+    for col_offset, (column_label, source_col) in enumerate(resolved_columns, start=1):
+        target_col = start_col + col_offset
+        cell_prev = ws.cell(body_start_row, target_col)
+        cell_curr = ws.cell(body_start_row + 1, target_col)
+        cell_var = ws.cell(body_start_row + 2, target_col)
+        cell_aporte = ws.cell(body_start_row + 3, target_col)
+        for current_cell in (cell_prev, cell_curr, cell_var, cell_aporte):
+            _apply_excel_table_style(current_cell, alignment="center")
+            current_cell.number_format = EXCEL_TABLE_NUMBER_FORMAT
+        if source_col is None:
+            prev_formula = f"=IFERROR({prev_total_formula}/{prev_total_formula},0)"
+            curr_formula = f"=IFERROR({curr_total_formula}/{curr_total_formula},0)"
+            var_formula = f"=IFERROR({curr_total_formula}/{prev_total_formula}-1,0)"
+        else:
+            prev_formula = f"=IFERROR({_excel_column_sum_formula(source_col, prev_start, prev_end)}/{prev_total_formula},0)"
+            curr_formula = f"=IFERROR({_excel_column_sum_formula(source_col, curr_start, curr_end)}/{curr_total_formula},0)"
+            var_formula = f"=IFERROR({_excel_column_sum_formula(source_col, curr_start, curr_end)}/{_excel_column_sum_formula(source_col, prev_start, prev_end)}-1,0)"
+        aporte_formula = f"=IFERROR({get_column_letter(target_col)}{body_start_row + 2}*{get_column_letter(target_col)}{body_start_row},0)"
+        cell_prev.value = prev_formula
+        cell_curr.value = curr_formula
+        cell_var.value = var_formula
+        cell_aporte.value = aporte_formula
+
+        prev_numeric = _parse_percent_cell(apo_df.iloc[0, col_offset]) if len(apo_df.index) > 0 else None
+        curr_numeric = _parse_percent_cell(apo_df.iloc[1, col_offset]) if len(apo_df.index) > 1 else None
+        var_numeric = _parse_percent_cell(apo_df.iloc[2, col_offset]) if len(apo_df.index) > 2 else None
+        aporte_numeric = _parse_percent_cell(apo_df.iloc[3, col_offset]) if len(apo_df.index) > 3 else None
+        _apply_excel_metric_fill(cell_prev, prev_numeric if column_label.lower() == "total" else None)
+        _apply_excel_metric_fill(cell_curr, curr_numeric if column_label.lower() == "total" else None)
+        _apply_excel_metric_fill(cell_var, var_numeric)
+        _apply_excel_metric_fill(cell_aporte, aporte_numeric)
+
+    for col_idx in range(start_col, start_col + total_width):
+        column_letter = get_column_letter(col_idx)
+        current_width = ws.column_dimensions[column_letter].width or 0
+        if col_idx == start_col:
+            ws.column_dimensions[column_letter].width = max(current_width, 13)
+        else:
+            header_text = str(ws.cell(header_row, col_idx).value or "")
+            target_width = min(22, max(13, len(header_text) + 2))
+            ws.column_dimensions[column_letter].width = max(current_width, target_width)
+    return total_width
+
+
+def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path, sheet_exports: list[dict]) -> bool:
+    """Copia el Excel fuente y agrega tablas dinámicas con fórmulas editables."""
+    workbook = load_workbook(source_excel_path)
+    for sheet_export in sheet_exports:
+        sheet_name = sheet_export.get("sheet_name")
+        if not sheet_name or sheet_name not in workbook.sheetnames:
+            continue
+        ws = workbook[sheet_name]
+        blocks = detect_excel_table_blocks(ws)
+        if not blocks:
+            continue
+        export_tables = [
+            table_entry
+            for table_entry in sheet_export.get("tables", [])
+            if isinstance(table_entry.get("apo"), pd.DataFrame)
+            and not table_entry["apo"].empty
+            and not table_entry["apo"].attrs.get("skip_table", False)
+        ]
+        if not export_tables:
+            continue
+        last_block = blocks.get("ventas") or blocks.get("compras")
+        if last_block is None:
+            continue
+        anchor_row = max(int(last_block["header_row"]) + 1, int(last_block["last_data_row"]) - 4)
+        anchor_col = int(last_block["last_used_col"]) + EXCEL_TABLE_START_OFFSET_COLUMNS
+        for idx, table_entry in enumerate(export_tables):
+            display_tipo = str(table_entry.get("display_tipo", "")).strip().lower()
+            if "venta" in display_tipo:
+                block = blocks.get("ventas")
+            elif "compra" in display_tipo:
+                block = blocks.get("compras")
+            else:
+                block = blocks.get("compras") or blocks.get("ventas")
+            if block is None:
+                continue
+            if idx > 0:
+                anchor_col += EXCEL_TABLE_GAP_COLUMNS
+            width_used = _write_dynamic_formula_table_to_sheet(
+                ws,
+                block,
+                table_entry["apo"],
+                anchor_row,
+                anchor_col,
+            )
+            if width_used:
+                anchor_col += width_used
+    return save_workbook_with_retry(workbook, output_path)
+
 
 def normalize_brand_key(brand: str) -> str:
     """Normaliza fabricante para mapearlo siempre al mismo color."""
@@ -5902,6 +6265,7 @@ last_reference_source = None
 last_reference_origin = None
 last_tree_period_dt = None
 players_share_context = {}
+excel_sheet_exports = []
 #---------------------------------------------------------------------------------------------------------------------
 chart_generation_start = dt.now()
 for w in W:
@@ -6443,6 +6807,23 @@ for w in W:
                         }
                     )
         reorder_apo_entries_by_compras(apo_entries)
+        excel_tables_for_sheet = [
+            {
+                "display_tipo": entry.get("display_tipo"),
+                "apo": entry.get("apo"),
+            }
+            for entry in apo_entries
+            if isinstance(entry.get("apo"), pd.DataFrame)
+            and not entry["apo"].empty
+            and not entry["apo"].attrs.get("skip_table", False)
+        ]
+        if excel_tables_for_sheet:
+            excel_sheet_exports.append(
+                {
+                    "sheet_name": w,
+                    "tables": excel_tables_for_sheet,
+                }
+            )
         # Cuadro de texto para columnas eliminadas y/o agrupadas por umbral
         unique_removed_headers = [header for header in dict.fromkeys(removed_headers) if header]
         unique_grouped_headers = [header for header in dict.fromkeys(grouped_footer_headers) if header]
@@ -7154,6 +7535,14 @@ output_foldername = "-".join([
 output_folder = base_dir / output_foldername
 output_folder.mkdir(parents=True, exist_ok=True)
 output_path = output_folder / output_filename
+excel_output_filename = "-".join([
+    simplify_name_segment(land, 30),
+    simplify_name_segment(cat, 40),
+    simplify_name_segment(client, 40),
+    'informe',
+    '5W1H'
+]) + '.xlsx'
+excel_output_path = output_folder / excel_output_filename
 total_elapsed_seconds = (chart_generation_end - chart_generation_start).total_seconds()
 try:
     saved_ok = save_presentation_with_retry(
@@ -7171,8 +7560,17 @@ if saved_ok is None:
 if saved_ok is False:
     print_file_locked_error(str(output_path), elapsed_seconds=total_elapsed_seconds)
     sys.exit(1)
+excel_saved_ok = generate_excel_output_with_tables(
+    base_dir / excel,
+    excel_output_path,
+    excel_sheet_exports,
+)
+if not excel_saved_ok:
+    print_file_locked_error(str(excel_output_path), elapsed_seconds=total_elapsed_seconds)
+    sys.exit(1)
 print_loading_done("Generacion de slides completada")
 print_colored(f'Presentacion guardada en: {output_path}', COLOR_GREEN)
+print_colored(f'Excel guardado en: {excel_output_path}', COLOR_GREEN)
 chart_elapsed = (chart_generation_end - chart_generation_start).total_seconds()
 print_colored(
     f'Tiempo de generacion de graficos : {int(chart_elapsed // 60)} min {chart_elapsed % 60:.3f} s'
