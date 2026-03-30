@@ -548,6 +548,10 @@ EXCEL_TABLE_START_OFFSET_COLUMNS = 2
 EXCEL_TABLE_GAP_COLUMNS = 1
 EXCEL_CHART_HORIZONTAL_GAP_COLUMNS = 2
 EXCEL_CHART_SECONDARY_SHIFT_COLUMNS = 1
+EXCEL_CHART_WIDTH_SCALE = 4.0
+EXCEL_CHART_HEIGHT_SCALE = 4.0
+EXCEL_CHART_PAIR_ROW_OFFSET = 32
+EXCEL_CHART_PAIR_OVERLAP_RATIO = 0.48
 EXCEL_TABLE_HEADER_HEIGHT = 34.5
 EXCEL_TABLE_BODY_HEIGHT = 15.75
 EXCEL_TABLE_NUMBER_FORMAT = "0.00%"
@@ -608,7 +612,7 @@ def _estimate_excel_chart_row_span(height_emu) -> int:
         height_in = emu_to_inches(height_emu) if height_emu is not None else emu_to_inches(Cm(10))
     except Exception:
         height_in = 4.0
-    return max(20, int(math.ceil(height_in * 6)) + 3)
+    return max(20, int(math.ceil(height_in * 6 * EXCEL_CHART_HEIGHT_SCALE)) + 3)
 
 
 def _estimate_excel_chart_col_span(width_emu) -> int:
@@ -616,7 +620,7 @@ def _estimate_excel_chart_col_span(width_emu) -> int:
         width_in = emu_to_inches(width_emu) if width_emu is not None else 7.5
     except Exception:
         width_in = 7.5
-    return max(8, int(math.ceil(width_in * 1.55)))
+    return max(8, int(math.ceil(width_in * 1.55 * EXCEL_CHART_WIDTH_SCALE)))
 
 
 def _resolve_trend_source_columns(block: dict, source_labels: list[str]) -> list[int]:
@@ -669,8 +673,8 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
     chart.style = 2
     chart_height_emu = chart_spec.get("height_emu")
     chart_width_emu = chart_spec.get("width_emu")
-    chart.height = emu_to_inches(chart_height_emu) if chart_height_emu is not None else 7.2
-    chart.width = emu_to_inches(chart_width_emu) if chart_width_emu is not None else 15
+    chart.height = (emu_to_inches(chart_height_emu) if chart_height_emu is not None else 7.2) * EXCEL_CHART_HEIGHT_SCALE
+    chart.width = (emu_to_inches(chart_width_emu) if chart_width_emu is not None else 15) * EXCEL_CHART_WIDTH_SCALE
     chart.legend.position = "b"
     chart.y_axis.majorGridlines = None
     chart.x_axis.title = ""
@@ -1358,6 +1362,10 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
                 chart_start_col = int(last_block["last_used_col"]) + EXCEL_TABLE_START_OFFSET_COLUMNS
             else:
                 chart_start_col = 1
+            if len(trend_charts) == 1 and table_anchor_row is not None and last_block is not None:
+                chart_start_row = max(int(last_block["header_row"]) + 4, int(table_anchor_row) - EXCEL_CHART_PAIR_ROW_OFFSET)
+                trend_charts[0]["anchor_row"] = chart_start_row
+                trend_charts[0]["anchor_col"] = int(table_anchor_map.get("compras", chart_start_col))
             if len(trend_charts) == 2:
                 def _chart_primary_key(chart_spec: dict) -> str:
                     series_list = chart_spec.get("series") or []
@@ -1373,6 +1381,8 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
                     for spec in trend_charts
                     if _chart_primary_key(spec)
                 }
+                if table_anchor_row is not None and last_block is not None:
+                    chart_start_row = max(int(last_block["header_row"]) + 4, int(table_anchor_row) - EXCEL_CHART_PAIR_ROW_OFFSET)
                 compras_spec = chart_specs_by_key.get("compras")
                 ventas_spec = chart_specs_by_key.get("ventas")
                 if compras_spec is not None:
@@ -1385,7 +1395,7 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
                     ventas_base_col = table_anchor_map.get("ventas", compras_col + compras_span)
                     ventas_col = max(
                         ventas_base_col + EXCEL_CHART_SECONDARY_SHIFT_COLUMNS,
-                        compras_col + compras_span + EXCEL_CHART_HORIZONTAL_GAP_COLUMNS,
+                        compras_col + max(1, int(round(compras_span * EXCEL_CHART_PAIR_OVERLAP_RATIO))),
                     )
                     ventas_spec["anchor_row"] = chart_start_row
                     ventas_spec["anchor_col"] = ventas_col
