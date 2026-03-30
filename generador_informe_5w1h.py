@@ -559,6 +559,45 @@ EXCEL_TABLE_BORDER = Border(
 )
 
 
+def _hex_to_excel_argb(color_value: Optional[str], fallback: str = "FFFFFFFF") -> str:
+    if not color_value:
+        return fallback
+    color_text = str(color_value).strip()
+    if not color_text:
+        return fallback
+    if color_text.startswith("#"):
+        color_text = color_text[1:]
+    if len(color_text) == 6:
+        return f"FF{color_text.upper()}"
+    if len(color_text) == 8:
+        return color_text.upper()
+    return fallback
+
+
+def _rgb_float_to_excel_argb(rgb_tuple) -> str:
+    rgb = tuple(max(0, min(255, int(round(channel * 255)))) for channel in rgb_tuple[:3])
+    return f"FF{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
+
+
+def _relative_luminance(rgb_tuple) -> float:
+    return 0.2126 * rgb_tuple[0] + 0.7152 * rgb_tuple[1] + 0.0722 * rgb_tuple[2]
+
+
+def _excel_font_color_for_fill(color_value: Optional[str], fallback_dark: str = EXCEL_TABLE_NEUTRAL_FONT) -> str:
+    try:
+        rgb = mcolors.to_rgb(color_value)
+    except Exception:
+        return fallback_dark
+    return "FFFFFFFF" if _relative_luminance(rgb) < 0.6 else fallback_dark
+
+
+def _set_excel_fill(cell, color_value: Optional[str]) -> None:
+    if not color_value:
+        cell.fill = PatternFill(fill_type=None)
+        return
+    cell.fill = PatternFill(fill_type="solid", fgColor=_hex_to_excel_argb(color_value))
+
+
 def save_workbook_with_retry(workbook, output_path: Path) -> bool:
     """Guarda un workbook evitando archivos temporales parciales."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -753,7 +792,228 @@ def _apply_excel_metric_fill(cell, numeric_value: Optional[float]) -> None:
     cell.font = Font(name="Arial", bold=False, color=EXCEL_TABLE_NEUTRAL_FONT)
 
 
-def _write_dynamic_formula_table_to_sheet(ws, block: dict, apo_df, start_row: int, start_col: int) -> int:
+def _style_excel_formula_table(
+    ws,
+    apo_df,
+    start_row: int,
+    start_col: int,
+    resolved_columns: list[tuple[str, Optional[int]]],
+    column_color_mapping: Optional[dict[str, str]] = None,
+) -> None:
+    """Replica en Excel la lógica visual usada por la tabla renderizada en la PPT."""
+    total_column_name = next(
+        (col_name for col_name, _ in resolved_columns if str(col_name).strip().lower() == "total"),
+        None
+    )
+    data_columns = [
+        idx
+        for idx, (col_name, _) in enumerate(resolved_columns, start=1)
+        if total_column_name is None or str(col_name).strip() != str(total_column_name).strip()
+    ]
+    column_color_mapping = column_color_mapping or {}
+    exact_color_mapping = {
+        str(key).strip(): value
+        for key, value in column_color_mapping.items()
+        if key is not None and value
+    }
+    normalized_color_mapping = {
+        str(key).strip().lower(): value
+        for key, value in exact_color_mapping.items()
+        if str(key).strip()
+    }
+    suffix_variants = ('.c', '.v', '_c', '_v', '-c', '-v')
+
+    def resolve_column_color(column_name):
+        if column_name is None:
+            return None
+        key = str(column_name).strip()
+        if not key:
+            return None
+        color_value = exact_color_mapping.get(key)
+        if color_value:
+            return color_value
+        lower_key = key.lower()
+        color_value = normalized_color_mapping.get(lower_key)
+        if color_value:
+            return color_value
+        for suffix in suffix_variants:
+            if lower_key.endswith(suffix):
+                base = key[:-len(suffix)].strip()
+                if not base:
+                    continue
+                color_value = exact_color_mapping.get(base)
+                if color_value:
+                    return color_value
+                color_value = normalized_color_mapping.get(base.lower())
+                if color_value:
+                    return color_value
+        return None
+
+    start_rgb = np.array(mcolors.to_rgb(VOLUME_BAR_START))
+    end_rgb = np.array(mcolors.to_rgb(VOLUME_BAR_END))
+
+    def share_colors(count: int):
+        if count <= 0:
+            return []
+        if count == 1:
+            return [mcolors.to_hex(np.clip(start_rgb, 0, 1))]
+        colors = []
+        for idx in range(count):
+            ratio = idx / (count - 1)
+            rgb = np.clip(start_rgb + (end_rgb - start_rgb) * ratio, 0, 1)
+            colors.append(mcolors.to_hex(rgb))
+        return colors
+
+    fallback_column_colors = share_colors(len(data_columns))
+    column_colors = {}
+    for rel_idx, col_idx in enumerate(data_columns):
+        col_name = resolved_columns[col_idx - 1][0]
+        resolved = resolve_column_color(col_name)
+        if resolved is None:
+            resolved = fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END
+        try:
+            column_colors[col_idx] = mcolors.to_hex(resolved)
+        except Exception:
+            column_colors[col_idx] = fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END
+
+    header_row = start_row
+    body_start_row = start_row + 1
+    volume_row_indexes = [idx for idx, label in enumerate(apo_df.iloc[:, 0]) if str(label).strip().lower().startswith('vol')]
+    aporte_row_index = next((idx for idx, label in enumerate(apo_df.iloc[:, 0]) if str(label).strip().lower() == 'aporte'), None)
+
+    def to_percentage(value):
+        try:
+            text_value = str(value).strip().replace('%', '').replace(',', '.')
+            if not text_value:
+                return None
+            return max(0.0, float(text_value) / 100.0)
+        except Exception:
+            return None
+
+    def to_signed_percentage(value):
+        try:
+            text_value = str(value).strip().replace('%', '').replace(',', '.')
+            if not text_value:
+                return None
+            return float(text_value) / 100.0
+        except Exception:
+            return None
+
+    for rel_col_idx, (column_label, _) in enumerate(resolved_columns, start=1):
+        header_cell = ws.cell(header_row, start_col + rel_col_idx)
+        if total_column_name is not None and str(column_label).strip().lower() == 'total':
+            _set_excel_fill(header_cell, HEADER_COLOR_PRIMARY)
+            header_cell.font = Font(name='Arial', bold=True, color=_hex_to_excel_argb(HEADER_FONT_COLOR))
+            continue
+        if rel_col_idx in data_columns:
+            header_color = resolve_column_color(column_label) or HEADER_COLOR_SECONDARY
+            _set_excel_fill(header_cell, header_color)
+            header_cell.font = Font(name='Arial', bold=True, color=_excel_font_color_for_fill(header_color))
+        else:
+            _set_excel_fill(header_cell, HEADER_COLOR_SECONDARY)
+            header_cell.font = Font(name='Arial', bold=True, color=_hex_to_excel_argb(HEADER_FONT_COLOR))
+
+    first_header_cell = ws.cell(header_row, start_col)
+    _set_excel_fill(first_header_cell, HEADER_COLOR_PRIMARY)
+    first_header_cell.font = Font(name='Arial', bold=True, color=_hex_to_excel_argb(HEADER_FONT_COLOR))
+
+    for row_offset in range(len(apo_df.index)):
+        row_idx = body_start_row + row_offset
+        label = str(apo_df.iloc[row_offset, 0])
+        label_cell = ws.cell(row_idx, start_col)
+        _set_excel_fill(label_cell, HEADER_FIRST_COL_FILL)
+        label_cell.font = Font(name='Arial', bold=True, color=EXCEL_TABLE_NEUTRAL_FONT)
+        for rel_col_idx, (column_label, _) in enumerate(resolved_columns, start=1):
+            cell = ws.cell(row_idx, start_col + rel_col_idx)
+            is_total_col = total_column_name is not None and str(column_label).strip().lower() == 'total'
+            if is_total_col:
+                _set_excel_fill(cell, HEADER_TOTAL_FILL)
+            else:
+                cell.fill = PatternFill(fill_type="solid", fgColor="FFFFFFFF")
+            if label.lower().startswith('vol'):
+                cell.font = Font(name='Arial', bold=False, color=EXCEL_TABLE_NEUTRAL_FONT)
+            else:
+                numeric = _parse_percent_cell(apo_df.iloc[row_offset, rel_col_idx])
+                if numeric is not None:
+                    font_color = _hex_to_excel_argb(TABLE_POSITIVE_COLOR if numeric >= 0 else TABLE_NEGATIVE_COLOR)
+                    cell.font = Font(name='Arial', bold=False, color=font_color)
+
+    if aporte_row_index is not None:
+        aporte_values = []
+        for rel_col_idx in data_columns:
+            numeric = to_signed_percentage(apo_df.iloc[aporte_row_index, rel_col_idx])
+            if numeric is not None:
+                aporte_values.append((rel_col_idx, numeric))
+        if aporte_values:
+            aporte_numbers = [value for _, value in aporte_values]
+            min_val = min(aporte_numbers)
+            max_val = max(aporte_numbers)
+            cmap = None
+            norm = None
+            if not math.isclose(min_val, max_val, rel_tol=1e-9, abs_tol=1e-9):
+                if min_val < 0 and max_val > 0:
+                    cmap = mcolors.LinearSegmentedColormap.from_list(
+                        'aporte_diverging_excel',
+                        [APORTE_NEGATIVE_COLOR, APORTE_NEUTRAL_COLOR, TABLE_POSITIVE_COLOR]
+                    )
+                    norm = mcolors.TwoSlopeNorm(vmin=min_val, vcenter=0, vmax=max_val)
+                elif max_val <= 0:
+                    cmap = mcolors.LinearSegmentedColormap.from_list(
+                        'aporte_negative_excel',
+                        [APORTE_NEGATIVE_COLOR, APORTE_NEUTRAL_COLOR]
+                    )
+                    norm = mcolors.Normalize(vmin=min_val, vmax=0)
+                else:
+                    cmap = mcolors.LinearSegmentedColormap.from_list(
+                        'aporte_positive_excel',
+                        [APORTE_NEUTRAL_COLOR, TABLE_POSITIVE_COLOR]
+                    )
+                    norm = mcolors.Normalize(vmin=0, vmax=max_val)
+            for rel_col_idx, numeric in aporte_values:
+                cell = ws.cell(body_start_row + aporte_row_index, start_col + rel_col_idx)
+                if cmap is not None and norm is not None:
+                    rgb = tuple(cmap(norm(numeric))[:3])
+                else:
+                    if math.isclose(numeric, 0.0, abs_tol=1e-9):
+                        rgb = mcolors.to_rgb(APORTE_NEUTRAL_COLOR)
+                    elif numeric > 0:
+                        rgb = mcolors.to_rgb(TABLE_POSITIVE_COLOR)
+                    else:
+                        rgb = mcolors.to_rgb(APORTE_NEGATIVE_COLOR)
+                cell.fill = PatternFill(fill_type="solid", fgColor=_rgb_float_to_excel_argb(rgb))
+                font_color = EXCEL_TABLE_NEUTRAL_FONT if _relative_luminance(rgb) > 0.5 else "FFFFFFFF"
+                cell.font = Font(name='Arial', bold=False, color=font_color)
+
+    white_rgb = np.array([1.0, 1.0, 1.0])
+    for df_row_idx in volume_row_indexes:
+        row_percentages = {}
+        max_percent = 0.0
+        for rel_col_idx in data_columns:
+            percent = to_percentage(apo_df.iloc[df_row_idx, rel_col_idx])
+            row_percentages[rel_col_idx] = percent
+            if percent is not None and percent > max_percent:
+                max_percent = percent
+        for rel_col_idx in data_columns:
+            percent = row_percentages.get(rel_col_idx)
+            if percent is None:
+                continue
+            bar_color = column_colors.get(rel_col_idx, VOLUME_BAR_END)
+            base_rgb = np.array(mcolors.to_rgb(bar_color))
+            intensity = min(percent / max_percent, 1.0) if max_percent > 0 else 0.0
+            blended_rgb = white_rgb * (1.0 - intensity) + base_rgb * intensity
+            cell = ws.cell(body_start_row + df_row_idx, start_col + rel_col_idx)
+            cell.fill = PatternFill(fill_type="solid", fgColor=_rgb_float_to_excel_argb(blended_rgb))
+            cell.font = Font(name='Arial', bold=False, color=EXCEL_TABLE_NEUTRAL_FONT)
+
+
+def _write_dynamic_formula_table_to_sheet(
+    ws,
+    block: dict,
+    apo_df,
+    start_row: int,
+    start_col: int,
+    column_color_mapping: Optional[dict[str, str]] = None,
+) -> int:
     """Inserta una tabla con fórmulas dinámicas al lado del bloque original."""
     if apo_df is None or apo_df.empty or apo_df.shape[1] <= 1 or not block.get("data_cols"):
         return 0
@@ -847,6 +1107,14 @@ def _write_dynamic_formula_table_to_sheet(ws, block: dict, apo_df, start_row: in
             header_text = str(ws.cell(header_row, col_idx).value or "")
             target_width = min(22, max(13, len(header_text) + 2))
             ws.column_dimensions[column_letter].width = max(current_width, target_width)
+    _style_excel_formula_table(
+        ws,
+        apo_df,
+        start_row,
+        start_col,
+        resolved_columns,
+        column_color_mapping=column_color_mapping,
+    )
     return total_width
 
 
@@ -893,6 +1161,7 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
                 table_entry["apo"],
                 anchor_row,
                 anchor_col,
+                column_color_mapping=table_entry.get("column_color_mapping"),
             )
             if width_used:
                 anchor_col += width_used
@@ -6807,23 +7076,6 @@ for w in W:
                         }
                     )
         reorder_apo_entries_by_compras(apo_entries)
-        excel_tables_for_sheet = [
-            {
-                "display_tipo": entry.get("display_tipo"),
-                "apo": entry.get("apo"),
-            }
-            for entry in apo_entries
-            if isinstance(entry.get("apo"), pd.DataFrame)
-            and not entry["apo"].empty
-            and not entry["apo"].attrs.get("skip_table", False)
-        ]
-        if excel_tables_for_sheet:
-            excel_sheet_exports.append(
-                {
-                    "sheet_name": w,
-                    "tables": excel_tables_for_sheet,
-                }
-            )
         # Cuadro de texto para columnas eliminadas y/o agrupadas por umbral
         unique_removed_headers = [header for header in dict.fromkeys(removed_headers) if header]
         unique_grouped_headers = [header for header in dict.fromkeys(grouped_footer_headers) if header]
@@ -7020,6 +7272,19 @@ for w in W:
                     if color_value:
                         mapping[column] = color_value
                 return mapping
+            excel_sheet_exports.append(
+                {
+                    "sheet_name": w,
+                    "tables": [
+                        {
+                            "display_tipo": entry.get("display_tipo"),
+                            "apo": entry.get("apo"),
+                            "column_color_mapping": build_table_color_mapping(entry.get("apo")),
+                        }
+                        for entry in table_entries
+                    ],
+                }
+            )
             table_top = slide_height - target_table_height_emu - bottom_margin_emu
             if table_top > min_table_top:
                 table_top = min_table_top
