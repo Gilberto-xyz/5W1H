@@ -34,6 +34,7 @@ from openpyxl.chart.axis import DateAxis
 from openpyxl.chart.data_source import AxDataSource, NumDataSource, NumRef, StrRef
 from openpyxl.chart.layout import Layout, ManualLayout
 from openpyxl.chart.series import Series, SeriesLabel
+from openpyxl.drawing.image import Image as OpenpyxlImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -1390,6 +1391,7 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
         if not sheet_name or sheet_name not in workbook.sheetnames:
             continue
         ws = workbook[sheet_name]
+        export_images = sheet_export.get("images", []) or []
         trend_charts = sheet_export.get("trend_charts", []) or []
         blocks = detect_excel_table_blocks(ws)
         table_anchor_row = None
@@ -1488,6 +1490,34 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
                     ventas_spec["anchor_row"] = chart_start_row
                     ventas_spec["anchor_col"] = ventas_col
             _add_native_trend_charts_to_sheet(ws, trend_charts, blocks, chart_start_row, start_col=chart_start_col)
+        if export_images:
+            base_row = max(ws.max_row + 3, 5)
+            current_row = base_row
+            for image_entry in export_images:
+                image_bytes = image_entry.get("image_bytes")
+                if not image_bytes:
+                    continue
+                anchor_cell = str(image_entry.get("anchor_cell") or "").strip()
+                anchor_col = max(1, int(image_entry.get("anchor_col", 1) or 1))
+                anchor_row = max(current_row, int(image_entry.get("anchor_row", base_row) or base_row))
+                image_stream = io.BytesIO(image_bytes)
+                image_stream.seek(0)
+                excel_image = OpenpyxlImage(image_stream)
+                width_px = image_entry.get("width_px")
+                height_px = image_entry.get("height_px")
+                try:
+                    if width_px:
+                        excel_image.width = float(width_px)
+                    if height_px:
+                        excel_image.height = float(height_px)
+                except Exception:
+                    pass
+                if anchor_cell:
+                    ws.add_image(excel_image, anchor_cell)
+                else:
+                    ws.add_image(excel_image, f"{get_column_letter(anchor_col)}{anchor_row}")
+                estimated_rows = max(18, int(math.ceil((float(height_px) if height_px else 420.0) / 20.0)))
+                current_row = anchor_row + estimated_rows
     return save_workbook_with_retry(workbook, output_path)
 
 
@@ -7209,6 +7239,8 @@ for w in W:
             hoja=sheet_name_clean.replace(" ", "_"),
             output_dir=None
         )
+        tree_image_bytes = tree_stream.getvalue()
+        tree_stream.seek(0)
         if fig_size:
             fig_width_in, fig_height_in = fig_size
         else:
@@ -7263,6 +7295,21 @@ for w in W:
         comment_para = comment_tf.paragraphs[0]
         comment_para.text = "Comentario"
         comment_para.font.size = Inches(0.25)
+        excel_sheet_exports.append(
+            {
+                "sheet_name": w,
+                "tables": [],
+                "trend_charts": [],
+                "images": [
+                    {
+                        "image_bytes": tree_image_bytes,
+                        "anchor_cell": "E1",
+                        "width_px": max(960, int(round(fig_width_in * DEFAULT_EXPORT_DPI * 0.65))),
+                        "height_px": max(360, int(round(fig_height_in * DEFAULT_EXPORT_DPI * 0.65))),
+                    }
+                ],
+            }
+        )
         # No imprimimos mensaje de finalización para mantener la terminal concisa
         continue
     # Segmento 1: grafico de variaciones MAT (cuando).
