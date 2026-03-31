@@ -30,6 +30,7 @@ from pathlib import Path
 from collections import OrderedDict
 from openpyxl import load_workbook
 from openpyxl.chart import LineChart, Reference
+from openpyxl.chart.axis import DateAxis
 from openpyxl.chart.data_source import AxDataSource, NumDataSource, NumRef, StrRef
 from openpyxl.chart.series import Series, SeriesLabel
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -676,12 +677,22 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
     chart.height = (emu_to_inches(chart_height_emu) if chart_height_emu is not None else 7.2) * EXCEL_CHART_HEIGHT_SCALE
     chart.width = (emu_to_inches(chart_width_emu) if chart_width_emu is not None else 15) * EXCEL_CHART_WIDTH_SCALE
     chart.legend.position = "b"
+    chart.visible_cells_only = False
     chart.y_axis.majorGridlines = None
     chart.x_axis.title = ""
     chart.y_axis.title = ""
-    chart.y_axis.crosses = "autoZero"
-    added_series = 0
-    added_series_specs = []
+    chart.x_axis.delete = False
+    chart.y_axis.delete = False
+    chart.x_axis.axPos = "b"
+    chart.x_axis.tickLblPos = "nextTo"
+    chart.x_axis.crosses = "min"
+    chart.x_axis.majorTickMark = "out"
+    chart.x_axis.minorTickMark = "none"
+    chart.y_axis.axPos = "l"
+    chart.y_axis.crosses = "min"
+    chart.y_axis.majorTickMark = "out"
+    chart.y_axis.minorTickMark = "none"
+    prepared_series = []
     for series_spec in chart_spec.get("series", []):
         block = blocks.get(series_spec.get("block_key"))
         if block is None:
@@ -702,39 +713,101 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
             continue
         cat_last_row = cat_first_row + row_count - 1
         val_last_row = val_first_row + row_count - 1
-        category_labels = [
-            _safe_excel_period_label(ws.cell(row_idx, int(block["date_col"])).value)
+        raw_category_values = [
+            ws.cell(row_idx, int(block["date_col"])).value
             for row_idx in range(cat_first_row, cat_last_row + 1)
         ]
-        cat_ref = _write_chart_helper_column(
-            ws,
-            cat_first_row,
-            cat_last_row,
-            values=category_labels,
+        parsed_category_values = [_try_parse_reference_date(value) for value in raw_category_values]
+        prepared_series.append(
+            {
+                "series_spec": series_spec,
+                "cat_first_row": cat_first_row,
+                "cat_last_row": cat_last_row,
+                "val_first_row": val_first_row,
+                "val_last_row": val_last_row,
+                "source_cols": source_cols,
+                "raw_category_values": raw_category_values,
+                "parsed_category_values": parsed_category_values,
+            }
         )
-        if len(source_cols) == 1:
-            val_ref = _quoted_sheet_ref(ws, source_cols[0], val_first_row, val_last_row)
+    if not prepared_series:
+        return None
+    use_date_axis = all(all(value is not None for value in item["parsed_category_values"]) for item in prepared_series)
+    if use_date_axis:
+        chart.x_axis = DateAxis(crossAx=chart.y_axis.axId)
+        chart.y_axis.crossAx = chart.x_axis.axId
+        chart.x_axis.delete = False
+        chart.x_axis.axPos = "b"
+        chart.x_axis.number_format = "mmm-yy"
+        chart.x_axis.baseTimeUnit = "months"
+        chart.x_axis.majorTimeUnit = "months"
+        chart.x_axis.majorUnit = 1
+        chart.x_axis.tickLblPos = "nextTo"
+        chart.x_axis.crosses = "min"
+        chart.x_axis.majorTickMark = "out"
+        chart.x_axis.minorTickMark = "none"
+        chart.x_axis.lblOffset = 100
+        chart.x_axis.title = ""
+        chart.y_axis.delete = False
+    added_series_specs = []
+    category_ref_cache: dict[tuple[str, tuple], str] = {}
+    for prepared in prepared_series:
+        series_spec = prepared["series_spec"]
+        if use_date_axis:
+            category_values = [
+                value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                for value in prepared["parsed_category_values"]
+            ]
+            cache_key = ("date", tuple(category_values))
+            cat_ref = category_ref_cache.get(cache_key)
+            if cat_ref is None:
+                cat_ref = _write_chart_helper_column(
+                    ws,
+                    prepared["cat_first_row"],
+                    prepared["cat_last_row"],
+                    values=category_values,
+                    number_format="mmm-yy",
+                )
+                category_ref_cache[cache_key] = cat_ref
+            cat_source = AxDataSource(numRef=NumRef(f=cat_ref))
+        else:
+            category_labels = [_safe_excel_period_label(value) for value in prepared["raw_category_values"]]
+            cache_key = ("label", tuple(category_labels))
+            cat_ref = category_ref_cache.get(cache_key)
+            if cat_ref is None:
+                cat_ref = _write_chart_helper_column(
+                    ws,
+                    prepared["cat_first_row"],
+                    prepared["cat_last_row"],
+                    values=category_labels,
+                )
+                category_ref_cache[cache_key] = cat_ref
+            cat_source = AxDataSource(strRef=StrRef(f=cat_ref))
+        if len(prepared["source_cols"]) == 1:
+            val_ref = _quoted_sheet_ref(
+                ws,
+                prepared["source_cols"][0],
+                prepared["val_first_row"],
+                prepared["val_last_row"],
+            )
         else:
             helper_formulas = []
-            for row_idx in range(val_first_row, val_last_row + 1):
-                row_refs = [f"{get_column_letter(col_idx)}{row_idx}" for col_idx in source_cols]
+            for row_idx in range(prepared["val_first_row"], prepared["val_last_row"] + 1):
+                row_refs = [f"{get_column_letter(col_idx)}{row_idx}" for col_idx in prepared["source_cols"]]
                 helper_formulas.append("=" + "+".join(row_refs))
             val_ref = _write_chart_helper_column(
                 ws,
-                val_first_row,
-                val_last_row,
+                prepared["val_first_row"],
+                prepared["val_last_row"],
                 formulas=helper_formulas,
             )
         series_obj = Series(
-            cat=AxDataSource(strRef=StrRef(f=cat_ref)),
+            cat=cat_source,
             val=NumDataSource(numRef=NumRef(f=val_ref)),
         )
         series_obj.title = SeriesLabel(v=str(series_spec.get("label") or "Serie"))
         chart.ser.append(series_obj)
         added_series_specs.append(series_spec)
-        added_series += 1
-    if added_series == 0:
-        return None
     for series_obj, series_spec in zip(chart.ser, added_series_specs):
         color_value = series_spec.get("color")
         if color_value:
@@ -3111,6 +3184,7 @@ def line_graf(
     base_gap = 0.075 if not detected_multi else 0.070         # espacio visual típico
     min_axes_legend_gap = 0.070 if not detected_multi else 0.080  # mínimo absoluto entre eje y leyenda
     margin_buffer = 0.020                                      # margen al borde inferior de la figura
+    inner_plot_lift = 0.040 if not detected_multi else 0.032   # eleva el area del eje sin mover la leyenda
 
     legend_bottom_margin = chart_bottom_margin
     legend_columns = 1
@@ -3151,13 +3225,13 @@ def line_graf(
     elif title:
         plt.title(title, size=title_base_size, pad=10)
 
-    bottom_margin = min(0.9, max(0.05, legend_bottom_margin))
-    if bottom_margin >= effective_top_margin:
-        bottom_margin = max(0.05, effective_top_margin - 0.05)
+    axis_bottom_margin = min(0.9, max(0.05, legend_bottom_margin + inner_plot_lift))
+    if axis_bottom_margin >= effective_top_margin:
+        axis_bottom_margin = max(0.05, effective_top_margin - 0.05)
 
     fig.subplots_adjust(
         top=effective_top_margin,
-        bottom=bottom_margin,
+        bottom=axis_bottom_margin,
         left=chart_left_margin,
         right=chart_right_margin,
     )
@@ -3168,7 +3242,7 @@ def line_graf(
 
         # Queremos que la parte superior de la leyenda quede legend_clearance
         # por debajo del borde inferior del eje.
-        legend_top = axes_box.y0 - legend_clearance
+        legend_top = max(margin_buffer + legend_height_fraction, legend_bottom_margin - legend_clearance)
 
         legend = ax.legend(
             lns,
@@ -5605,10 +5679,7 @@ def _find_first_date_row(
     if df is None or df.empty or df.shape[1] == 0:
         return None
     first_col = df.iloc[start_idx:, 0]
-    parsed = pd.to_datetime(first_col, format=date_format, errors='coerce')
-    non_empty = pd.Series(True, index=first_col.index)
-    if first_col.dtype == object:
-        non_empty = first_col.astype(str).str.strip().ne('')
+    parsed, non_empty = _parse_flexible_date_series(first_col)
     valid = parsed.notna() & non_empty
     if valid.any():
         return valid[valid].index[0]
@@ -5683,6 +5754,37 @@ def parse_sheet_with_date_fallback(
             )
         df = excel_file.parse(sheet_name, header=header_idx)
         return ensure_date_column(df, sheet_name=sheet_name, date_format=date_format)
+
+
+def _parse_flexible_date_series(series: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """Convierte una serie de fechas usando el helper global soportando formatos mixtos."""
+    if series is None:
+        return pd.Series(dtype="datetime64[ns]"), pd.Series(dtype=bool)
+    if pd.api.types.is_datetime64_any_dtype(series):
+        parsed = pd.to_datetime(series, errors='coerce')
+        return parsed, parsed.notna()
+
+    parsed_values = []
+    non_empty = []
+    for raw_value in series.tolist():
+        value = raw_value
+        if isinstance(value, str):
+            value = value.strip()
+        is_empty = value is None or value == "" or (isinstance(value, float) and math.isnan(value))
+        if is_empty:
+            parsed_values.append(pd.NaT)
+            non_empty.append(False)
+            continue
+        parsed_value = _try_parse_reference_date(value)
+        parsed_values.append(pd.Timestamp(parsed_value) if parsed_value is not None else pd.NaT)
+        non_empty.append(True)
+
+    return (
+        pd.Series(parsed_values, index=series.index, dtype="datetime64[ns]"),
+        pd.Series(non_empty, index=series.index, dtype=bool),
+    )
+
+
 def ensure_date_column(df: pd.DataFrame, sheet_name: Optional[str] = None, date_format: str = '%b-%y  ') -> pd.DataFrame:
     """
     Valida y convierte la primera columna a fecha (formato MMM-YY).
@@ -5691,13 +5793,8 @@ def ensure_date_column(df: pd.DataFrame, sheet_name: Optional[str] = None, date_
     if df is None or df.empty or df.shape[1] == 0:
         return df
     first_col = df.iloc[:, 0]
-    if np.issubdtype(first_col.dtype, np.datetime64):
-        return df
     context = f" en la hoja {sheet_name}" if sheet_name else ""
-    parsed = pd.to_datetime(first_col, format=date_format, errors='coerce')
-    non_empty = pd.Series(True, index=first_col.index)
-    if first_col.dtype == object:
-        non_empty = first_col.astype(str).str.strip().ne('')
+    parsed, non_empty = _parse_flexible_date_series(first_col)
     invalid_count = int((parsed.isna() & non_empty).sum())
     if invalid_count > 0 or parsed.notna().sum() == 0:
         raise ValueError(
