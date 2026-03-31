@@ -32,6 +32,7 @@ from openpyxl import load_workbook
 from openpyxl.chart import LineChart, Reference
 from openpyxl.chart.axis import DateAxis
 from openpyxl.chart.data_source import AxDataSource, NumDataSource, NumRef, StrRef
+from openpyxl.chart.layout import Layout, ManualLayout
 from openpyxl.chart.series import Series, SeriesLabel
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -676,7 +677,21 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
     chart_width_emu = chart_spec.get("width_emu")
     chart.height = (emu_to_inches(chart_height_emu) if chart_height_emu is not None else 7.2) * EXCEL_CHART_HEIGHT_SCALE
     chart.width = (emu_to_inches(chart_width_emu) if chart_width_emu is not None else 15) * EXCEL_CHART_WIDTH_SCALE
+    chart.layout = Layout(
+        manualLayout=ManualLayout(
+            layoutTarget="inner",
+            xMode="factor",
+            yMode="factor",
+            wMode="factor",
+            hMode="factor",
+            x=0.02,
+            y=0.02,
+            w=0.96,
+            h=0.72,
+        )
+    )
     chart.legend.position = "b"
+    chart.legend.overlay = False
     chart.visible_cells_only = False
     chart.y_axis.majorGridlines = None
     chart.x_axis.title = ""
