@@ -5107,6 +5107,8 @@ c_w = {
     ('P','3-1') : '3W - O quê? Tamanhos',
     ('P','3-2') : '3W - O quê? Marcas',
     ('P','3-3') : '3W - O quê? Sabores',
+    ('P','3-4') : '3W - O quê? Subsegmento',
+    ('P','3-5') : '3W - O quê? Subcategoria',
     ('P','4')   : '4W - Quem? NSE (Nível Socioeconômico)',
     ('P','5-1') : '5W - Onde? Regiões',
     ('P','5-2') : '5W - Onde? Canais',
@@ -5121,6 +5123,8 @@ c_w = {
     ('E','3-1') : '3W - ¿Qué? Tamaños',
     ('E','3-2') : '3W - ¿Qué? Marcas',
     ('E','3-3') : '3W - ¿Qué? Sabores',
+    ('E','3-4') : '3W - ¿Qué? Subsegmento',
+    ('E','3-5') : '3W - ¿Qué? Subcategoría',
     ('E','4')   : '4W - ¿Quiénes? NSE (Nivel socioeconómico)',
     ('E','5-1') : '5W - ¿Dónde? Regiones',
     ('E','5-2') : '5W - ¿Dónde? Canales',
@@ -5587,7 +5591,7 @@ def build_terminal_label(sheet_name: str, lang: str, category_name: str) -> Opti
     elif first_char == '4':
         cw_key = '4'
     elif first_char == '3':
-        cw_key = f"3-{variant}" if variant in {'1', '2', '3'} else '3'
+        cw_key = f"3-{variant}" if variant in {'1', '2', '3', '4', '5'} else '3'
     elif first_char in {'2', '1'}:
         cw_key = first_char
     if cw_key:
@@ -7423,7 +7427,7 @@ for w in W:
             step_variant = parsed_sheet['variant'] if parsed_sheet else ''
             if first_char == '6':
                 should_collect_share = True
-            elif first_char == '3' and step_variant in {'1', '2'}:
+            elif first_char == '3' and step_variant in {'3', '4', '5'}:
                 should_collect_share = True
             elif first_char == '5' and step_variant == '2':
                 should_collect_share = True
