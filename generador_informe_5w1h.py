@@ -708,9 +708,6 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
     chart.y_axis.crosses = "min"
     chart.y_axis.majorTickMark = "out"
     chart.y_axis.minorTickMark = "none"
-    use_share_series = bool(chart_spec.get("use_share_series"))
-    if use_share_series:
-        chart.y_axis.number_format = "0.0%"
     prepared_series = []
     for series_spec in chart_spec.get("series", []):
         block = blocks.get(series_spec.get("block_key"))
@@ -805,21 +802,7 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
                 )
                 category_ref_cache[cache_key] = cat_ref
             cat_source = AxDataSource(strRef=StrRef(f=cat_ref))
-        if use_share_series:
-            total_source_cols = [col_idx for col_idx, _ in block.get("data_cols", [])]
-            helper_formulas = []
-            for row_idx in range(prepared["val_first_row"], prepared["val_last_row"] + 1):
-                numerator_formula = _excel_multi_cell_sum_formula(prepared["source_cols"], row_idx)
-                denominator_formula = _excel_multi_cell_sum_formula(total_source_cols, row_idx)
-                helper_formulas.append(f"=IFERROR(({numerator_formula})/({denominator_formula}),0)")
-            val_ref = _write_chart_helper_column(
-                ws,
-                prepared["val_first_row"],
-                prepared["val_last_row"],
-                formulas=helper_formulas,
-                number_format="0.0%",
-            )
-        elif len(prepared["source_cols"]) == 1:
+        if len(prepared["source_cols"]) == 1:
             val_ref = _quoted_sheet_ref(
                 ws,
                 prepared["source_cols"][0],
@@ -1069,22 +1052,6 @@ def _excel_multi_column_sum_formula(col_indexes: list[int], row_start: int, row_
         _excel_column_sum_formula(col_idx, row_start, row_end)
         for col_idx in valid_indexes
     )
-
-
-def _excel_multi_cell_sum_formula(col_indexes: list[int], row_idx: int) -> str:
-    valid_indexes = []
-    for col_idx in col_indexes:
-        try:
-            normalized_idx = int(col_idx)
-        except (TypeError, ValueError):
-            continue
-        if normalized_idx > 0:
-            valid_indexes.append(normalized_idx)
-    if not valid_indexes:
-        return "0"
-    if len(valid_indexes) == 1:
-        return f"{get_column_letter(valid_indexes[0])}{row_idx}"
-    return "+".join(f"{get_column_letter(col_idx)}{row_idx}" for col_idx in valid_indexes)
 
 
 def _apply_excel_table_style(cell, *, is_header: bool = False, alignment: str = "center") -> None:
@@ -7665,13 +7632,6 @@ for w in W:
                 "titulo": titulo,
                 "compras_top10": compras_top10,
             }
-        grouped_size_chart_for_excel = bool(
-            is_segment3_size_sheet(w)
-            and any(
-                str(getattr(cfg.data, "attrs", {}).get("size_grouped_label", "")).strip()
-                for cfg in series_configs
-            )
-        )
         if plot=="1" and len(series_configs)>1:
             df_full = series_configs[0].data.copy()
             for extra in series_configs[1:]:
@@ -7733,7 +7693,6 @@ for w in W:
                     "series": combined_series_specs,
                     "height_emu": Cm(10),
                     "width_emu": available_line_width,
-                    "use_share_series": grouped_size_chart_for_excel,
                 }
             )
             pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_line_width,height=Cm(10))
@@ -7790,7 +7749,6 @@ for w in W:
                         ),
                         "height_emu": Cm(10),
                         "width_emu": chart_width,
-                        "use_share_series": grouped_size_chart_for_excel,
                     }
                 )
                 pic=slide.shapes.add_picture(chart_stream, left_position, Inches(CHART_TOP_INCH),width=chart_width,height=Cm(10))
@@ -7829,7 +7787,6 @@ for w in W:
                     ),
                     "height_emu": Cm(10),
                     "width_emu": available_single_width,
-                    "use_share_series": grouped_size_chart_for_excel,
                 }
             )
             pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_single_width,height=Cm(10))
