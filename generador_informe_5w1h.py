@@ -708,6 +708,9 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
     chart.y_axis.crosses = "min"
     chart.y_axis.majorTickMark = "out"
     chart.y_axis.minorTickMark = "none"
+    use_share_series = bool(chart_spec.get("use_share_series"))
+    if use_share_series:
+        chart.y_axis.number_format = "0.0%"
     prepared_series = []
     for series_spec in chart_spec.get("series", []):
         block = blocks.get(series_spec.get("block_key"))
@@ -769,6 +772,9 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
     category_ref_cache: dict[tuple[str, tuple], str] = {}
     for prepared in prepared_series:
         series_spec = prepared["series_spec"]
+        block = blocks.get(series_spec.get("block_key"))
+        if block is None:
+            continue
         if use_date_axis:
             category_values = [
                 value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -799,7 +805,21 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
                 )
                 category_ref_cache[cache_key] = cat_ref
             cat_source = AxDataSource(strRef=StrRef(f=cat_ref))
-        if len(prepared["source_cols"]) == 1:
+        if use_share_series:
+            total_source_cols = [col_idx for col_idx, _ in block.get("data_cols", [])]
+            helper_formulas = []
+            for row_idx in range(prepared["val_first_row"], prepared["val_last_row"] + 1):
+                numerator_formula = _excel_multi_cell_sum_formula(prepared["source_cols"], row_idx)
+                denominator_formula = _excel_multi_cell_sum_formula(total_source_cols, row_idx)
+                helper_formulas.append(f"=IFERROR(({numerator_formula})/({denominator_formula}),0)")
+            val_ref = _write_chart_helper_column(
+                ws,
+                prepared["val_first_row"],
+                prepared["val_last_row"],
+                formulas=helper_formulas,
+                number_format="0.0%",
+            )
+        elif len(prepared["source_cols"]) == 1:
             val_ref = _quoted_sheet_ref(
                 ws,
                 prepared["source_cols"][0],
@@ -993,22 +1013,27 @@ def _build_excel_block_column_lookup(block: dict) -> dict[str, list[int]]:
     return lookup
 
 
-def _resolve_excel_source_columns(block: dict, apo_df) -> list[tuple[str, Optional[int]]]:
+def _resolve_excel_source_columns(block: dict, apo_df) -> list[tuple[str, list[int]]]:
     lookup = _build_excel_block_column_lookup(block)
-    resolved: list[tuple[str, Optional[int]]] = []
+    grouped_source_labels = {}
+    if hasattr(apo_df, "attrs"):
+        grouped_source_labels = apo_df.attrs.get("grouped_source_labels", {}) or {}
+    resolved: list[tuple[str, list[int]]] = []
     for column_name in list(apo_df.columns)[1:]:
         column_label = str(column_name).strip()
         if not column_label:
             continue
         if column_label.lower() == "total":
-            resolved.append((column_label, None))
+            resolved.append((column_label, []))
             continue
-        normalized = strip_color_suffixes(normalize_color_text(column_label))
-        source_col = None
-        candidates = lookup.get(normalized) or []
-        if candidates:
-            source_col = candidates.pop(0)
-        resolved.append((column_label, source_col))
+        source_cols: list[int] = []
+        source_labels = grouped_source_labels.get(column_label) or [column_label]
+        for source_label in source_labels:
+            normalized = strip_color_suffixes(normalize_color_text(source_label))
+            candidates = lookup.get(normalized) or []
+            if candidates:
+                source_cols.append(candidates.pop(0))
+        resolved.append((column_label, source_cols))
     return resolved
 
 
@@ -1025,6 +1050,41 @@ def _excel_range_sum_formula(col_start: int, col_end: int, row_start: int, row_e
 
 def _excel_column_sum_formula(col_idx: int, row_start: int, row_end: int) -> str:
     return f"SUM({get_column_letter(col_idx)}{row_start}:{get_column_letter(col_idx)}{row_end})"
+
+
+def _excel_multi_column_sum_formula(col_indexes: list[int], row_start: int, row_end: int) -> str:
+    valid_indexes = []
+    for col_idx in col_indexes:
+        try:
+            normalized_idx = int(col_idx)
+        except (TypeError, ValueError):
+            continue
+        if normalized_idx > 0:
+            valid_indexes.append(normalized_idx)
+    if not valid_indexes:
+        return "0"
+    if len(valid_indexes) == 1:
+        return _excel_column_sum_formula(valid_indexes[0], row_start, row_end)
+    return "+".join(
+        _excel_column_sum_formula(col_idx, row_start, row_end)
+        for col_idx in valid_indexes
+    )
+
+
+def _excel_multi_cell_sum_formula(col_indexes: list[int], row_idx: int) -> str:
+    valid_indexes = []
+    for col_idx in col_indexes:
+        try:
+            normalized_idx = int(col_idx)
+        except (TypeError, ValueError):
+            continue
+        if normalized_idx > 0:
+            valid_indexes.append(normalized_idx)
+    if not valid_indexes:
+        return "0"
+    if len(valid_indexes) == 1:
+        return f"{get_column_letter(valid_indexes[0])}{row_idx}"
+    return "+".join(f"{get_column_letter(col_idx)}{row_idx}" for col_idx in valid_indexes)
 
 
 def _apply_excel_table_style(cell, *, is_header: bool = False, alignment: str = "center") -> None:
@@ -1325,7 +1385,7 @@ def _write_dynamic_formula_table_to_sheet(
 
     prev_total_formula = _excel_range_sum_formula(first_source_col, last_source_col, prev_start, prev_end)
     curr_total_formula = _excel_range_sum_formula(first_source_col, last_source_col, curr_start, curr_end)
-    for col_offset, (column_label, source_col) in enumerate(resolved_columns, start=1):
+    for col_offset, (column_label, source_cols) in enumerate(resolved_columns, start=1):
         target_col = start_col + col_offset
         cell_prev = ws.cell(body_start_row, target_col)
         cell_curr = ws.cell(body_start_row + 1, target_col)
@@ -1334,14 +1394,20 @@ def _write_dynamic_formula_table_to_sheet(
         for current_cell in (cell_prev, cell_curr, cell_var, cell_aporte):
             _apply_excel_table_style(current_cell, alignment="center")
             current_cell.number_format = EXCEL_TABLE_NUMBER_FORMAT
-        if source_col is None:
+        if column_label.lower() == "total":
             prev_formula = f"=IFERROR({prev_total_formula}/{prev_total_formula},0)"
             curr_formula = f"=IFERROR({curr_total_formula}/{curr_total_formula},0)"
             var_formula = f"=IFERROR({curr_total_formula}/{prev_total_formula}-1,0)"
+        elif not source_cols:
+            prev_formula = "=0"
+            curr_formula = "=0"
+            var_formula = "=0"
         else:
-            prev_formula = f"=IFERROR({_excel_column_sum_formula(source_col, prev_start, prev_end)}/{prev_total_formula},0)"
-            curr_formula = f"=IFERROR({_excel_column_sum_formula(source_col, curr_start, curr_end)}/{curr_total_formula},0)"
-            var_formula = f"=IFERROR({_excel_column_sum_formula(source_col, curr_start, curr_end)}/{_excel_column_sum_formula(source_col, prev_start, prev_end)}-1,0)"
+            prev_source_formula = _excel_multi_column_sum_formula(source_cols, prev_start, prev_end)
+            curr_source_formula = _excel_multi_column_sum_formula(source_cols, curr_start, curr_end)
+            prev_formula = f"=IFERROR(({prev_source_formula})/{prev_total_formula},0)"
+            curr_formula = f"=IFERROR(({curr_source_formula})/{curr_total_formula},0)"
+            var_formula = f"=IFERROR(({curr_source_formula})/({prev_source_formula})-1,0)"
         aporte_formula = f"=IFERROR({get_column_letter(target_col)}{body_start_row + 2}*{get_column_letter(target_col)}{body_start_row},0)"
         cell_prev.value = prev_formula
         cell_curr.value = curr_formula
@@ -4006,11 +4072,21 @@ def aporte(df,p,lang,tipo):
         """Construye la tabla de aporte y calcula shares/variaciones."""
         aux = df.copy()
         removed_non_numeric: list[str] = []
+        grouped_label = ""
+        grouped_columns_labels: list[str] = []
+        if hasattr(df, "attrs"):
+            grouped_label = str(df.attrs.get("size_grouped_label", "")).strip()
+            grouped_columns_labels = [
+                str(label).strip()
+                for label in df.attrs.get("size_grouped_columns", [])
+                if str(label).strip()
+            ]
         if aux.empty:
             apo = pd.DataFrame(columns=[tipo])
             apo.attrs["removed_columns"] = []
             apo.attrs["share_period_values"] = []
             apo.attrs["share_mat_values"] = {}
+            apo.attrs["grouped_source_labels"] = {}
             apo.attrs["skip_table"] = True
             apo.attrs["skip_table_reason"] = "empty_data"
             return apo
@@ -4042,6 +4118,7 @@ def aporte(df,p,lang,tipo):
             apo.attrs["removed_columns"] = list(dict.fromkeys(removed_non_numeric))
             apo.attrs["share_period_values"] = []
             apo.attrs["share_mat_values"] = {}
+            apo.attrs["grouped_source_labels"] = {}
             apo.attrs["skip_table"] = True
             apo.attrs["skip_table_reason"] = "no_numeric_columns"
             return apo
@@ -4058,6 +4135,7 @@ def aporte(df,p,lang,tipo):
             apo.attrs["removed_columns"] = list(dict.fromkeys(removed_non_numeric))
             apo.attrs["share_period_values"] = []
             apo.attrs["share_mat_values"] = {}
+            apo.attrs["grouped_source_labels"] = {}
             apo.attrs["skip_table"] = True
             apo.attrs["skip_table_reason"] = "insufficient_periods"
             return apo
@@ -4094,6 +4172,11 @@ def aporte(df,p,lang,tipo):
             apo.drop(columns=invalid_columns, inplace=True)
         removed_all = list(dict.fromkeys(removed_non_numeric + invalid_columns))
         apo.attrs["removed_columns"] = removed_all
+        apo.attrs["grouped_source_labels"] = (
+            {grouped_label: grouped_columns_labels}
+            if grouped_label and grouped_columns_labels
+            else {}
+        )
         share_period_values = []
         max_share_rows = min(2, len(apo.index))
         for row_idx in range(max_share_rows):
@@ -6630,6 +6713,9 @@ def _build_excel_trend_series_specs(series_config: SeriesConfig, color_mapping: 
         label = str(col).strip()
         if not label:
             continue
+        numeric_series = pd.to_numeric(series_config.data[col], errors='coerce')
+        if numeric_series.replace(0, np.nan).dropna().empty:
+            continue
         source_labels = grouped_columns if grouped_label and label == grouped_label and grouped_columns else [label]
         color_value = (color_mapping or {}).get(label)
         specs.append(
@@ -7579,6 +7665,13 @@ for w in W:
                 "titulo": titulo,
                 "compras_top10": compras_top10,
             }
+        grouped_size_chart_for_excel = bool(
+            is_segment3_size_sheet(w)
+            and any(
+                str(getattr(cfg.data, "attrs", {}).get("size_grouped_label", "")).strip()
+                for cfg in series_configs
+            )
+        )
         if plot=="1" and len(series_configs)>1:
             df_full = series_configs[0].data.copy()
             for extra in series_configs[1:]:
@@ -7640,6 +7733,7 @@ for w in W:
                     "series": combined_series_specs,
                     "height_emu": Cm(10),
                     "width_emu": available_line_width,
+                    "use_share_series": grouped_size_chart_for_excel,
                 }
             )
             pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_line_width,height=Cm(10))
@@ -7696,6 +7790,7 @@ for w in W:
                         ),
                         "height_emu": Cm(10),
                         "width_emu": chart_width,
+                        "use_share_series": grouped_size_chart_for_excel,
                     }
                 )
                 pic=slide.shapes.add_picture(chart_stream, left_position, Inches(CHART_TOP_INCH),width=chart_width,height=Cm(10))
@@ -7734,6 +7829,7 @@ for w in W:
                     ),
                     "height_emu": Cm(10),
                     "width_emu": available_single_width,
+                    "use_share_series": grouped_size_chart_for_excel,
                 }
             )
             pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_single_width,height=Cm(10))
