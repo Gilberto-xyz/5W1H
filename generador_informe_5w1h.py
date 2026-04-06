@@ -1725,7 +1725,6 @@ LINE_CHART_MULTI_X_MARGIN = 0.16
 DEFAULT_EXPORT_DPI = 110
 TABLE_EXPORT_DPI = 220
 EXPORT_PAD_INCHES = 0.08
-PNG_COMPRESS_LEVEL = 1
 CHART_TOP_INCH = 0.72
 def emu_to_inches(value: int) -> float:
     """Convierte unidades EMU a pulgadas."""
@@ -1763,14 +1762,7 @@ def figure_to_stream(
         "pad_inches": pad_inches,
         "transparent": transparent,
     }
-    if isinstance(PNG_COMPRESS_LEVEL, int) and 0 <= PNG_COMPRESS_LEVEL <= 9:
-        savefig_kwargs["pil_kwargs"] = {"compress_level": PNG_COMPRESS_LEVEL}
-    try:
-        fig.savefig(buf, **savefig_kwargs)
-    except TypeError:
-        # Compatibilidad con versiones antiguas de matplotlib sin soporte de pil_kwargs.
-        savefig_kwargs.pop("pil_kwargs", None)
-        fig.savefig(buf, **savefig_kwargs)
+    fig.savefig(buf, **savefig_kwargs)
     buf.seek(0)
     if close:
         try:
@@ -6893,7 +6885,6 @@ def build_price_index_slide(
             width=available_line_width,
             height=chart_height
         )
-        plt.clf()
         chart_colors.setdefault('Total', '#000000')
         if not price_original_df.empty and chart_colors:
             data_cols = [col for col in price_df.columns[1:] if col in chart_colors]
@@ -6945,7 +6936,6 @@ def build_price_index_slide(
                         height=target_table_height
                     )
                     constrain_picture_width(pic_table, available_line_width)
-                    plt.clf()
     return c_fig
 # Variable de control del numero de graficos
 def _try_parse_reference_date(value):
@@ -7091,7 +7081,6 @@ for w in W:
         comment_para = comment_tf.paragraphs[0]
         comment_para.text = "Comentario"
         comment_para.font.size = Inches(0.25)
-        plt.clf()
         continue
     # Segmento 8: intervalos y error muestral con bloques mensuales + agregados.
     if sheet_clean.startswith('8'):
@@ -7207,7 +7196,6 @@ for w in W:
         comment_para = comment_tf.paragraphs[0]
         comment_para.text = "Comentario" if lang == 'P' else "Comentario"
         comment_para.font.size = Inches(0.25)
-        plt.clf()
         last_reference_source = raw_df
         last_reference_origin = 'Segmento 8'
         continue
@@ -7421,7 +7409,6 @@ for w in W:
         t.text = "Comentario"
         t.font.size = Inches(0.28)
         #Limpa área de plotagem
-        plt.clf()
         #mensaje de conclusion por cada slide
     # Segmentos 3-6: comparativos y competencia con grafico + tabla de aportes.
     else: 
@@ -7752,7 +7739,6 @@ for w in W:
                     }
                 )
                 pic=slide.shapes.add_picture(chart_stream, left_position, Inches(CHART_TOP_INCH),width=chart_width,height=Cm(10))
-                plt.clf()
         elif series_configs:
             c_fig+=1
             left_margin = Inches(0.33)
@@ -7790,7 +7776,6 @@ for w in W:
                 }
             )
             pic=slide.shapes.add_picture(chart_stream, left_margin, Inches(CHART_TOP_INCH),width=available_single_width,height=Cm(10))
-            plt.clf()
         color_lookup_keys = build_color_lookup_dict(chart_color_mappings)
         table_entries = [
             entry for entry in apo_entries
@@ -7849,7 +7834,6 @@ for w in W:
                     )
                     constrain_picture_width(pic, max_width)
                     paired_shapes.append((pic, max_width))
-                    plt.clf()
                 if paired_shapes:
                     min_height = min(shape.height for shape, _ in paired_shapes if shape is not None)
                     for shape, max_width in paired_shapes:
@@ -7889,7 +7873,6 @@ for w in W:
                         height=target_table_height
                     )
                     constrain_picture_width(pic, max_width)
-                    plt.clf()
         elif excel_trend_charts:
             excel_sheet_exports.append(
                 {
@@ -8280,7 +8263,6 @@ for w in W:
                         else:
                             para.font.color.rgb = RGBColor(90, 90, 90)
                 current_left_in += entry["target_width_in"] + horizontal_gap_in
-                plt.clf()
         # Mensaje final omitido para evitar ruido en consola
 chart_generation_end = dt.now()
 # Referencia de la base
