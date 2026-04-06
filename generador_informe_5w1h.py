@@ -1710,7 +1710,8 @@ DEFAULT_LINE_CHART_RATIO = 3
 TABLE_TARGET_HEIGHT_CM = 4.0
 TABLE_SIDE_MARGIN_CM = 1.2
 TABLE_PAIR_GAP_CM = 0.5
-TABLE_HEADER_FONT_SIZE = 10
+TABLE_HEADER_FONT_SIZE = 11
+TABLE_BODY_FONT_SIZE = 11
 TABLE_WRAP_WIDTH = 14
 LINE_CHART_LEFT_MARGIN = 0.045
 LINE_CHART_RIGHT_MARGIN = 0.99
@@ -1724,6 +1725,7 @@ LINE_CHART_MULTI_TOP_MARGIN = 0.85
 LINE_CHART_MULTI_X_MARGIN = 0.16
 DEFAULT_EXPORT_DPI = 110
 TABLE_EXPORT_DPI = 220
+TABLE_APORTE_EXPORT_DPI = 150
 EXPORT_PAD_INCHES = 0.08
 CHART_TOP_INCH = 0.72
 def emu_to_inches(value: int) -> float:
@@ -3255,6 +3257,7 @@ def line_graf(
     min_axes_legend_gap = 0.070 if not detected_multi else 0.080  # mínimo absoluto entre eje y leyenda
     margin_buffer = 0.020                                      # margen al borde inferior de la figura
     inner_plot_lift = 0.040 if not detected_multi else 0.032   # eleva el area del eje sin mover la leyenda
+    needs_tight_export = False
 
     legend_bottom_margin = chart_bottom_margin
     legend_columns = 1
@@ -3378,6 +3381,7 @@ def line_graf(
                         remaining = [info for info in annotation_candidates if info not in selected_series]
                         selected_series.extend(remaining[: max(0, 5 - len(selected_series))])
             if selected_series:
+                needs_tight_export = True
                 x_limits = ax.get_xlim()
                 y_limits = ax.get_ylim()
                 y_range = y_limits[1] - y_limits[0] if y_limits[1] > y_limits[0] else 1.0
@@ -3481,13 +3485,15 @@ def line_graf(
                 annotated += 1
                 if annotated >= top_value_annotations:
                     break
+            if annotated > 0:
+                needs_tight_export = True
     if isinstance(color_collector, dict):
         color_collector.clear()
         for col, line in zip(plotted_columns, lns):
             color_collector[col] = line.get_color()
-    # En tendencias dejamos recorte "tight" para incluir etiquetas externas
-    # (por ejemplo, anotaciones al lado derecho) y evitar textos cortados.
-    return figure_to_stream(fig, bbox_inches='tight', pad_inches=0.02)
+    export_bbox = 'tight' if needs_tight_export else None
+    export_pad = 0.02 if needs_tight_export else 0
+    return figure_to_stream(fig, bbox_inches=export_bbox, pad_inches=export_pad)
 #Normaliza etiquetas de periodo eliminando prefijos genericos
 def normalize_period_label(label) -> str:
     """Normaliza etiquetas de periodo eliminando prefijos genericos."""
@@ -4390,48 +4396,28 @@ def reorder_share_entries_by_compras(share_chart_entries: List[dict]) -> None:
         entry["periods"] = reordered_periods
 
 def graf_apo(apo, c_fig, column_color_mapping=None):
-    """Renderiza la tabla de aporte como imagen PNG."""
-    fig, ax = plt.subplots(num=c_fig, dpi=DEFAULT_EXPORT_DPI)
-    row_height = 0.45
-    col_width = 1.0
+    """Renderiza la tabla de aporte como imagen PNG usando dibujo manual para evitar el costo de matplotlib.table."""
     n_rows, n_cols = apo.shape
-    fig_width = col_width * n_cols
-    fig_height = row_height * (n_rows + 0.2)
-    fig.set_size_inches(fig_width, fig_height)
-    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    ax.axis('off')
-    ax.set_facecolor('white')
+    export_dpi = TABLE_APORTE_EXPORT_DPI
+    if n_rows == 0 or n_cols == 0:
+        fig = plt.figure(num=c_fig, figsize=(2.5, 1.2), dpi=export_dpi)
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis('off')
+        return figure_to_stream(fig, dpi=export_dpi, bbox_inches=None, pad_inches=0)
+
     display_data = apo.copy()
     if display_data.shape[1] > 0:
         display_data.iloc[:, 0] = display_data.iloc[:, 0].map(wrap_table_text)
     display_col_labels = [wrap_table_text(str(label)) for label in apo.columns]
-    table = ax.table(
-        cellText=display_data.values,
-        colLabels=display_col_labels,
-        loc='center',
-        cellLoc='center'
-    )
-    for i, _ in enumerate(apo.columns):
-        table.auto_set_column_width(i)
-    total_column_name = next((col for col in apo.columns if str(col).strip().lower() == 'total'), None)
-    table.scale(1, 1.2)
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    header_line_count = max((len(str(label).splitlines()) for label in display_col_labels), default=1)
-    if header_line_count > 1:
-        header_height_factor = min(2.0, 1.0 + 0.45 * (header_line_count - 1))
-        for col_idx in range(n_cols):
-            header_cell = table[(0, col_idx)]
-            header_cell.set_height(header_cell.get_height() * header_height_factor)
+
     header_main = HEADER_COLOR_PRIMARY
     header_secondary = HEADER_COLOR_SECONDARY
     total_fill = HEADER_TOTAL_FILL
     first_col_fill = HEADER_FIRST_COL_FILL
     positive_color = TABLE_POSITIVE_COLOR
     negative_color = TABLE_NEGATIVE_COLOR
-    bar_padding_ratio = 0.08
-    bar_height_ratio = 0.55
     column_color_mapping = column_color_mapping or {}
+
     exact_color_mapping = {
         str(key).strip(): value
         for key, value in column_color_mapping.items()
@@ -4443,6 +4429,7 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
         if key
     }
     suffix_variants = ('.c', '.v', '_c', '_v', '-c', '-v')
+
     def resolve_column_color(column_name):
         if column_name is None:
             return None
@@ -4468,6 +4455,36 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
                 if color_value:
                     return color_value
         return None
+
+    def to_percentage(value):
+        try:
+            text_value = str(value).strip().replace('%', '').replace(',', '.')
+            if not text_value:
+                return None
+            return max(0.0, float(text_value) / 100.0)
+        except Exception:
+            return None
+
+    def to_signed_percentage(value):
+        try:
+            text_value = str(value).strip().replace('%', '').replace(',', '.')
+            if not text_value:
+                return None
+            return float(text_value) / 100.0
+        except Exception:
+            return None
+
+    def text_metrics(value) -> tuple[str, int, int]:
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            text = ""
+        else:
+            text = str(value)
+        lines = text.splitlines() if text else [""]
+        line_count = len(lines)
+        max_len = max((len(line.strip()) for line in lines), default=0)
+        return text, line_count, max_len
+
+    total_column_name = next((col for col in apo.columns if str(col).strip().lower() == 'total'), None)
     data_columns = [
         idx
         for idx in range(1, n_cols)
@@ -4475,6 +4492,8 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
     ]
     start_rgb = np.array(mcolors.to_rgb(VOLUME_BAR_START))
     end_rgb = np.array(mcolors.to_rgb(VOLUME_BAR_END))
+    white_rgb = np.array([1.0, 1.0, 1.0])
+
     def share_colors(count: int):
         if count <= 0:
             return []
@@ -4486,86 +4505,28 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
             rgb = np.clip(start_rgb + (end_rgb - start_rgb) * ratio, 0, 1)
             colors.append(mcolors.to_hex(rgb))
         return colors
+
     fallback_column_colors = share_colors(len(data_columns))
-    column_colors = []
+    column_colors: dict[int, str] = {}
     for rel_idx, col_idx in enumerate(data_columns):
         resolved = resolve_column_color(apo.columns[col_idx])
         if resolved is None:
             resolved = fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END
         try:
-            column_colors.append(mcolors.to_hex(resolved))
+            column_colors[col_idx] = mcolors.to_hex(resolved)
         except (ValueError, TypeError):
-            column_colors.append(fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END)
-    white_rgb = np.array([1.0, 1.0, 1.0])
+            column_colors[col_idx] = fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END
+
     volume_row_indexes = [idx for idx, label in enumerate(apo.iloc[:, 0]) if str(label).lower().startswith('vol')]
     aporte_row_index = next((idx for idx, label in enumerate(apo.iloc[:, 0]) if str(label).strip().lower() == 'aporte'), None)
-    def to_percentage(value):
-        try:
-            text_value = str(value).strip().replace('%', '').replace(',', '.')
-            if not text_value:
-                return None
-            return max(0.0, float(text_value) / 100.0)
-        except Exception:
-            return None
-    def to_signed_percentage(value):
-        try:
-            text_value = str(value).strip().replace('%', '').replace(',', '.')
-            if not text_value:
-                return None
-            return float(text_value) / 100.0
-        except Exception:
-            return None
-    for (row, col), cell in table.get_celld().items():
-        cell.set_edgecolor(TABLE_GRID_COLOR)
-        cell.set_linewidth(1)
-        cell.get_text().set_zorder(3)
-        if row == 0:
-            text = cell.get_text()
-            text.set_weight('bold')
-            text.set_fontsize(TABLE_HEADER_FONT_SIZE)
-            header_text_color = HEADER_FONT_COLOR
-            if col == 0 or (total_column_name is not None and apo.columns[col] == total_column_name):
-                cell.set_facecolor(header_main)
-            else:
-                header_color = resolve_column_color(apo.columns[col])
-                if header_color is None:
-                    cell.set_facecolor(header_secondary)
-                else:
-                    try:
-                        cell.set_facecolor(header_color)
-                        rgb = mcolors.to_rgb(header_color)
-                        luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
-                        header_text_color = '#FFFFFF' if luminance < 0.6 else TABLE_TEXT_PRIMARY
-                    except (ValueError, TypeError):
-                        cell.set_facecolor(header_secondary)
-            text.set_color(header_text_color)
-        else:
-            label = str(apo.iloc[row - 1, 0])
-            text = cell.get_text()
-            if col == 0:
-                cell.set_facecolor(first_col_fill)
-                text.set_weight('bold')
-                text.set_color(TABLE_TEXT_PRIMARY)
-            else:
-                if total_column_name is not None and apo.columns[col] == total_column_name:
-                    cell.set_facecolor(total_fill)
-                else:
-                    cell.set_facecolor('white')
-                if label.lower().startswith('vol'):
-                    text.set_color(TABLE_TEXT_PRIMARY)
-                else:
-                    value = apo.iloc[row - 1, col]
-                    try:
-                        numeric = float(str(value).replace('%', '').replace(',', '.'))
-                        text.set_color(positive_color if numeric >= 0 else negative_color)
-                    except Exception:
-                        pass
+
+    aporte_fill_colors: dict[tuple[int, int], object] = {}
     if aporte_row_index is not None:
         aporte_values = []
-        for col in data_columns:
-            numeric = to_signed_percentage(apo.iloc[aporte_row_index, col])
+        for col_idx in data_columns:
+            numeric = to_signed_percentage(apo.iloc[aporte_row_index, col_idx])
             if numeric is not None:
-                aporte_values.append((col, numeric))
+                aporte_values.append((col_idx, numeric))
         if aporte_values:
             aporte_numbers = [value for _, value in aporte_values]
             min_val = min(aporte_numbers)
@@ -4591,55 +4552,186 @@ def graf_apo(apo, c_fig, column_color_mapping=None):
                         [APORTE_NEUTRAL_COLOR, TABLE_POSITIVE_COLOR]
                     )
                     norm = mcolors.Normalize(vmin=0, vmax=max_val)
-            for col, numeric in aporte_values:
+            for col_idx, numeric in aporte_values:
                 if cmap is not None and norm is not None:
                     rgba = cmap(norm(numeric))
-                    rgb = tuple(rgba[:3])
+                    aporte_fill_colors[(aporte_row_index, col_idx)] = tuple(rgba[:3])
                 else:
                     if math.isclose(numeric, 0.0, abs_tol=1e-9):
-                        rgb = mcolors.to_rgb(APORTE_NEUTRAL_COLOR)
+                        aporte_fill_colors[(aporte_row_index, col_idx)] = mcolors.to_rgb(APORTE_NEUTRAL_COLOR)
                     elif numeric > 0:
-                        rgb = mcolors.to_rgb(TABLE_POSITIVE_COLOR)
+                        aporte_fill_colors[(aporte_row_index, col_idx)] = mcolors.to_rgb(TABLE_POSITIVE_COLOR)
                     else:
-                        rgb = mcolors.to_rgb(APORTE_NEGATIVE_COLOR)
-                cell = table[(aporte_row_index + 1, col)]
-                cell.set_facecolor(rgb)
-                text = cell.get_text()
-                luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
-                text.set_color(TABLE_TEXT_PRIMARY if luminance > 0.5 else '#FFFFFF')
+                        aporte_fill_colors[(aporte_row_index, col_idx)] = mcolors.to_rgb(APORTE_NEGATIVE_COLOR)
+
+    volume_fill_colors: dict[tuple[int, int], object] = {}
     for df_row_idx in volume_row_indexes:
-        table_row = df_row_idx + 1
         row_percentages = {}
         max_percent = 0.0
-        for col in data_columns:
-            percent = to_percentage(apo.iloc[df_row_idx, col])
-            row_percentages[col] = percent
+        for col_idx in data_columns:
+            percent = to_percentage(apo.iloc[df_row_idx, col_idx])
+            row_percentages[col_idx] = percent
             if percent is not None and percent > max_percent:
                 max_percent = percent
-        for rel_idx, col in enumerate(data_columns):
-            percent = row_percentages.get(col)
+        for col_idx in data_columns:
+            percent = row_percentages.get(col_idx)
             if percent is None:
                 continue
-            cell = table[(table_row, col)]
-            bar_color = column_colors[rel_idx] if rel_idx < len(column_colors) else VOLUME_BAR_END
-            base_rgb = np.array(mcolors.to_rgb(bar_color))
+            base_rgb = np.array(mcolors.to_rgb(column_colors.get(col_idx, VOLUME_BAR_END)))
             intensity = min(percent / max_percent, 1.0) if max_percent > 0 else 0.0
-            blended_rgb = white_rgb * (1.0 - intensity) + base_rgb * intensity
-            cell.set_facecolor(blended_rgb)
-            cell.get_text().set_color(TABLE_TEXT_PRIMARY)
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    table_bbox = table.get_tightbbox(renderer).transformed(fig.dpi_scale_trans.inverted())
-    target_height_in = TABLE_TARGET_HEIGHT_CM / 2.54
-    if table_bbox.height > 0:
-        scale = target_height_in / table_bbox.height
-        if abs(scale - 1.0) > 1e-3:
-            current_width, current_height = fig.get_size_inches()
-            fig.set_size_inches(current_width * scale, current_height * scale)
-            fig.canvas.draw()
-            renderer = fig.canvas.get_renderer()
-            table_bbox = table.get_tightbbox(renderer).transformed(fig.dpi_scale_trans.inverted())
-    return figure_to_stream(fig, dpi=TABLE_EXPORT_DPI, bbox_inches=table_bbox, pad_inches=0.01)
+            volume_fill_colors[(df_row_idx, col_idx)] = white_rgb * (1.0 - intensity) + base_rgb * intensity
+
+    header_metrics = [text_metrics(label) for label in display_col_labels]
+    body_text_matrix: list[list[str]] = []
+    body_line_counts: list[int] = []
+    col_body_max_len = [0] * n_cols
+    for row_idx in range(n_rows):
+        row_values = []
+        row_max_lines = 1
+        for col_idx in range(n_cols):
+            raw_value = display_data.iat[row_idx, col_idx] if col_idx == 0 else apo.iat[row_idx, col_idx]
+            text_value, line_count, max_len = text_metrics(raw_value)
+            row_values.append(text_value)
+            row_max_lines = max(row_max_lines, line_count)
+            if max_len > col_body_max_len[col_idx]:
+                col_body_max_len[col_idx] = max_len
+        body_text_matrix.append(row_values)
+        body_line_counts.append(row_max_lines)
+
+    base_row_height_in = 0.42
+    header_line_count = max((line_count for _, line_count, _ in header_metrics), default=1)
+    header_height_factor = min(2.0, 1.0 + 0.45 * (header_line_count - 1))
+    header_height_in = base_row_height_in * header_height_factor
+    row_heights_in = [
+        base_row_height_in * min(1.45, 1.0 + 0.25 * (line_count - 1))
+        for line_count in body_line_counts
+    ]
+
+    col_widths_in: list[float] = []
+    for col_idx in range(n_cols):
+        _, header_lines, header_max_len = header_metrics[col_idx]
+        longest = max(header_max_len, col_body_max_len[col_idx])
+        multiline_bonus = max(0, header_lines - 1) * 0.12
+        if col_idx == 0:
+            width_in = max(1.55, min(2.85, 1.0 + longest * 0.055 + multiline_bonus))
+        elif total_column_name is not None and apo.columns[col_idx] == total_column_name:
+            width_in = max(1.05, min(1.55, 0.82 + longest * 0.05 + multiline_bonus))
+        else:
+            width_in = max(1.35, min(2.35, 0.95 + longest * 0.07 + multiline_bonus))
+        col_widths_in.append(width_in)
+
+    fig_width = sum(col_widths_in) + 0.06
+    fig_height = header_height_in + sum(row_heights_in) + 0.06
+    fig = plt.figure(num=c_fig, figsize=(fig_width, fig_height), dpi=export_dpi)
+    fig.patch.set_alpha(0.0)
+    ax = fig.add_axes([0.004, 0.004, 0.992, 0.992])
+    ax.set_xlim(0, fig_width)
+    ax.set_ylim(fig_height, 0)
+    ax.axis('off')
+    ax.set_facecolor('none')
+
+    x_edges = [0.03]
+    for width_in in col_widths_in:
+        x_edges.append(x_edges[-1] + width_in)
+    current_y = 0.03
+
+    def text_color_for_fill(fill_value, fallback=TABLE_TEXT_PRIMARY):
+        try:
+            rgb = mcolors.to_rgb(fill_value)
+        except (ValueError, TypeError):
+            return fallback
+        luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+        return '#FFFFFF' if luminance < 0.6 else TABLE_TEXT_PRIMARY
+
+    def draw_cell(x0, y0, width_in, height_in, text_value, facecolor, text_color, *, bold=False, font_size=TABLE_BODY_FONT_SIZE):
+        ax.add_patch(
+            Rectangle(
+                (x0, y0),
+                width_in,
+                height_in,
+                facecolor=facecolor,
+                edgecolor=TABLE_GRID_COLOR,
+                linewidth=1.0,
+                antialiased=False,
+            )
+        )
+        ax.text(
+            x0 + width_in / 2.0,
+            y0 + height_in / 2.0,
+            text_value,
+            ha='center',
+            va='center',
+            fontsize=font_size,
+            fontweight='bold' if bold else 'normal',
+            color=text_color,
+            family='DejaVu Sans',
+        )
+
+    for col_idx in range(n_cols):
+        if col_idx == 0 or (total_column_name is not None and apo.columns[col_idx] == total_column_name):
+            header_fill = header_main
+            header_text_color = HEADER_FONT_COLOR
+        else:
+            header_fill = resolve_column_color(apo.columns[col_idx]) or header_secondary
+            header_text_color = text_color_for_fill(header_fill, HEADER_FONT_COLOR)
+        draw_cell(
+            x_edges[col_idx],
+            current_y,
+            col_widths_in[col_idx],
+            header_height_in,
+            header_metrics[col_idx][0],
+            header_fill,
+            header_text_color,
+            bold=True,
+            font_size=TABLE_HEADER_FONT_SIZE,
+        )
+    current_y += header_height_in
+
+    for row_idx in range(n_rows):
+        row_height_in = row_heights_in[row_idx]
+        row_label = str(apo.iloc[row_idx, 0]).strip().lower()
+        for col_idx in range(n_cols):
+            text_value = body_text_matrix[row_idx][col_idx]
+            facecolor = 'white'
+            text_color = TABLE_TEXT_PRIMARY
+            is_bold = False
+
+            if col_idx == 0:
+                facecolor = first_col_fill
+                text_color = TABLE_TEXT_PRIMARY
+                is_bold = True
+            else:
+                if total_column_name is not None and apo.columns[col_idx] == total_column_name:
+                    facecolor = total_fill
+                if (row_idx, col_idx) in volume_fill_colors:
+                    facecolor = volume_fill_colors[(row_idx, col_idx)]
+                    text_color = TABLE_TEXT_PRIMARY
+                elif (row_idx, col_idx) in aporte_fill_colors:
+                    facecolor = aporte_fill_colors[(row_idx, col_idx)]
+                    text_color = TABLE_TEXT_PRIMARY if text_color_for_fill(facecolor) != '#FFFFFF' else '#FFFFFF'
+                elif row_label.startswith('vol'):
+                    text_color = TABLE_TEXT_PRIMARY
+                else:
+                    try:
+                        numeric = float(str(apo.iat[row_idx, col_idx]).replace('%', '').replace(',', '.'))
+                        text_color = positive_color if numeric >= 0 else negative_color
+                    except Exception:
+                        text_color = TABLE_TEXT_PRIMARY
+
+            draw_cell(
+                x_edges[col_idx],
+                current_y,
+                col_widths_in[col_idx],
+                row_height_in,
+                text_value,
+                facecolor,
+                text_color,
+                bold=is_bold,
+                font_size=TABLE_BODY_FONT_SIZE,
+            )
+        current_y += row_height_in
+
+    return figure_to_stream(fig, dpi=export_dpi, bbox_inches=None, pad_inches=0)
 def simplify_name_segment(value: str, max_len: int) -> str:
     """
     Reduce una cadena a un segmento seguro para archivos.
