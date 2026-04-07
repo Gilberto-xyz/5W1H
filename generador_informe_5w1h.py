@@ -22,6 +22,7 @@ import tempfile
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
+from functools import lru_cache
 from itertools import cycle
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
@@ -569,6 +570,22 @@ EXCEL_TABLE_BORDER = Border(
     top=Side(style="medium", color="FF000000"),
     bottom=Side(style="medium", color="FF000000"),
 )
+EXCEL_NO_FILL = PatternFill(fill_type=None)
+
+
+@lru_cache(maxsize=8)
+def _excel_alignment_style(horizontal: str = "center") -> Alignment:
+    return Alignment(horizontal=horizontal, vertical="center", wrap_text=True)
+
+
+@lru_cache(maxsize=64)
+def _excel_font_style(color: str = EXCEL_TABLE_NEUTRAL_FONT, bold: bool = False) -> Font:
+    return Font(name="Arial", bold=bool(bold), color=str(color))
+
+
+@lru_cache(maxsize=512)
+def _excel_solid_fill_style(argb_color: str) -> PatternFill:
+    return PatternFill(fill_type="solid", fgColor=str(argb_color))
 
 
 def _hex_to_excel_argb(color_value: Optional[str], fallback: str = "FFFFFFFF") -> str:
@@ -591,6 +608,18 @@ def _rgb_float_to_excel_argb(rgb_tuple) -> str:
     return f"FF{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
 
 
+def _excel_fill_style(color_value: Optional[str]) -> PatternFill:
+    if not color_value:
+        return EXCEL_NO_FILL
+    return _excel_solid_fill_style(_hex_to_excel_argb(color_value))
+
+
+def _excel_fill_style_from_argb(argb_color: Optional[str]) -> PatternFill:
+    if not argb_color:
+        return EXCEL_NO_FILL
+    return _excel_solid_fill_style(str(argb_color).upper())
+
+
 def _relative_luminance(rgb_tuple) -> float:
     return 0.2126 * rgb_tuple[0] + 0.7152 * rgb_tuple[1] + 0.0722 * rgb_tuple[2]
 
@@ -604,10 +633,7 @@ def _excel_font_color_for_fill(color_value: Optional[str], fallback_dark: str = 
 
 
 def _set_excel_fill(cell, color_value: Optional[str]) -> None:
-    if not color_value:
-        cell.fill = PatternFill(fill_type=None)
-        return
-    cell.fill = PatternFill(fill_type="solid", fgColor=_hex_to_excel_argb(color_value))
+    cell.fill = _excel_fill_style(color_value)
 
 
 def _estimate_excel_chart_row_span(height_emu) -> int:
@@ -643,14 +669,37 @@ def _quoted_sheet_ref(ws, col_idx: int, row_start: int, row_end: int) -> str:
     return f"'{ws.title}'!${get_column_letter(col_idx)}${row_start}:${get_column_letter(col_idx)}${row_end}"
 
 
+def _register_excel_column_width(sheet_runtime: dict, col_idx: int, target_width: float) -> None:
+    pending_widths = sheet_runtime.setdefault("pending_widths", {})
+    pending_widths[col_idx] = max(float(target_width), float(pending_widths.get(col_idx, 0.0) or 0.0))
+
+
+def _apply_pending_excel_column_widths(ws, sheet_runtime: dict) -> None:
+    pending_widths = sheet_runtime.get("pending_widths") or {}
+    for col_idx, target_width in pending_widths.items():
+        column_letter = get_column_letter(int(col_idx))
+        current_width = ws.column_dimensions[column_letter].width or 0
+        ws.column_dimensions[column_letter].width = max(current_width, float(target_width))
+
+
+def _next_excel_helper_column(ws, sheet_runtime: dict) -> int:
+    current_cursor = int(sheet_runtime.get("helper_col_cursor") or 0)
+    if current_cursor <= ws.max_column:
+        current_cursor = ws.max_column + 1
+    sheet_runtime["helper_col_cursor"] = current_cursor + 1
+    return current_cursor
+
+
 def _write_chart_helper_column(
     ws,
+    sheet_runtime: dict,
     row_start: int,
     row_end: int,
     *,
     values: Optional[list] = None,
     formulas: Optional[list[str]] = None,
     number_format: Optional[str] = None,
+    cache_key: Optional[tuple] = None,
 ) -> str:
     if row_end < row_start:
         raise ValueError("Invalid helper column range")
@@ -659,17 +708,25 @@ def _write_chart_helper_column(
         raise ValueError("Helper column requires values or formulas")
     if len(items) != (row_end - row_start + 1):
         raise ValueError("Helper column length does not match row range")
-    helper_col = ws.max_column + 1
+    helper_ref_cache = sheet_runtime.setdefault("helper_ref_cache", {})
+    if cache_key is not None:
+        cached_ref = helper_ref_cache.get(cache_key)
+        if cached_ref:
+            return cached_ref
+    helper_col = _next_excel_helper_column(ws, sheet_runtime)
     for offset, row_idx in enumerate(range(row_start, row_end + 1)):
         cell = ws.cell(row_idx, helper_col)
         cell.value = items[offset]
         if number_format:
             cell.number_format = number_format
     ws.column_dimensions[get_column_letter(helper_col)].hidden = True
-    return _quoted_sheet_ref(ws, helper_col, row_start, row_end)
+    helper_ref = _quoted_sheet_ref(ws, helper_col, row_start, row_end)
+    if cache_key is not None:
+        helper_ref_cache[cache_key] = helper_ref
+    return helper_ref
 
 
-def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[LineChart]:
+def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict, sheet_runtime: dict) -> Optional[LineChart]:
     chart_title = chart_spec.get("title") or "Tendencia"
     chart = LineChart()
     chart.title = chart_title
@@ -766,7 +823,6 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
         chart.x_axis.title = ""
         chart.y_axis.delete = False
     added_series_specs = []
-    category_ref_cache: dict[tuple[str, tuple], str] = {}
     for prepared in prepared_series:
         series_spec = prepared["series_spec"]
         block = blocks.get(series_spec.get("block_key"))
@@ -777,30 +833,28 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
                 value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
                 for value in prepared["parsed_category_values"]
             ]
-            cache_key = ("date", tuple(category_values))
-            cat_ref = category_ref_cache.get(cache_key)
-            if cat_ref is None:
-                cat_ref = _write_chart_helper_column(
-                    ws,
-                    prepared["cat_first_row"],
-                    prepared["cat_last_row"],
-                    values=category_values,
-                    number_format="mmm-yy",
-                )
-                category_ref_cache[cache_key] = cat_ref
+            cache_key = ("category", "date", tuple(category_values), "mmm-yy")
+            cat_ref = _write_chart_helper_column(
+                ws,
+                sheet_runtime,
+                prepared["cat_first_row"],
+                prepared["cat_last_row"],
+                values=category_values,
+                number_format="mmm-yy",
+                cache_key=cache_key,
+            )
             cat_source = AxDataSource(numRef=NumRef(f=cat_ref))
         else:
             category_labels = [_safe_excel_period_label(value) for value in prepared["raw_category_values"]]
-            cache_key = ("label", tuple(category_labels))
-            cat_ref = category_ref_cache.get(cache_key)
-            if cat_ref is None:
-                cat_ref = _write_chart_helper_column(
-                    ws,
-                    prepared["cat_first_row"],
-                    prepared["cat_last_row"],
-                    values=category_labels,
-                )
-                category_ref_cache[cache_key] = cat_ref
+            cache_key = ("category", "label", tuple(category_labels), None)
+            cat_ref = _write_chart_helper_column(
+                ws,
+                sheet_runtime,
+                prepared["cat_first_row"],
+                prepared["cat_last_row"],
+                values=category_labels,
+                cache_key=cache_key,
+            )
             cat_source = AxDataSource(strRef=StrRef(f=cat_ref))
         if len(prepared["source_cols"]) == 1:
             val_ref = _quoted_sheet_ref(
@@ -810,16 +864,28 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
                 prepared["val_last_row"],
             )
         else:
-            helper_formulas = []
-            for row_idx in range(prepared["val_first_row"], prepared["val_last_row"] + 1):
-                row_refs = [f"{get_column_letter(col_idx)}{row_idx}" for col_idx in prepared["source_cols"]]
-                helper_formulas.append("=" + "+".join(row_refs))
-            val_ref = _write_chart_helper_column(
-                ws,
-                prepared["val_first_row"],
-                prepared["val_last_row"],
-                formulas=helper_formulas,
+            formula_cache_key = (
+                "sum",
+                tuple(int(col_idx) for col_idx in prepared["source_cols"]),
+                int(prepared["val_first_row"]),
+                int(prepared["val_last_row"]),
             )
+            cached_formula_ref = sheet_runtime.setdefault("helper_ref_cache", {}).get(formula_cache_key)
+            if cached_formula_ref is None:
+                helper_formulas = []
+                for row_idx in range(prepared["val_first_row"], prepared["val_last_row"] + 1):
+                    row_refs = [f"{get_column_letter(col_idx)}{row_idx}" for col_idx in prepared["source_cols"]]
+                    helper_formulas.append("=" + "+".join(row_refs))
+                val_ref = _write_chart_helper_column(
+                    ws,
+                    sheet_runtime,
+                    prepared["val_first_row"],
+                    prepared["val_last_row"],
+                    formulas=helper_formulas,
+                    cache_key=formula_cache_key,
+                )
+            else:
+                val_ref = cached_formula_ref
         series_obj = Series(
             cat=cat_source,
             val=NumDataSource(numRef=NumRef(f=val_ref)),
@@ -841,12 +907,12 @@ def _build_native_trend_chart(ws, chart_spec: dict, blocks: dict) -> Optional[Li
     return chart
 
 
-def _add_native_trend_charts_to_sheet(ws, trend_charts: list[dict], blocks: dict, start_row: int, start_col: int = 1) -> None:
+def _add_native_trend_charts_to_sheet(ws, trend_charts: list[dict], blocks: dict, sheet_runtime: dict, start_row: int, start_col: int = 1) -> None:
     if not trend_charts:
         return
     current_row = max(1, start_row)
     for chart_spec in trend_charts:
-        chart = _build_native_trend_chart(ws, chart_spec, blocks)
+        chart = _build_native_trend_chart(ws, chart_spec, blocks, sheet_runtime)
         if chart is None:
             continue
         anchor_row = int(chart_spec.get("anchor_row") or current_row)
@@ -987,17 +1053,21 @@ def detect_excel_table_blocks(ws) -> dict[str, dict]:
 
 
 def _build_excel_block_column_lookup(block: dict) -> dict[str, list[int]]:
+    cached_lookup = block.get("_column_lookup")
+    if cached_lookup is not None:
+        return cached_lookup
     lookup: dict[str, list[int]] = {}
     for col_idx, label in block.get("data_cols", []):
         normalized = strip_color_suffixes(normalize_color_text(label))
         if not normalized:
             continue
         lookup.setdefault(normalized, []).append(col_idx)
+    block["_column_lookup"] = lookup
     return lookup
 
 
 def _resolve_excel_source_columns(block: dict, apo_df) -> list[tuple[str, list[int]]]:
-    lookup = _build_excel_block_column_lookup(block)
+    lookup = {key: list(value) for key, value in _build_excel_block_column_lookup(block).items()}
     grouped_source_labels = {}
     if hasattr(apo_df, "attrs"):
         grouped_source_labels = apo_df.attrs.get("grouped_source_labels", {}) or {}
@@ -1054,39 +1124,50 @@ def _excel_multi_column_sum_formula(col_indexes: list[int], row_start: int, row_
     )
 
 
+def _apply_excel_cell_style(
+    cell,
+    *,
+    alignment: str = "center",
+    font: Optional[Font] = None,
+    fill: Optional[PatternFill] = None,
+) -> None:
+    cell.border = EXCEL_TABLE_BORDER
+    cell.alignment = _excel_alignment_style(alignment)
+    cell.font = font or _excel_font_style(EXCEL_TABLE_NEUTRAL_FONT, False)
+    cell.fill = fill if fill is not None else EXCEL_NO_FILL
+
+
 def _apply_excel_table_style(cell, *, is_header: bool = False, alignment: str = "center") -> None:
-    cell.border = copy(EXCEL_TABLE_BORDER)
-    cell.alignment = Alignment(horizontal=alignment, vertical="center", wrap_text=True)
-    cell.font = Font(name="Arial", bold=is_header, color=EXCEL_TABLE_NEUTRAL_FONT)
-    cell.fill = PatternFill(fill_type=None)
+    _apply_excel_cell_style(
+        cell,
+        alignment=alignment,
+        font=_excel_font_style(EXCEL_TABLE_NEUTRAL_FONT, is_header),
+        fill=EXCEL_NO_FILL,
+    )
 
 
 def _apply_excel_metric_fill(cell, numeric_value: Optional[float]) -> None:
     if numeric_value is None or not np.isfinite(numeric_value):
-        cell.fill = PatternFill(fill_type=None)
-        cell.font = Font(name="Arial", bold=False, color=EXCEL_TABLE_NEUTRAL_FONT)
+        cell.fill = EXCEL_NO_FILL
+        cell.font = _excel_font_style(EXCEL_TABLE_NEUTRAL_FONT, False)
         return
     if numeric_value > 0:
-        cell.fill = PatternFill(fill_type="solid", fgColor=EXCEL_TABLE_POSITIVE_FILL)
-        cell.font = Font(name="Arial", bold=False, color=EXCEL_TABLE_POSITIVE_FONT)
+        cell.fill = _excel_fill_style_from_argb(EXCEL_TABLE_POSITIVE_FILL)
+        cell.font = _excel_font_style(EXCEL_TABLE_POSITIVE_FONT, False)
         return
     if numeric_value < 0:
-        cell.fill = PatternFill(fill_type="solid", fgColor=EXCEL_TABLE_NEGATIVE_FILL)
-        cell.font = Font(name="Arial", bold=False, color=EXCEL_TABLE_NEGATIVE_FONT)
+        cell.fill = _excel_fill_style_from_argb(EXCEL_TABLE_NEGATIVE_FILL)
+        cell.font = _excel_font_style(EXCEL_TABLE_NEGATIVE_FONT, False)
         return
-    cell.fill = PatternFill(fill_type=None)
-    cell.font = Font(name="Arial", bold=False, color=EXCEL_TABLE_NEUTRAL_FONT)
+    cell.fill = EXCEL_NO_FILL
+    cell.font = _excel_font_style(EXCEL_TABLE_NEUTRAL_FONT, False)
 
 
-def _style_excel_formula_table(
-    ws,
+def _prepare_excel_formula_table_visuals(
     apo_df,
-    start_row: int,
-    start_col: int,
     resolved_columns: list[tuple[str, Optional[int]]],
     column_color_mapping: Optional[dict[str, str]] = None,
-) -> None:
-    """Replica en Excel la lógica visual usada por la tabla renderizada en la PPT."""
+) -> dict:
     total_column_name = next(
         (col_name for col_name, _ in resolved_columns if str(col_name).strip().lower() == "total"),
         None
@@ -1150,23 +1231,6 @@ def _style_excel_formula_table(
             colors.append(mcolors.to_hex(rgb))
         return colors
 
-    fallback_column_colors = share_colors(len(data_columns))
-    column_colors = {}
-    for rel_idx, col_idx in enumerate(data_columns):
-        col_name = resolved_columns[col_idx - 1][0]
-        resolved = resolve_column_color(col_name)
-        if resolved is None:
-            resolved = fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END
-        try:
-            column_colors[col_idx] = mcolors.to_hex(resolved)
-        except Exception:
-            column_colors[col_idx] = fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END
-
-    header_row = start_row
-    body_start_row = start_row + 1
-    volume_row_indexes = [idx for idx, label in enumerate(apo_df.iloc[:, 0]) if str(label).strip().lower().startswith('vol')]
-    aporte_row_index = next((idx for idx, label in enumerate(apo_df.iloc[:, 0]) if str(label).strip().lower() == 'aporte'), None)
-
     def to_percentage(value):
         try:
             text_value = str(value).strip().replace('%', '').replace(',', '.')
@@ -1185,44 +1249,59 @@ def _style_excel_formula_table(
         except Exception:
             return None
 
+    fallback_column_colors = share_colors(len(data_columns))
+    column_colors = {}
+    for rel_idx, col_idx in enumerate(data_columns):
+        col_name = resolved_columns[col_idx - 1][0]
+        resolved = resolve_column_color(col_name)
+        if resolved is None:
+            resolved = fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END
+        try:
+            column_colors[col_idx] = mcolors.to_hex(resolved)
+        except Exception:
+            column_colors[col_idx] = fallback_column_colors[rel_idx] if rel_idx < len(fallback_column_colors) else VOLUME_BAR_END
+
+    header_font = _excel_font_style(_hex_to_excel_argb(HEADER_FONT_COLOR), True)
+    label_font = _excel_font_style(EXCEL_TABLE_NEUTRAL_FONT, True)
+    neutral_font = _excel_font_style(EXCEL_TABLE_NEUTRAL_FONT, False)
+    positive_font = _excel_font_style(_hex_to_excel_argb(TABLE_POSITIVE_COLOR), False)
+    negative_font = _excel_font_style(_hex_to_excel_argb(TABLE_NEGATIVE_COLOR), False)
+    white_font = _excel_font_style("FFFFFFFF", False)
+    white_fill = _excel_fill_style("#FFFFFF")
+    total_fill = _excel_fill_style(HEADER_TOTAL_FILL)
+
+    header_styles: dict[int, tuple[PatternFill, Font]] = {}
     for rel_col_idx, (column_label, _) in enumerate(resolved_columns, start=1):
-        header_cell = ws.cell(header_row, start_col + rel_col_idx)
         if total_column_name is not None and str(column_label).strip().lower() == 'total':
-            _set_excel_fill(header_cell, HEADER_COLOR_PRIMARY)
-            header_cell.font = Font(name='Arial', bold=True, color=_hex_to_excel_argb(HEADER_FONT_COLOR))
+            header_styles[rel_col_idx] = (_excel_fill_style(HEADER_COLOR_PRIMARY), header_font)
             continue
         if rel_col_idx in data_columns:
             header_color = resolve_column_color(column_label) or HEADER_COLOR_SECONDARY
-            _set_excel_fill(header_cell, header_color)
-            header_cell.font = Font(name='Arial', bold=True, color=_excel_font_color_for_fill(header_color))
+            header_styles[rel_col_idx] = (
+                _excel_fill_style(header_color),
+                _excel_font_style(_excel_font_color_for_fill(header_color), True),
+            )
         else:
-            _set_excel_fill(header_cell, HEADER_COLOR_SECONDARY)
-            header_cell.font = Font(name='Arial', bold=True, color=_hex_to_excel_argb(HEADER_FONT_COLOR))
+            header_styles[rel_col_idx] = (_excel_fill_style(HEADER_COLOR_SECONDARY), header_font)
 
-    first_header_cell = ws.cell(header_row, start_col)
-    _set_excel_fill(first_header_cell, HEADER_COLOR_PRIMARY)
-    first_header_cell.font = Font(name='Arial', bold=True, color=_hex_to_excel_argb(HEADER_FONT_COLOR))
+    body_styles: dict[tuple[int, int], tuple[PatternFill, Font]] = {}
+    volume_row_indexes = [idx for idx, label in enumerate(apo_df.iloc[:, 0]) if str(label).strip().lower().startswith('vol')]
+    aporte_row_index = next((idx for idx, label in enumerate(apo_df.iloc[:, 0]) if str(label).strip().lower() == 'aporte'), None)
 
-    for row_offset in range(len(apo_df.index)):
-        row_idx = body_start_row + row_offset
-        label = str(apo_df.iloc[row_offset, 0])
-        label_cell = ws.cell(row_idx, start_col)
-        _set_excel_fill(label_cell, HEADER_FIRST_COL_FILL)
-        label_cell.font = Font(name='Arial', bold=True, color=EXCEL_TABLE_NEUTRAL_FONT)
+    for row_offset, label in enumerate(apo_df.iloc[:, 0]):
+        row_label = str(label).strip().lower()
         for rel_col_idx, (column_label, _) in enumerate(resolved_columns, start=1):
-            cell = ws.cell(row_idx, start_col + rel_col_idx)
             is_total_col = total_column_name is not None and str(column_label).strip().lower() == 'total'
-            if is_total_col:
-                _set_excel_fill(cell, HEADER_TOTAL_FILL)
-            else:
-                cell.fill = PatternFill(fill_type="solid", fgColor="FFFFFFFF")
-            if label.lower().startswith('vol'):
-                cell.font = Font(name='Arial', bold=False, color=EXCEL_TABLE_NEUTRAL_FONT)
+            fill_style = total_fill if is_total_col else white_fill
+            if row_label.startswith('vol'):
+                font_style = neutral_font
             else:
                 numeric = _parse_percent_cell(apo_df.iloc[row_offset, rel_col_idx])
-                if numeric is not None:
-                    font_color = _hex_to_excel_argb(TABLE_POSITIVE_COLOR if numeric >= 0 else TABLE_NEGATIVE_COLOR)
-                    cell.font = Font(name='Arial', bold=False, color=font_color)
+                if numeric is None:
+                    font_style = neutral_font
+                else:
+                    font_style = positive_font if numeric >= 0 else negative_font
+            body_styles[(row_offset, rel_col_idx)] = (fill_style, font_style)
 
     if aporte_row_index is not None:
         aporte_values = []
@@ -1256,7 +1335,6 @@ def _style_excel_formula_table(
                     )
                     norm = mcolors.Normalize(vmin=0, vmax=max_val)
             for rel_col_idx, numeric in aporte_values:
-                cell = ws.cell(body_start_row + aporte_row_index, start_col + rel_col_idx)
                 if cmap is not None and norm is not None:
                     rgb = tuple(cmap(norm(numeric))[:3])
                 else:
@@ -1266,16 +1344,16 @@ def _style_excel_formula_table(
                         rgb = mcolors.to_rgb(TABLE_POSITIVE_COLOR)
                     else:
                         rgb = mcolors.to_rgb(APORTE_NEGATIVE_COLOR)
-                cell.fill = PatternFill(fill_type="solid", fgColor=_rgb_float_to_excel_argb(rgb))
-                font_color = EXCEL_TABLE_NEUTRAL_FONT if _relative_luminance(rgb) > 0.5 else "FFFFFFFF"
-                cell.font = Font(name='Arial', bold=False, color=font_color)
+                fill_style = _excel_fill_style_from_argb(_rgb_float_to_excel_argb(rgb))
+                font_style = neutral_font if _relative_luminance(rgb) > 0.5 else white_font
+                body_styles[(aporte_row_index, rel_col_idx)] = (fill_style, font_style)
 
     white_rgb = np.array([1.0, 1.0, 1.0])
-    for df_row_idx in volume_row_indexes:
+    for row_offset in volume_row_indexes:
         row_percentages = {}
         max_percent = 0.0
         for rel_col_idx in data_columns:
-            percent = to_percentage(apo_df.iloc[df_row_idx, rel_col_idx])
+            percent = to_percentage(apo_df.iloc[row_offset, rel_col_idx])
             row_percentages[rel_col_idx] = percent
             if percent is not None and percent > max_percent:
                 max_percent = percent
@@ -1287,9 +1365,19 @@ def _style_excel_formula_table(
             base_rgb = np.array(mcolors.to_rgb(bar_color))
             intensity = min(percent / max_percent, 1.0) if max_percent > 0 else 0.0
             blended_rgb = white_rgb * (1.0 - intensity) + base_rgb * intensity
-            cell = ws.cell(body_start_row + df_row_idx, start_col + rel_col_idx)
-            cell.fill = PatternFill(fill_type="solid", fgColor=_rgb_float_to_excel_argb(blended_rgb))
-            cell.font = Font(name='Arial', bold=False, color=EXCEL_TABLE_NEUTRAL_FONT)
+            body_styles[(row_offset, rel_col_idx)] = (
+                _excel_fill_style_from_argb(_rgb_float_to_excel_argb(blended_rgb)),
+                neutral_font,
+            )
+
+    return {
+        "header_styles": header_styles,
+        "title_fill": _excel_fill_style(HEADER_COLOR_PRIMARY),
+        "title_font": header_font,
+        "label_fill": _excel_fill_style(HEADER_FIRST_COL_FILL),
+        "label_font": label_font,
+        "body_styles": body_styles,
+    }
 
 
 def _write_dynamic_formula_table_to_sheet(
@@ -1298,6 +1386,7 @@ def _write_dynamic_formula_table_to_sheet(
     apo_df,
     start_row: int,
     start_col: int,
+    sheet_runtime: dict,
     column_color_mapping: Optional[dict[str, str]] = None,
 ) -> int:
     """Inserta una tabla con fórmulas dinámicas al lado del bloque original."""
@@ -1322,6 +1411,11 @@ def _write_dynamic_formula_table_to_sheet(
     resolved_columns = _resolve_excel_source_columns(block, apo_df)
     if not resolved_columns:
         return 0
+    visuals = _prepare_excel_formula_table_visuals(
+        apo_df,
+        resolved_columns,
+        column_color_mapping=column_color_mapping,
+    )
     first_source_col = block["data_cols"][0][0]
     last_source_col = block["data_cols"][-1][0]
     metric_labels = [
@@ -1339,16 +1433,32 @@ def _write_dynamic_formula_table_to_sheet(
 
     title_cell = ws.cell(header_row, start_col)
     title_cell.value = block.get("display_tipo", "")
-    _apply_excel_table_style(title_cell, is_header=True, alignment="center")
+    _apply_excel_cell_style(
+        title_cell,
+        alignment="center",
+        font=visuals["title_font"],
+        fill=visuals["title_fill"],
+    )
     for header_offset, (column_label, _) in enumerate(resolved_columns, start=1):
         header_cell = ws.cell(header_row, start_col + header_offset)
         header_cell.value = column_label
-        _apply_excel_table_style(header_cell, is_header=True, alignment="center")
+        header_fill, header_font = visuals["header_styles"][header_offset]
+        _apply_excel_cell_style(
+            header_cell,
+            alignment="center",
+            font=header_font,
+            fill=header_fill,
+        )
 
     for row_offset, metric_label in enumerate(metric_labels):
         metric_cell = ws.cell(body_start_row + row_offset, start_col)
         metric_cell.value = metric_label
-        _apply_excel_table_style(metric_cell, alignment="left")
+        _apply_excel_cell_style(
+            metric_cell,
+            alignment="left",
+            font=visuals["label_font"],
+            fill=visuals["label_fill"],
+        )
 
     prev_total_formula = _excel_range_sum_formula(first_source_col, last_source_col, prev_start, prev_end)
     curr_total_formula = _excel_range_sum_formula(first_source_col, last_source_col, curr_start, curr_end)
@@ -1358,8 +1468,14 @@ def _write_dynamic_formula_table_to_sheet(
         cell_curr = ws.cell(body_start_row + 1, target_col)
         cell_var = ws.cell(body_start_row + 2, target_col)
         cell_aporte = ws.cell(body_start_row + 3, target_col)
-        for current_cell in (cell_prev, cell_curr, cell_var, cell_aporte):
-            _apply_excel_table_style(current_cell, alignment="center")
+        for row_offset, current_cell in enumerate((cell_prev, cell_curr, cell_var, cell_aporte)):
+            fill_style, font_style = visuals["body_styles"][(row_offset, col_offset)]
+            _apply_excel_cell_style(
+                current_cell,
+                alignment="center",
+                font=font_style,
+                fill=fill_style,
+            )
             current_cell.number_format = EXCEL_TABLE_NUMBER_FORMAT
         if column_label.lower() == "total":
             prev_formula = f"=IFERROR({prev_total_formula}/{prev_total_formula},0)"
@@ -1381,38 +1497,20 @@ def _write_dynamic_formula_table_to_sheet(
         cell_var.value = var_formula
         cell_aporte.value = aporte_formula
 
-        prev_numeric = _parse_percent_cell(apo_df.iloc[0, col_offset]) if len(apo_df.index) > 0 else None
-        curr_numeric = _parse_percent_cell(apo_df.iloc[1, col_offset]) if len(apo_df.index) > 1 else None
-        var_numeric = _parse_percent_cell(apo_df.iloc[2, col_offset]) if len(apo_df.index) > 2 else None
-        aporte_numeric = _parse_percent_cell(apo_df.iloc[3, col_offset]) if len(apo_df.index) > 3 else None
-        _apply_excel_metric_fill(cell_prev, prev_numeric if column_label.lower() == "total" else None)
-        _apply_excel_metric_fill(cell_curr, curr_numeric if column_label.lower() == "total" else None)
-        _apply_excel_metric_fill(cell_var, var_numeric)
-        _apply_excel_metric_fill(cell_aporte, aporte_numeric)
-
     for col_idx in range(start_col, start_col + total_width):
-        column_letter = get_column_letter(col_idx)
-        current_width = ws.column_dimensions[column_letter].width or 0
         if col_idx == start_col:
-            ws.column_dimensions[column_letter].width = max(current_width, 13)
+            _register_excel_column_width(sheet_runtime, col_idx, 13)
         else:
             header_text = str(ws.cell(header_row, col_idx).value or "")
             target_width = min(22, max(13, len(header_text) + 2))
-            ws.column_dimensions[column_letter].width = max(current_width, target_width)
-    _style_excel_formula_table(
-        ws,
-        apo_df,
-        start_row,
-        start_col,
-        resolved_columns,
-        column_color_mapping=column_color_mapping,
-    )
+            _register_excel_column_width(sheet_runtime, col_idx, target_width)
     return total_width
 
 
 def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path, sheet_exports: list[dict]) -> bool:
     """Copia el Excel fuente y agrega tablas dinámicas con fórmulas editables."""
     workbook = load_workbook(source_excel_path)
+    sheet_runtime_cache: dict[str, dict] = {}
     try:
         workbook.calculation.calcMode = "auto"
         workbook.calculation.fullCalcOnLoad = True
@@ -1426,7 +1524,15 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
         ws = workbook[sheet_name]
         export_images = sheet_export.get("images", []) or []
         trend_charts = sheet_export.get("trend_charts", []) or []
-        blocks = detect_excel_table_blocks(ws)
+        sheet_runtime = sheet_runtime_cache.get(sheet_name)
+        if sheet_runtime is None:
+            sheet_runtime = {
+                "blocks": detect_excel_table_blocks(ws),
+                "helper_ref_cache": {},
+                "pending_widths": {},
+            }
+            sheet_runtime_cache[sheet_name] = sheet_runtime
+        blocks = sheet_runtime["blocks"]
         table_anchor_row = None
         table_anchor_col = None
         table_anchor_map: dict[str, int] = {}
@@ -1468,6 +1574,7 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
                     table_entry["apo"],
                     anchor_row,
                     anchor_col,
+                    sheet_runtime,
                     column_color_mapping=table_entry.get("column_color_mapping"),
                 )
                 if width_used:
@@ -1522,7 +1629,14 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
                     )
                     ventas_spec["anchor_row"] = chart_start_row
                     ventas_spec["anchor_col"] = ventas_col
-            _add_native_trend_charts_to_sheet(ws, trend_charts, blocks, chart_start_row, start_col=chart_start_col)
+            _add_native_trend_charts_to_sheet(
+                ws,
+                trend_charts,
+                blocks,
+                sheet_runtime,
+                chart_start_row,
+                start_col=chart_start_col,
+            )
         if export_images:
             base_row = max(ws.max_row + 3, 5)
             current_row = base_row
@@ -1551,6 +1665,7 @@ def generate_excel_output_with_tables(source_excel_path: Path, output_path: Path
                     ws.add_image(excel_image, f"{get_column_letter(anchor_col)}{anchor_row}")
                 estimated_rows = max(18, int(math.ceil((float(height_px) if height_px else 420.0) / 20.0)))
                 current_row = anchor_row + estimated_rows
+        _apply_pending_excel_column_widths(ws, sheet_runtime)
     return save_workbook_with_retry(workbook, output_path)
 
 
