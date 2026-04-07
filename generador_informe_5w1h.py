@@ -2771,8 +2771,10 @@ def add_ppt8_table_to_slide(
         "Error muestral",
     ]
 
-    estimated_height_in = 0.42 + 0.27 * total_rows
-    table_height_in = max(2.0, estimated_height_in)
+    header_height_in = 0.34
+    body_height_in = 0.34
+    estimated_height_in = header_height_in + body_height_in * max(1, len(rows)) + 0.06
+    table_height_in = max(0.8, estimated_height_in)
     if max_height_in:
         table_height_in = min(table_height_in, max_height_in)
     table_shape = slide.shapes.add_table(
@@ -2797,7 +2799,7 @@ def add_ppt8_table_to_slide(
         table.columns[col_idx].width = col_width
 
     table_height_emu = int(Inches(table_height_in))
-    header_h_emu = int(Inches(0.42))
+    header_h_emu = int(Inches(header_height_in))
     if table_height_emu < header_h_emu + total_rows:
         header_h_emu = max(1, table_height_emu // max(total_rows, 2))
     body_rows = max(1, total_rows - 1)
