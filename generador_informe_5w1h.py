@@ -11,6 +11,7 @@ from datetime import datetime as dt
 import os
 import sys
 import io
+import colorsys
 from copy import copy
 import csv
 import math
@@ -22,6 +23,7 @@ import tempfile
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
+from difflib import SequenceMatcher
 from functools import lru_cache
 from itertools import cycle
 from dataclasses import dataclass
@@ -653,15 +655,18 @@ def _estimate_excel_chart_col_span(width_emu) -> int:
 
 
 def _resolve_trend_source_columns(block: dict, source_labels: list[str]) -> list[int]:
-    lookup = _build_excel_block_column_lookup(block)
+    available_entries = list(_build_excel_block_column_entries(block))
     resolved_cols: list[int] = []
     for label in source_labels:
-        normalized = strip_color_suffixes(normalize_color_text(label))
-        if not normalized:
+        match = _best_semantic_reference_match(
+            label,
+            [entry_label for _, entry_label in available_entries],
+            allow_family=True,
+        )
+        if match is None:
             continue
-        candidates = lookup.get(normalized) or []
-        if candidates:
-            resolved_cols.append(candidates.pop(0))
+        selected_col_idx, _ = available_entries.pop(match.reference_index)
+        resolved_cols.append(selected_col_idx)
     return resolved_cols
 
 
@@ -1052,22 +1057,22 @@ def detect_excel_table_blocks(ws) -> dict[str, dict]:
     return blocks
 
 
-def _build_excel_block_column_lookup(block: dict) -> dict[str, list[int]]:
-    cached_lookup = block.get("_column_lookup")
-    if cached_lookup is not None:
-        return cached_lookup
-    lookup: dict[str, list[int]] = {}
+def _build_excel_block_column_entries(block: dict) -> list[tuple[int, str]]:
+    cached_entries = block.get("_column_entries")
+    if cached_entries is not None:
+        return cached_entries
+    entries: list[tuple[int, str]] = []
     for col_idx, label in block.get("data_cols", []):
-        normalized = strip_color_suffixes(normalize_color_text(label))
-        if not normalized:
+        label_text = str(label).strip()
+        if not label_text:
             continue
-        lookup.setdefault(normalized, []).append(col_idx)
-    block["_column_lookup"] = lookup
-    return lookup
+        entries.append((col_idx, label_text))
+    block["_column_entries"] = entries
+    return entries
 
 
 def _resolve_excel_source_columns(block: dict, apo_df) -> list[tuple[str, list[int]]]:
-    lookup = {key: list(value) for key, value in _build_excel_block_column_lookup(block).items()}
+    available_entries = list(_build_excel_block_column_entries(block))
     grouped_source_labels = {}
     if hasattr(apo_df, "attrs"):
         grouped_source_labels = apo_df.attrs.get("grouped_source_labels", {}) or {}
@@ -1082,10 +1087,15 @@ def _resolve_excel_source_columns(block: dict, apo_df) -> list[tuple[str, list[i
         source_cols: list[int] = []
         source_labels = grouped_source_labels.get(column_label) or [column_label]
         for source_label in source_labels:
-            normalized = strip_color_suffixes(normalize_color_text(source_label))
-            candidates = lookup.get(normalized) or []
-            if candidates:
-                source_cols.append(candidates.pop(0))
+            match = _best_semantic_reference_match(
+                source_label,
+                [entry_label for _, entry_label in available_entries],
+                allow_family=True,
+            )
+            if match is None:
+                continue
+            matched_col_idx, _ = available_entries.pop(match.reference_index)
+            source_cols.append(matched_col_idx)
         resolved.append((column_label, source_cols))
     return resolved
 
@@ -3157,12 +3167,16 @@ def line_graf(
     chart_color_owners: dict[str, set[str]] = {}
     pending_reserved_labels: dict[str, Optional[str]] = {}
     pending_reserved_counts: dict[str, int] = {}
+    preassigned_colors: dict[str, str] = {}
     def _register_color_keys(label: str, color_value: str, key_list: Optional[list[str]] = None) -> None:
         keys = key_list if key_list is not None else generate_color_lookup_keys(label)
         for key in keys:
             if key and key not in color_key_lookup:
                 color_key_lookup[key] = color_value
     def _find_preferred_color(label: str, key_list: Optional[list[str]] = None) -> Optional[str]:
+        planned_color = preassigned_colors.get(label)
+        if planned_color:
+            return planned_color
         existing_color = color_mapping.get(label)
         if existing_color:
             return existing_color
@@ -3171,7 +3185,7 @@ def line_graf(
             reused_color = color_key_lookup.get(key)
             if reused_color:
                 return reused_color
-        return None
+        return _lookup_semantic_mapping_value(label, color_mapping, allow_family=True)
     def _release_reserved_color(label: str) -> None:
         reserved_color = pending_reserved_labels.pop(label, None)
         if not reserved_color:
@@ -3195,6 +3209,52 @@ def line_graf(
         for name, hex_color in color_overrides.items():
             color_mapping[name] = hex_color
             _register_color_keys(name, hex_color)
+    current_label_set = {str(label).strip() for label in colunas if str(label).strip()}
+    reference_labels_for_family = [
+        label
+        for label in color_mapping.keys()
+        if str(label).strip() and str(label).strip() not in current_label_set
+    ]
+    if reference_labels_for_family:
+        family_groups: dict[str, list[dict[str, object]]] = {}
+        for original_index, label in enumerate(colunas):
+            family_key = _extract_semantic_family_key(label, reference_labels_for_family)
+            if not family_key:
+                continue
+            best_match = _best_semantic_reference_match(label, reference_labels_for_family, allow_family=True)
+            anchor_color = None
+            anchor_score = float('-inf')
+            if best_match is not None:
+                anchor_color = color_mapping.get(best_match.reference_label)
+                anchor_score = best_match.score
+            family_groups.setdefault(family_key, []).append(
+                {
+                    "label": label,
+                    "order": original_index,
+                    "anchor_color": anchor_color,
+                    "anchor_score": anchor_score,
+                }
+            )
+        for family_key, family_entries in family_groups.items():
+            if not family_entries:
+                continue
+            anchored_entries = [
+                entry for entry in family_entries
+                if entry.get("anchor_color") and entry.get("anchor_score", float('-inf')) != float('-inf')
+            ]
+            if anchored_entries:
+                anchored_entries.sort(key=lambda entry: (entry["anchor_score"], -entry["order"]), reverse=True)
+                base_color = anchored_entries[0]["anchor_color"]
+            else:
+                base_color = _select_ambiguous_family_base_color(family_key)
+            family_entries.sort(key=lambda entry: entry["order"])
+            if len(family_entries) == 1 and anchored_entries:
+                preassigned_colors[str(family_entries[0]["label"])] = str(base_color)
+                continue
+            family_palette = _build_family_variant_palette(str(base_color), len(family_entries))
+            for idx_family, entry in enumerate(family_entries):
+                label_key = str(entry["label"])
+                preassigned_colors[label_key] = family_palette[idx_family] if idx_family < len(family_palette) else str(base_color)
     for label in colunas:
         keys = generate_color_lookup_keys(label)
         preferred_color = _find_preferred_color(label, keys)
@@ -3220,14 +3280,20 @@ def line_graf(
         color_index += 1
         return candidate
     def _resolve_or_assign_color(label: str) -> str:
-        existing_color = color_mapping.get(label)
+        planned_color = preassigned_colors.get(label)
         keys = generate_color_lookup_keys(label)
+        if planned_color and _color_is_available(planned_color, label):
+            return _assign_chart_color(label, planned_color, keys)
+        existing_color = color_mapping.get(label)
         if existing_color and _color_is_available(existing_color, label):
             return _assign_chart_color(label, existing_color, keys)
         for key in keys:
             reused_color = color_key_lookup.get(key)
             if reused_color and _color_is_available(reused_color, label):
                 return _assign_chart_color(label, reused_color, keys)
+        semantic_color = _lookup_semantic_mapping_value(label, color_mapping, allow_family=True)
+        if semantic_color and _color_is_available(semantic_color, label):
+            return _assign_chart_color(label, semantic_color, keys)
         assigned_color = _next_palette_color()
         return _assign_chart_color(label, assigned_color, keys)
     lns = []
@@ -4318,15 +4384,238 @@ def _parse_percent_cell(value) -> Optional[float]:
         return None
     return numeric if np.isfinite(numeric) else None
 
-def _normalize_sort_header(value) -> str:
-    """Normaliza encabezados para comparar Compras vs Ventas ignorando sufijos .C/.V."""
+SEMANTIC_LABEL_ORIGIN_TOKENS = {
+    'c', 'v', 'sv',
+    'compra', 'compras', 'purchase', 'purchases',
+    'venta', 'ventas', 'sale', 'sales', 'venda', 'vendas',
+    'sellin', 'sellout',
+}
+ALNUM_BOUNDARY_SPLIT_PATTERN = re.compile(r'(?<=\d)(?=[a-z])|(?<=[a-z])(?=\d)')
+
+@dataclass(frozen=True)
+class SemanticLabelSignature:
+    raw: str
+    canonical: str
+    compact: str
+    tokens: tuple[str, ...]
+    alpha_tokens: tuple[str, ...]
+    numeric_tokens: tuple[str, ...]
+
+@dataclass(frozen=True)
+class SemanticLabelMatch:
+    reference_label: str
+    reference_index: int
+    score: float
+
+AMBIGUOUS_FAMILY_BASE_PALETTE = ['#64748B', '#0F766E', '#9A3412', '#6D28D9', '#B45309']
+
+def _prepare_semantic_label_text(value) -> str:
     normalized = normalize_color_text(value)
     if not normalized:
         return ''
-    return strip_color_suffixes(normalized)
+    normalized = strip_color_suffixes(normalized)
+    normalized = re.sub(r'\bsell[\s_-]*in\b', 'sellin', normalized)
+    normalized = re.sub(r'\bsell[\s_-]*out\b', 'sellout', normalized)
+    normalized = ALNUM_BOUNDARY_SPLIT_PATTERN.sub(' ', normalized)
+    return re.sub(r'\s+', ' ', normalized).strip()
+
+@lru_cache(maxsize=4096)
+def build_semantic_label_signature(value) -> SemanticLabelSignature:
+    raw = '' if value is None else str(value).strip()
+    prepared = _prepare_semantic_label_text(raw)
+    if not prepared:
+        return SemanticLabelSignature(raw=raw, canonical='', compact='', tokens=(), alpha_tokens=(), numeric_tokens=())
+    tokens = tuple(
+        token
+        for token in COLOR_TOKEN_SPLIT_PATTERN.split(prepared)
+        if token and token not in SEMANTIC_LABEL_ORIGIN_TOKENS
+    )
+    alpha_tokens = tuple(token for token in tokens if any(ch.isalpha() for ch in token))
+    numeric_tokens = tuple(token for token in tokens if token.isdigit())
+    canonical = ' '.join(tokens)
+    compact = ''.join(tokens)
+    return SemanticLabelSignature(
+        raw=raw,
+        canonical=canonical,
+        compact=compact,
+        tokens=tokens,
+        alpha_tokens=alpha_tokens,
+        numeric_tokens=numeric_tokens,
+    )
+
+def _semantic_token_match_score(left_token: str, right_token: str) -> float:
+    if not left_token or not right_token:
+        return 0.0
+    if left_token == right_token:
+        return 1.0
+    if left_token.isdigit() or right_token.isdigit():
+        return 0.0
+    ratio = SequenceMatcher(None, left_token, right_token).ratio()
+    if ratio >= 0.92:
+        return ratio
+    shorter, longer = sorted((left_token, right_token), key=len)
+    if len(shorter) >= 5 and longer.startswith(shorter) and (len(longer) - len(shorter)) <= 2:
+        return 0.9
+    return 0.0
+
+def _pair_semantic_tokens(reference_sig: SemanticLabelSignature, candidate_sig: SemanticLabelSignature) -> list[tuple[int, int, float]]:
+    matches: list[tuple[int, int, float]] = []
+    matched_reference: set[int] = set()
+    matched_candidate: set[int] = set()
+    for exact_only in (True, False):
+        for ref_idx, reference_token in enumerate(reference_sig.tokens):
+            if ref_idx in matched_reference:
+                continue
+            best_candidate_idx = None
+            best_score = 0.0
+            for candidate_idx, candidate_token in enumerate(candidate_sig.tokens):
+                if candidate_idx in matched_candidate:
+                    continue
+                score = 1.0 if reference_token == candidate_token else 0.0
+                if not exact_only and score == 0.0:
+                    score = _semantic_token_match_score(reference_token, candidate_token)
+                if score > best_score:
+                    best_score = score
+                    best_candidate_idx = candidate_idx
+            if best_candidate_idx is None or best_score <= 0.0:
+                continue
+            matches.append((ref_idx, best_candidate_idx, best_score))
+            matched_reference.add(ref_idx)
+            matched_candidate.add(best_candidate_idx)
+    return matches
+
+def _forward_semantic_label_match_score(reference_label, candidate_label, allow_family: bool = False) -> float:
+    reference_sig = build_semantic_label_signature(reference_label)
+    candidate_sig = build_semantic_label_signature(candidate_label)
+    if not reference_sig.tokens or not candidate_sig.tokens:
+        return float('-inf')
+    if reference_sig.compact and reference_sig.compact == candidate_sig.compact:
+        return 1000.0
+    if (reference_sig.numeric_tokens or candidate_sig.numeric_tokens) and reference_sig.numeric_tokens != candidate_sig.numeric_tokens:
+        return float('-inf')
+    token_matches = _pair_semantic_tokens(reference_sig, candidate_sig)
+    if not token_matches:
+        return float('-inf')
+    matched_count = len(token_matches)
+    matched_alpha_count = sum(
+        1
+        for ref_idx, candidate_idx, _ in token_matches
+        if any(ch.isalpha() for ch in reference_sig.tokens[ref_idx])
+        and any(ch.isalpha() for ch in candidate_sig.tokens[candidate_idx])
+    )
+    if reference_sig.alpha_tokens and matched_alpha_count == 0:
+        return float('-inf')
+    coverage_reference = matched_count / len(reference_sig.tokens)
+    coverage_candidate = matched_count / len(candidate_sig.tokens)
+    alpha_reference = len(reference_sig.alpha_tokens)
+    alpha_candidate = len(candidate_sig.alpha_tokens)
+    alpha_coverage_reference = matched_alpha_count / alpha_reference if alpha_reference else 0.0
+    alpha_coverage_candidate = matched_alpha_count / alpha_candidate if alpha_candidate else 0.0
+    avg_similarity = sum(score for _, _, score in token_matches) / matched_count
+    if coverage_reference == 1.0 and coverage_candidate == 1.0 and alpha_coverage_reference == 1.0 and alpha_coverage_candidate == 1.0:
+        return 900.0 + avg_similarity * 50.0
+    if not allow_family:
+        return float('-inf')
+    if coverage_reference == 1.0 and alpha_coverage_reference == 1.0 and coverage_candidate >= 0.6 and alpha_coverage_candidate >= 0.5:
+        extra_candidate_tokens = max(0, len(candidate_sig.tokens) - matched_count)
+        return 700.0 + avg_similarity * 40.0 - extra_candidate_tokens * 5.0
+    return float('-inf')
+
+def _best_semantic_reference_match(label, reference_labels: List[str], allow_family: bool = False) -> Optional[SemanticLabelMatch]:
+    best_match: Optional[SemanticLabelMatch] = None
+    second_best_score = float('-inf')
+    for reference_index, reference_label in enumerate(reference_labels):
+        score = _forward_semantic_label_match_score(reference_label, label, allow_family=allow_family)
+        if score == float('-inf'):
+            continue
+        if best_match is None or score > best_match.score:
+            second_best_score = best_match.score if best_match is not None else float('-inf')
+            best_match = SemanticLabelMatch(
+                reference_label=str(reference_label),
+                reference_index=reference_index,
+                score=score,
+            )
+        elif score > second_best_score:
+            second_best_score = score
+    if best_match is None:
+        return None
+    if second_best_score != float('-inf') and abs(best_match.score - second_best_score) < 1e-6 and best_match.score < 900.0:
+        return None
+    return best_match
+
+def _reorder_labels_against_reference(labels: List[str], reference_labels: List[str], allow_family: bool = False) -> List[str]:
+    if not labels or not reference_labels:
+        return labels
+    matched_items = []
+    unmatched_items = []
+    for original_index, label in enumerate(labels):
+        match = _best_semantic_reference_match(label, reference_labels, allow_family=allow_family)
+        if match is None:
+            unmatched_items.append((original_index, label))
+            continue
+        matched_items.append((match.reference_index, original_index, label))
+    if not matched_items:
+        return labels
+    matched_items.sort(key=lambda item: (item[0], item[1]))
+    reordered = [label for _, _, label in matched_items]
+    reordered.extend(label for _, label in unmatched_items)
+    if reordered == labels:
+        return labels
+    return reordered
+
+def _extract_semantic_family_key(label, reference_labels: List[str]) -> str:
+    candidate_sig = build_semantic_label_signature(label)
+    if not candidate_sig.tokens or not reference_labels:
+        return ''
+    family_tokens: list[str] = []
+    for candidate_token in candidate_sig.tokens:
+        matched = False
+        for reference_label in reference_labels:
+            reference_sig = build_semantic_label_signature(reference_label)
+            for reference_token in reference_sig.tokens:
+                if _semantic_token_match_score(candidate_token, reference_token) > 0.0:
+                    matched = True
+                    break
+            if matched:
+                break
+        if matched:
+            family_tokens.append(candidate_token)
+    return ''.join(family_tokens)
+
+def _build_family_variant_palette(base_color: str, count: int) -> list[str]:
+    if count <= 0:
+        return []
+    try:
+        r, g, b = mcolors.to_rgb(base_color)
+    except Exception:
+        return [base_color] * count
+    hue, lightness, saturation = colorsys.rgb_to_hls(r, g, b)
+    if count == 1:
+        rgb_variant = colorsys.hls_to_rgb(hue, min(0.72, max(0.28, lightness)), max(0.2, saturation))
+        return [mcolors.to_hex(rgb_variant)]
+    offsets = np.linspace(0.12, -0.12, count)
+    variants: list[str] = []
+    for offset in offsets:
+        variant_lightness = min(0.78, max(0.24, lightness + float(offset)))
+        variant_saturation = min(0.95, max(0.18, saturation))
+        rgb_variant = colorsys.hls_to_rgb(hue, variant_lightness, variant_saturation)
+        variants.append(mcolors.to_hex(rgb_variant))
+    return variants
+
+def _select_ambiguous_family_base_color(family_key: str) -> str:
+    if not family_key:
+        return AMBIGUOUS_FAMILY_BASE_PALETTE[0]
+    deterministic_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, family_key)
+    index = deterministic_uuid.int % len(AMBIGUOUS_FAMILY_BASE_PALETTE)
+    return AMBIGUOUS_FAMILY_BASE_PALETTE[index]
+
+def _normalize_sort_header(value) -> str:
+    """Devuelve una clave canónica segura para deduplicar variaciones triviales del mismo label."""
+    signature = build_semantic_label_signature(value)
+    return signature.compact or signature.canonical
 
 def _build_compras_sort_rank(apo_df: pd.DataFrame) -> list[str]:
-    """Devuelve el ranking de encabezados segun Compras (de mayor a menor)."""
+    """Devuelve el ranking de encabezados segun Compras (de mayor a menor), preservando labels originales."""
     if apo_df is None or apo_df.empty or apo_df.shape[1] <= 1:
         return []
     total_col = next(
@@ -4350,15 +4639,15 @@ def _build_compras_sort_rank(apo_df: pd.DataFrame) -> list[str]:
         score = _parse_percent_cell(apo_df.iloc[reference_row, col_idx])
         if score is None:
             score = float('-inf')
-        rank_candidates.append((norm_name, score, col_idx))
-    rank_candidates.sort(key=lambda item: (item[1], -item[2]), reverse=True)
+        rank_candidates.append((str(col_name), norm_name, score, col_idx))
+    rank_candidates.sort(key=lambda item: (item[2], -item[3]), reverse=True)
     rank = []
     seen = set()
-    for norm_name, _, _ in rank_candidates:
+    for raw_label, norm_name, _, _ in rank_candidates:
         if norm_name in seen:
             continue
         seen.add(norm_name)
-        rank.append(norm_name)
+        rank.append(raw_label)
     return rank
 
 def reorder_apo_entries_by_compras(apo_entries: List[dict]) -> None:
@@ -4383,7 +4672,6 @@ def reorder_apo_entries_by_compras(apo_entries: List[dict]) -> None:
     compras_rank = _build_compras_sort_rank(compras_df)
     if not compras_rank:
         return
-    compras_rank_set = set(compras_rank)
     for entry in apo_entries:
         apo_df = entry.get("apo")
         if not isinstance(apo_df, pd.DataFrame) or apo_df.empty or apo_df.shape[1] <= 1:
@@ -4391,29 +4679,25 @@ def reorder_apo_entries_by_compras(apo_entries: List[dict]) -> None:
         first_col = apo_df.columns[0]
         total_cols = [col for col in apo_df.columns[1:] if str(col).strip().lower() == 'total']
         value_cols = [col for col in apo_df.columns[1:] if str(col).strip().lower() != 'total']
-        norm_to_cols: dict[str, list] = {}
-        for col in value_cols:
-            norm_name = _normalize_sort_header(col)
-            if not norm_name:
-                continue
-            norm_to_cols.setdefault(norm_name, []).append(col)
-        shared_headers = compras_rank_set.intersection(norm_to_cols.keys())
-        if not shared_headers:
+        reordered_value_cols = _reorder_labels_against_reference(
+            [str(col) for col in value_cols],
+            compras_rank,
+            allow_family=True,
+        )
+        if reordered_value_cols == [str(col) for col in value_cols]:
             continue
-        reordered_value_cols = []
-        used_cols = set()
-        for norm_name in compras_rank:
-            for col in norm_to_cols.get(norm_name, []):
-                if col in used_cols:
-                    continue
-                reordered_value_cols.append(col)
-                used_cols.add(col)
+        raw_to_original: dict[str, list] = {}
         for col in value_cols:
-            if col in used_cols:
+            raw_to_original.setdefault(str(col), []).append(col)
+        reordered_cols = [first_col]
+        for reordered_label in reordered_value_cols:
+            original_candidates = raw_to_original.get(reordered_label) or []
+            if not original_candidates:
                 continue
-            reordered_value_cols.append(col)
-            used_cols.add(col)
-        reordered_cols = [first_col] + reordered_value_cols + total_cols
+            reordered_cols.append(original_candidates.pop(0))
+        for original_candidates in raw_to_original.values():
+            reordered_cols.extend(original_candidates)
+        reordered_cols.extend(total_cols)
         if list(apo_df.columns) == reordered_cols:
             continue
         reordered_df = apo_df.loc[:, reordered_cols].copy()
@@ -4443,45 +4727,22 @@ def _build_share_rank_from_compras(share_chart_entries: List[dict]) -> list[str]
         score = _parse_percent_cell(value)
         if score is None:
             score = float('-inf')
-        rank_candidates.append((norm_name, score, idx))
-    rank_candidates.sort(key=lambda item: (item[1], -item[2]), reverse=True)
+        rank_candidates.append((str(column_name), norm_name, score, idx))
+    rank_candidates.sort(key=lambda item: (item[2], -item[3]), reverse=True)
     rank: list[str] = []
     seen: set[str] = set()
-    for norm_name, _, _ in rank_candidates:
+    for raw_label, norm_name, _, _ in rank_candidates:
         if norm_name in seen:
             continue
         seen.add(norm_name)
-        rank.append(norm_name)
+        rank.append(raw_label)
     return rank
 
 def _reorder_labels_by_rank(labels: List[str], compras_rank: List[str]) -> List[str]:
     """Reordena etiquetas manteniendo no-coincidentes al final en su orden original."""
     if not labels or not compras_rank:
         return labels
-    compras_rank_set = set(compras_rank)
-    norm_to_labels: dict[str, list[str]] = {}
-    for label in labels:
-        norm_name = _normalize_sort_header(label)
-        if not norm_name:
-            continue
-        norm_to_labels.setdefault(norm_name, []).append(label)
-    shared_headers = compras_rank_set.intersection(norm_to_labels.keys())
-    if not shared_headers:
-        return labels
-    ordered_labels = []
-    used = set()
-    for norm_name in compras_rank:
-        for label in norm_to_labels.get(norm_name, []):
-            if label in used:
-                continue
-            ordered_labels.append(label)
-            used.add(label)
-    for label in labels:
-        if label in used:
-            continue
-        ordered_labels.append(label)
-        used.add(label)
-    return ordered_labels
+    return _reorder_labels_against_reference(labels, compras_rank, allow_family=True)
 
 def _reorder_shares_by_rank(shares: dict, compras_rank: List[str]) -> OrderedDict:
     """Reordena un diccionario de shares usando el ranking de Compras."""
@@ -5467,11 +5728,14 @@ def strip_color_suffixes(text: str) -> str:
     base = COLOR_UNIT_SUFFIX_PATTERN.sub('', base)
     return base.strip()
 def generate_color_lookup_keys(label: str) -> list[str]:
-    """Genera variantes de claves para mapear etiquetas a colores."""
-    normalized = normalize_color_text(label)
-    if not normalized:
-        return []
-    base = strip_color_suffixes(normalized)
+    """Genera claves canónicas seguras para reusar colores sin depender del texto literal."""
+    signature = build_semantic_label_signature(label)
+    if not signature.tokens:
+        normalized = normalize_color_text(label)
+        if not normalized:
+            return []
+        base = strip_color_suffixes(normalized)
+        return [base] if base else []
     seen = set()
     keys: list[str] = []
     def _push(candidate: str):
@@ -5479,52 +5743,62 @@ def generate_color_lookup_keys(label: str) -> list[str]:
         if candidate and candidate not in seen:
             seen.add(candidate)
             keys.append(candidate)
-    _push(base)
-    collapsed = ' '.join(base.split())
-    _push(collapsed)
-    alnum = COLOR_TOKEN_SPLIT_PATTERN.sub('', base)
-    _push(alnum)
-    digit_key = ''.join(ch for ch in base if ch.isdigit())
-    if digit_key:
-        digit_key = digit_key.lstrip('0') or '0'
-        _push(digit_key)
-    raw_tokens = [tok for tok in COLOR_TOKEN_SPLIT_PATTERN.split(base) if tok]
-    filtered_tokens = [tok for tok in raw_tokens if tok not in COLOR_TOKEN_STOPWORDS]
-    if filtered_tokens:
-        _push(' '.join(filtered_tokens))
-        _push(''.join(filtered_tokens))
-        if len(filtered_tokens) > 1:
-            _push(' '.join(sorted(filtered_tokens)))
-    if raw_tokens:
-        _push(' '.join(raw_tokens))
+    _push(signature.canonical)
+    _push(signature.compact)
+    if len(signature.tokens) > 1:
+        _push('|'.join(signature.tokens))
+        _push('|'.join(sorted(signature.tokens)))
     return keys
+
+def _lookup_semantic_mapping_value(label, lookup_dict: dict[str, str], allow_family: bool = True) -> Optional[str]:
+    if not lookup_dict or label is None:
+        return None
+    raw_label = str(label).strip()
+    if not raw_label or raw_label.lower() == 'total':
+        return None
+    direct_color = lookup_dict.get(raw_label)
+    if direct_color:
+        return direct_color
+    best_match = _best_semantic_reference_match(
+        raw_label,
+        [candidate for candidate in lookup_dict.keys() if candidate and str(candidate).strip().lower() != 'total'],
+        allow_family=allow_family,
+    )
+    if best_match is None:
+        return None
+    return lookup_dict.get(best_match.reference_label)
+
 def build_color_lookup_dict(color_mapping: dict[str, str]) -> dict[str, str]:
     """Construye un diccionario de busqueda de colores."""
-    lookup: dict[str, str] = {}
     if not color_mapping:
-        return lookup
+        return {}
+    lookup: dict[str, str] = {}
     for original_key, color_value in color_mapping.items():
         if color_value is None:
             continue
         normalized_key = str(original_key).strip()
         if not normalized_key or normalized_key.lower() == 'total':
             continue
-        for lookup_key in generate_color_lookup_keys(normalized_key):
-            if lookup_key and lookup_key not in lookup:
-                lookup[lookup_key] = color_value
+        if normalized_key not in lookup:
+            lookup[normalized_key] = color_value
     return lookup
+
 def lookup_color_for_label(label, lookup_dict: dict[str, str]) -> Optional[str]:
     """Busca el color asociado a una etiqueta normalizada."""
-    if not lookup_dict or label is None:
-        return None
-    raw_key = str(label).strip()
+    raw_key = str(label).strip() if label is not None else ''
     if not raw_key or raw_key.lower() == 'total':
         return None
+    if not lookup_dict:
+        return None
+    direct_color = lookup_dict.get(raw_key)
+    if direct_color:
+        return direct_color
     for lookup_key in generate_color_lookup_keys(raw_key):
         color_value = lookup_dict.get(lookup_key)
         if color_value:
             return color_value
-    return None
+    return _lookup_semantic_mapping_value(raw_key, lookup_dict, allow_family=True)
+
 def register_color_lookup(label, color_value: str, lookup_dict: dict[str, str], overwrite: bool = False) -> None:
     """Registra una etiqueta y su color en el lookup."""
     if label is None or not color_value:
@@ -5532,6 +5806,8 @@ def register_color_lookup(label, color_value: str, lookup_dict: dict[str, str], 
     raw_key = str(label).strip()
     if not raw_key or raw_key.lower() == 'total':
         return
+    if overwrite or raw_key not in lookup_dict:
+        lookup_dict[raw_key] = color_value
     for lookup_key in generate_color_lookup_keys(raw_key):
         if not lookup_key:
             continue
@@ -6605,6 +6881,63 @@ def prepare_series_configs(df_list, lang, p_ventas, sheet_name: Optional[str] = 
         pipeline = 0 if is_compras else p_ventas
         configs.append(SeriesConfig(df_local, raw_tipo, display_tipo, pipeline))
     return configs
+
+def reorder_series_configs_by_compras(series_configs: list[SeriesConfig]) -> list[SeriesConfig]:
+    """Alinea el orden de las series no-Compras usando Compras como referencia semántica."""
+    if not series_configs:
+        return series_configs
+    compras_config = next(
+        (
+            cfg for cfg in series_configs
+            if str(getattr(cfg, "display_tipo", "")).strip().lower() == "compras"
+            and getattr(cfg, "data", None) is not None
+            and getattr(cfg.data, "shape", (0, 0))[1] > 1
+        ),
+        None
+    )
+    if compras_config is None:
+        return series_configs
+    reference_labels = [
+        str(col)
+        for col in compras_config.data.columns[1:]
+        if not _is_total_like_series(col)
+    ]
+    if not reference_labels:
+        return series_configs
+    reordered_configs: list[SeriesConfig] = []
+    for cfg in series_configs:
+        df_local = cfg.data
+        if df_local is None or df_local.empty or df_local.shape[1] <= 1:
+            reordered_configs.append(cfg)
+            continue
+        value_cols = [col for col in df_local.columns[1:] if not _is_total_like_series(col)]
+        total_cols = [col for col in df_local.columns[1:] if _is_total_like_series(col)]
+        reordered_value_labels = _reorder_labels_against_reference(
+            [str(col) for col in value_cols],
+            reference_labels,
+            allow_family=True,
+        )
+        if reordered_value_labels == [str(col) for col in value_cols]:
+            reordered_configs.append(cfg)
+            continue
+        raw_to_original: dict[str, list] = {}
+        for col in value_cols:
+            raw_to_original.setdefault(str(col), []).append(col)
+        reordered_cols = [df_local.columns[0]]
+        for reordered_label in reordered_value_labels:
+            original_candidates = raw_to_original.get(reordered_label) or []
+            if not original_candidates:
+                continue
+            reordered_cols.append(original_candidates.pop(0))
+        for remaining_candidates in raw_to_original.values():
+            reordered_cols.extend(remaining_candidates)
+        reordered_cols.extend(total_cols)
+        reordered_df = df_local.loc[:, reordered_cols].copy()
+        reordered_df.attrs = dict(getattr(df_local, "attrs", {}))
+        reordered_configs.append(
+            SeriesConfig(reordered_df, cfg.raw_tipo, cfg.display_tipo, cfg.pipeline)
+        )
+    return reordered_configs
 SIZE_GROUP_MAX_ELEMENTS = 10
 SIZE_GROUP_WINDOW_MONTHS = 12
 SIZE_GROUP_SUFFIXES = ('.C', '.V', '_C', '_V', '-C', '-V', '.c', '.v', '_c', '_v', '-c', '-v')
@@ -7653,6 +7986,7 @@ for w in W:
                 else:
                     grouped_series_configs.append(serie)
             series_configs = grouped_series_configs
+        series_configs = reorder_series_configs_by_compras(series_configs)
         last_reference_source = series_configs[0].data if series_configs else df_start
         last_reference_origin = series_configs[0].display_tipo if series_configs else None
         #Cria o slide
