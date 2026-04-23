@@ -2221,24 +2221,26 @@ def ppt8_extract_metrics(
     """Mapea etiqueta -> (MAT base, MAT actual) y registra la fuente detectada."""
 
     volume_metric_priority = {
-        "RVOL1": 300,
-        "RVOL2": 300,
-        "VOLSU": 250,
+        "RVOL1": 400,
+        "RVOL2": 390,
+        "VOL1PCO": 350,
+        "VOL2PCO": 340,
+        "VOL1P": 320,
+        "VOL2P": 310,
+        "VOL1": 280,
+        "VOL2": 270,
+        "VOLSU": 240,
         "UNITS": 200,
         "UNIDAD": 200,
         "UNIDADES": 200,
-        "VOL1": 150,
-        "VOL2": 150,
-        # VOL*_P se toma como ultima opcion cuando no hay R_VOL*
-        "VOL1P": 100,
-        "VOL2P": 100,
     }
 
     def canonical_metric(label: str) -> Tuple[Optional[str], Optional[str], int]:
         raw_label = str(label)
         if not raw_label or not raw_label.strip():
             return None, None, -1
-        normalized = raw_label.replace("Weighted", "").strip().upper()
+        is_weighted = "WEIGHTED" in raw_label.upper()
+        normalized = re.sub(r"(?i)\bweighted\b", "", raw_label).strip().upper()
         compact = re.sub(r"[^A-Z0-9]+", "", normalized)
         if not compact:
             return None, None, -1
@@ -2246,14 +2248,21 @@ def ppt8_extract_metrics(
 
         if is_vertical:
             return None, None, -1
-        if compact in {"RVOL1", "RVOL2", "VOL1", "VOL2", "VOL1P", "VOL2P", "VOLSU", "UNITS", "UNIDAD", "UNIDADES"}:
+        if compact in {
+            "RVOL1", "RVOL2",
+            "VOL1", "VOL2",
+            "VOL1P", "VOL2P",
+            "VOL1PCO", "VOL2PCO",
+            "VOLSU", "UNITS", "UNIDAD", "UNIDADES"
+        }:
             return "R_VOL1", compact, volume_metric_priority.get(compact, 0)
         if compact.startswith("PEN"):
             return "PENET", compact, 100
-        if compact.startswith("FREQ"):
+        if compact.startswith("FREQ") or compact in {"FRDAY", "FRDAYS"}:
             return "FREQ", compact, 100
         if compact.startswith("HH"):
-            return "HHOLDS", compact, 100
+            priority = 200 if not is_weighted else 100
+            return "HHOLDS", compact, priority
         return normalized, compact, 0
 
     metrics: Dict[str, Tuple[float, float]] = {}
@@ -2290,16 +2299,18 @@ def ppt8_detect_volume_metric(agg_blocks: Iterable[Ppt8AggBlock]) -> Optional[st
     """Detecta la metrica de volumen usada en Segmento 8 para reportarla en terminal."""
     source_counts: Dict[str, int] = {}
     source_priority = {
-        "RVOL1": 300,
-        "RVOL2": 300,
-        "VOLSU": 250,
+        "RVOL1": 400,
+        "RVOL2": 390,
+        "VOL1PCO": 350,
+        "VOL2PCO": 340,
+        "VOL1P": 320,
+        "VOL2P": 310,
+        "VOL1": 280,
+        "VOL2": 270,
+        "VOLSU": 240,
         "UNITS": 200,
         "UNIDAD": 200,
         "UNIDADES": 200,
-        "VOL1": 150,
-        "VOL2": 150,
-        "VOL1P": 100,
-        "VOL2P": 100,
     }
     source_display = {
         "RVOL1": "R_VOL1",
@@ -2308,6 +2319,8 @@ def ppt8_detect_volume_metric(agg_blocks: Iterable[Ppt8AggBlock]) -> Optional[st
         "VOL2": "VOL2",
         "VOL1P": "VOL1_P",
         "VOL2P": "VOL2_P",
+        "VOL1PCO": "VOL1_PCO",
+        "VOL2PCO": "VOL2_PCO",
         "VOLSU": "VOLSU",
         "UNITS": "UNITS",
         "UNIDAD": "UNIDAD",
