@@ -123,6 +123,10 @@ Mapa:
 - `6= M -> Metros`
 - `7= H -> Hojas`
 
+Despues de la unidad, el segmento 2 permite definir como mostrar el cambio de penetracion:
+- Enter o `%`: variacion porcentual actual.
+- `p` o `pp`: cambio en puntos porcentuales, guardado con sufijo `_pp` (ej. `2_Marca_U_pp`).
+
 ### Etiqueta de categoria
 Reemplaza `Categoria`/`CategoriaEjemplo` en hojas y contenido.
 

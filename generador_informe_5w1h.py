@@ -3882,7 +3882,7 @@ def _nombres_unidad(unidad):
         "volumen_viaje": f"Volumen por Viaje {sub_label}/Viaje",
         "ticket": "Gasto por Ticket $/Viaje",
     }
-def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
+def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units', penetracion_en_pp=False):
     """Calcula niveles y variaciones porcentuales entre dos periodos."""
     etiquetas = _nombres_unidad(unidad)
     def calculate_percentage_change(old, new):
@@ -3891,6 +3891,15 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         if not np.isfinite(old) or not np.isfinite(new) or old == 0:
             return 0
         return ((new - old) / old) * 100
+    def calculate_percentage_point_change(old, new):
+        if old is None or new is None:
+            return 0
+        if not np.isfinite(old) or not np.isfinite(new):
+            return 0
+        delta = new - old
+        if abs(old) <= 1 and abs(new) <= 1:
+            delta *= 100
+        return delta
     factores = {
         'Units': 1,
         'Litros': 1,
@@ -3939,13 +3948,14 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
         else:
             display_name = str(metrico)
         raise KeyError(f"No se encontro la metrica '{display_name}' en los datos.")
-    def build_entry(label, metrica, transform=lambda x, _: x):
+    def build_entry(label, metrica, transform=lambda x, _: x, change_fn=calculate_percentage_change, change_suffix="%"):
         inicial = transform(leer_metric(metrica, periodo_inicial), periodo_inicial)
         final = transform(leer_metric(metrica, periodo_final), periodo_final)
         return {
             "valor_origen": inicial,
             "value": final,
-            "change": calculate_percentage_change(inicial, final)
+            "change": change_fn(inicial, final),
+            "change_suffix": change_suffix,
         }
     segment2_metric_candidates = {
         # Compatibilidad entre hojas legacy (R_VOL/VO1/PM1) y nuevas hojas en unidades (UNITS/VOPK/PMPK).
@@ -3973,7 +3983,12 @@ def calcular_cambios(df, periodo_inicial, periodo_final, unidad='Units'):
             segment2_metric_candidates["volumen_prom"],
             lambda v, _: v * factor_volumen_prom
         ),
-        etiquetas["penetracion"]: build_entry(etiquetas["penetracion"], 'Weighted PENET'),
+        etiquetas["penetracion"]: build_entry(
+            etiquetas["penetracion"],
+            'Weighted PENET',
+            change_fn=calculate_percentage_point_change if penetracion_en_pp else calculate_percentage_change,
+            change_suffix=" pp" if penetracion_en_pp else "%"
+        ),
         etiquetas["hholds"]: build_entry(etiquetas["hholds"], 'Weighted HHOLDS'),
         etiquetas["frecuencia"]: build_entry(etiquetas["frecuencia"], 'Weighted FREQ'),
         etiquetas["volumen_viaje"]: build_entry(
@@ -4053,7 +4068,11 @@ def graficar_arbol(metrics_calculated, volumen_unidad='Units', output_dir=None, 
     def draw_card(ax, center, node):
         metric_info = metrics_calculated[node["metric"]]
         value_txt = _format_val(node["label"], metric_info["value"])
-        change_txt = f"{metric_info['change']:+.1f}%"
+        change_suffix = metric_info.get("change_suffix", "%")
+        if str(change_suffix).strip().lower() == "pp":
+            change_txt = f"{metric_info['change']:+.1f} pp"
+        else:
+            change_txt = f"{metric_info['change']:+.1f}%"
         label_wrapped = wrap_label(node["label"])
         label_lines = label_wrapped.split("\n")
         x, y = center
@@ -4211,10 +4230,11 @@ def graficar_arbol(metrics_calculated, volumen_unidad='Units', output_dir=None, 
     return buf, fig_size
 def _unidad_desde_nombre_hoja(nombre_hoja):
     """
-    Si el nombre cumple con el patron '2_NombreMarca_U', retorna la unidad solicitada.
-    Ejemplo: '2_Coca Cola_L' -> 'Litros'. Si no coincide o la letra no es valida, devuelve None.
+    Si el nombre cumple con el patron '2_NombreMarca_U' o '2_NombreMarca_U_pp',
+    retorna la unidad solicitada. Ejemplo: '2_Coca Cola_L' -> 'Litros'.
+    Si no coincide o la letra no es valida, devuelve None.
     """
-    match = re.match(r"^\d+_(.+)_([A-Za-z])$", nombre_hoja.strip())
+    match = re.match(r"^\d+_(.+)_([A-Za-z])(?:_(?:p|pp|%))?$", nombre_hoja.strip(), flags=re.IGNORECASE)
     if not match:
         return None
     letra = match.group(2).upper()
@@ -4228,6 +4248,22 @@ def _unidad_desde_nombre_hoja(nombre_hoja):
         "H": "Hojas",
     }
     return mapa.get(letra)
+
+def _modo_penetracion_desde_nombre_hoja(nombre_hoja):
+    """Devuelve 'pp' cuando la hoja de Segmento 2 pide puntos porcentuales."""
+    match = re.match(r"^\d+_.+_[A-Za-z]_(p|pp|%)$", nombre_hoja.strip(), flags=re.IGNORECASE)
+    if not match:
+        return "%"
+    token = match.group(1).lower()
+    return "pp" if token in {"p", "pp"} else "%"
+
+def _etiqueta_segmento2_desde_nombre_hoja(nombre_hoja):
+    """Quita prefijo, unidad y modo opcional para mostrar la marca en el titulo."""
+    sheet_clean = str(nombre_hoja or "").strip()
+    match = re.match(r"^\d+_(.+)_([A-Za-z])(?:_(?:p|pp|%))?$", sheet_clean, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return sheet_clean[2:] if len(sheet_clean) > 2 else sheet_clean
 # Segmentos 3-6: tabla de aportes y calculos de shares/variaciones.
 def aporte(df,p,lang,tipo):
         """Construye la tabla de aporte y calcula shares/variaciones."""
@@ -7819,12 +7855,19 @@ for w in W:
             print_colored(f"La hoja {w} no tiene al menos dos periodos MAT para comparar.", COLOR_YELLOW)
             continue
         unidad_detectada = _unidad_desde_nombre_hoja(w) or 'Units'
+        penetracion_en_pp = _modo_penetracion_desde_nombre_hoja(w) == "pp"
         periodo_inicial, periodo_final = tree_periods[-2], tree_periods[-1]
         parsed_tree_dt = _try_parse_reference_date(periodo_final)
         if parsed_tree_dt is not None:
             last_tree_period_dt = parsed_tree_dt
         try:
-            metrics_calculated = calcular_cambios(tree_table, periodo_inicial, periodo_final, unidad_detectada)
+            metrics_calculated = calcular_cambios(
+                tree_table,
+                periodo_inicial,
+                periodo_final,
+                unidad_detectada,
+                penetracion_en_pp=penetracion_en_pp
+            )
         except KeyError as exc:
             print_colored(f"No se pudo calcular el arbol para {w}: {exc}", COLOR_RED)
             continue
@@ -7843,8 +7886,7 @@ for w in W:
             fig_width_in, fig_height_in = (21, 9)
         slide = ppt.slides.add_slide(ppt.slide_layouts[1])
         titulo_arbol = c_w.get((lang, '2'), '2W - Arbol de Medidas')
-        match_nombre = re.match(r'^\d+_(.+?)(?:_[A-Za-z])?$', sheet_name_clean)
-        display_target = match_nombre.group(1) if match_nombre else sheet_name_clean[2:]
+        display_target = _etiqueta_segmento2_desde_nombre_hoja(sheet_name_clean)
         title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
         title_tf = title_box.text_frame
         set_title_with_brand_color(

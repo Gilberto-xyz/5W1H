@@ -578,6 +578,17 @@ def sanitizar_nombre_hoja(nombre, max_len=31):
         texto = "Hoja"
     return texto[:max_len]
 
+def sanitizar_nombre_hoja_con_sufijo(nombre_base, sufijo, max_len=31):
+    """Sanitiza preservando un sufijo operativo como _U_pp al final."""
+    suffix = sanitizar_nombre_hoja(sufijo, max_len=max_len)
+    base_max_len = max_len - len(suffix)
+    if base_max_len <= 0:
+        return suffix[:max_len]
+    base = sanitizar_nombre_hoja(nombre_base, max_len=base_max_len).rstrip(" _-")
+    if not base:
+        base = "Hoja"[:base_max_len]
+    return f"{base}{suffix}"[:max_len]
+
 def sanitizar_segmento_archivo(texto, max_len=80):
     """Sanitiza texto para uso en nombre de archivo."""
     value = str(texto).strip()
@@ -711,6 +722,24 @@ def solicitar_unidad_arbol():
             return raw, TREE_UNIT_MAP[raw]
         print(f"{Colors.FAIL}Unidad invalida. Use numero (1-{len(unit_options)}) o letra U/L/K/T/R/M/H.{Colors.ENDC}")
 
+def solicitar_modo_penetracion_arbol():
+    """
+    Solicita como mostrar el cambio de penetracion en Segmento 2.
+    Devuelve el sufijo para la hoja y la descripcion del modo.
+    """
+    print(f"{Colors.OKCYAN}Cambio de penetracion para Segmento 2:{Colors.ENDC}")
+    print(f"{Colors.OKBLUE}  %= Variacion porcentual (actual){Colors.ENDC}")
+    print(f"{Colors.OKBLUE}  p= Puntos porcentuales (pp){Colors.ENDC}")
+    while True:
+        raw = input(
+            f"{PromptColors.TREE_UNIT}Modo penetracion para hoja 2_* (%, p o pp). Enter para '%': {Colors.ENDC}"
+        ).strip().lower()
+        if not raw or raw == "%":
+            return "", "Variacion porcentual"
+        if raw in {"p", "pp"}:
+            return "_pp", "Puntos porcentuales"
+        print(f"{Colors.FAIL}Modo invalido. Use %, p o pp.{Colors.ENDC}")
+
 def solicitar_fabricante():
     """Solicita fabricante para el nombre del archivo de salida."""
     while True:
@@ -767,11 +796,21 @@ def asegurar_nombre_hoja_unico(nombre, usados):
             return candidato
         contador += 1
 
-def construir_nombre_hoja(template_name, marca, categoria_label, players_suffix, distribution_cut, tree_unit_letter="K"):
+def construir_nombre_hoja(
+    template_name,
+    marca,
+    categoria_label,
+    players_suffix,
+    distribution_cut,
+    tree_unit_letter="K",
+    tree_penetration_suffix="",
+):
     """Construye el nombre final de hoja desde el nombre plantilla."""
     title = template_name.replace('MarcaEjemplo', marca).replace('Categoria', categoria_label)
     if template_name.startswith('2_'):
-        title = re.sub(r'_[A-Za-z]$', f"_{tree_unit_letter}", title)
+        suffix = f"_{tree_unit_letter}{tree_penetration_suffix}"
+        base_title = re.sub(r'_[A-Za-z]$', '', title)
+        return sanitizar_nombre_hoja_con_sufijo(base_title, suffix)
     if template_name.endswith('_XX'):
         title = title[:-2] + players_suffix
     if template_name.startswith('7_'):
@@ -818,6 +857,7 @@ def crear_excel_desde_plantilla(
     players_suffix,
     distribution_cut,
     tree_unit_letter="K",
+    tree_penetration_suffix="",
     summary_lines=None,
 ):
     """Crea un archivo Excel desde Plantilla_Entrada_5W1H con contenido filtrado y dinamico."""
@@ -889,7 +929,8 @@ def crear_excel_desde_plantilla(
                 categoria_label,
                 players_suffix,
                 distribution_cut,
-                tree_unit_letter
+                tree_unit_letter,
+                tree_penetration_suffix
             )
             final_name = asegurar_nombre_hoja_unico(final_name, usados)
             brand_sheet.title = final_name
@@ -912,7 +953,8 @@ def crear_excel_desde_plantilla(
             categoria_label,
             players_suffix,
             distribution_cut,
-            tree_unit_letter
+            tree_unit_letter,
+            tree_penetration_suffix
         )
         final_name = asegurar_nombre_hoja_unico(final_name, usados)
         ws.title = final_name
@@ -1023,8 +1065,11 @@ def main():
         # 6. Unidad para Segmento 2 (inmediatamente despues de elegir plantillas)
         tree_unit_letter = 'K'
         tree_unit_name = TREE_UNIT_MAP.get(tree_unit_letter, 'Kilos')
+        tree_penetration_suffix = ''
+        tree_penetration_mode_name = 'Variacion porcentual'
         if "2_MarcaEjemplo_K" in hojas_seleccionadas:
             tree_unit_letter, tree_unit_name = solicitar_unidad_arbol()
+            tree_penetration_suffix, tree_penetration_mode_name = solicitar_modo_penetracion_arbol()
 
         # 7. Parametros dinamicos para placeholders de categoria y cortes
         categoria_default = str(cat_sel.get('descripcion', 'Categoria')).strip() or 'Categoria'
@@ -1045,6 +1090,7 @@ def main():
             f"Etiqueta objetivo para Players (hoja 6_Categoria_XX, ej: Fabricante/Marca Propia). Enter para 'XX': {players_suffix}",
             f"Etiqueta para corte de distribucion (hoja 7_...; Enter para 'Canal'): {distribution_cut}",
             f"Unidad Segmento 2 (hoja 2_*): {tree_unit_letter} -> {tree_unit_name}",
+            f"Penetracion Segmento 2: {tree_penetration_mode_name}",
         ]
 
         # 8. Generar un unico archivo con todas las marcas
@@ -1060,6 +1106,7 @@ def main():
             players_suffix=players_suffix,
             distribution_cut=distribution_cut,
             tree_unit_letter=tree_unit_letter,
+            tree_penetration_suffix=tree_penetration_suffix,
             summary_lines=summary_lines,
         )
         contador += 1
