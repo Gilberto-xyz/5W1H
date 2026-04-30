@@ -24,3 +24,6 @@ Thumbs.db
 # Editor settings
 .idea/
 .vscode/
+
+# Local generated instruction export
+instrucciones_copilot_coberturas_v2_8000.txt
